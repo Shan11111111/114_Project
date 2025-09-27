@@ -1,0 +1,13 @@
+train: dataset/train/images
+val: dataset/val/images
+test: dataset/test/images
+
+nc: 31
+names: [
+  "Skull", "Mandible", "Cervical_Vertebrae", "Thoracic_Vertebrae",
+  "Lumbar_Vertebrae", "Sacrum", "Coccyx", "Clavicle", "Scapula", "Humerus",
+  "Ulna", "Radius", "Carpals", "Metacarpals", "Phalanges_Hand", "Sternum",
+  "Ribs", "Pelvis", "Femur", "Patella", "Tibia", "Fibula", "Tarsals",
+  "Metatarsals", "Phalanges_Foot", "Frontal_Bone", "Parietal_Bone",
+  "Temporal_Bone", "Occipital_Bone", "Maxilla"
+]

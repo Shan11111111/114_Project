@@ -1,0 +1,35 @@
+
+{
+  "labels": [
+    {"name": "Skull", "color": "#FF0000", "attributes": []},
+    {"name": "Mandible", "color": "#FF7F00", "attributes": []},
+    {"name": "Cervical_Vertebrae", "color": "#FFFF00", "attributes": []},
+    {"name": "Thoracic_Vertebrae", "color": "#7FFF00", "attributes": []},
+    {"name": "Lumbar_Vertebrae", "color": "#00FF00", "attributes": []},
+    {"name": "Sacrum", "color": "#00FF7F", "attributes": []},
+    {"name": "Coccyx", "color": "#00FFFF", "attributes": []},
+    {"name": "Clavicle", "color": "#007FFF", "attributes": []},
+    {"name": "Scapula", "color": "#0000FF", "attributes": []},
+    {"name": "Humerus", "color": "#7F00FF", "attributes": []},
+    {"name": "Ulna", "color": "#FF00FF", "attributes": []},
+    {"name": "Radius", "color": "#FF007F", "attributes": []},
+    {"name": "Carpals", "color": "#B22222", "attributes": []},
+    {"name": "Metacarpals", "color": "#FF69B4", "attributes": []},
+    {"name": "Phalanges_Hand", "color": "#FFB6C1", "attributes": []},
+    {"name": "Sternum", "color": "#CD5C5C", "attributes": []},
+    {"name": "Ribs", "color": "#8B4513", "attributes": []},
+    {"name": "Pelvis", "color": "#FFD700", "attributes": []},
+    {"name": "Femur", "color": "#ADFF2F", "attributes": []},
+    {"name": "Patella", "color": "#32CD32", "attributes": []},
+    {"name": "Tibia", "color": "#20B2AA", "attributes": []},
+    {"name": "Fibula", "color": "#00CED1", "attributes": []},
+    {"name": "Tarsals", "color": "#1E90FF", "attributes": []},
+    {"name": "Metatarsals", "color": "#4169E1", "attributes": []},
+    {"name": "Phalanges_Foot", "color": "#6A5ACD", "attributes": []},
+    {"name": "Frontal_Bone", "color": "#9400D3", "attributes": []},
+    {"name": "Parietal_Bone", "color": "#8A2BE2", "attributes": []},
+    {"name": "Temporal_Bone", "color": "#9932CC", "attributes": []},
+    {"name": "Occipital_Bone", "color": "#BA55D3", "attributes": []},
+    {"name": "Maxilla", "color": "#DA70D6", "attributes": []}
+  ]
+}
