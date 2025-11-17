@@ -1,0 +1,26 @@
+# === Python env ===
+.venv/
+venv/
+env/
+galabone/backend/.venv/
+
+# Python cache & logs
+__pycache__/
+*.py[cod]
+*.log
+.ipynb_checkpoints/
+
+# === Node / frontend ===
+node_modules/
+.next/
+dist/
+build/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
