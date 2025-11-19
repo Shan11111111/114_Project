@@ -1,21 +1,34 @@
-"use client";  
+"use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  MouseEvent,
+} from "react";
 
 const PREDICT_URL = "http://127.0.0.1:8000/predict";
 
 type PolyPoint = [number, number];
+
+type BoneInfo = {
+  bone_id: number;
+  bone_en: string;
+  bone_zh: string;
+  bone_region: string;
+  bone_desc: string;
+} | null;
 
 type DetectionBox = {
   id: number;
   cls_name: string;
   conf: number;
   poly: PolyPoint[]; // [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] normalized 0~1
+  bone_info: BoneInfo;
 };
 
 type ImgBox = {
-  left: number;
-  top: number;
   width: number;
   height: number;
 };
@@ -32,84 +45,70 @@ export default function BoneVisionPage() {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  const [wrapperSize, setWrapperSize] = useState({ w: 0, h: 0 });
+  // 只記「圖片實際顯示寬高」，不再管 wrapper
   const [imgBox, setImgBox] = useState<ImgBox>({
-    left: 0,
-    top: 0,
     width: 0,
     height: 0,
   });
 
-  // ⭐ 縮放 + 平移狀態
-  const [scale, setScale] = useState(1);                // 圖片縮放倍率
-  const [pan, setPan] = useState({ x: 0, y: 0 });       // 圖片平移
-  const dragState = useRef<{
-    dragging: boolean;
-    lastX: number;
-    lastY: number;
-  }>({ dragging: false, lastX: 0, lastY: 0 });
+  // ====== Zoom & Pan 狀態 ======
+  const [zoom, setZoom] = useState(1); // 1 = 100%
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const lastPan = useRef<{ x: number; y: number } | null>(null);
 
-  /**
-   * 同時量 wrapper 大小 + 圖片在 wrapper 內的位置
-   * ❗ 這個會在：圖片 onLoad 時被呼叫（scale=1，還沒放大）
-   */
-  const measureLayout = useCallback(() => {
-    if (!wrapperRef.current) return;
+  const clampZoom = (z: number) => Math.min(3, Math.max(0.5, z));
 
-    const wRect = wrapperRef.current.getBoundingClientRect();
-    setWrapperSize({ w: wRect.width, h: wRect.height });
-
-    if (imgRef.current) {
-      const iRect = imgRef.current.getBoundingClientRect();
-      setImgBox({
-        left: iRect.left - wRect.left,
-        top: iRect.top - wRect.top,
-        width: iRect.width,
-        height: iRect.height,
-      });
-    }
-  }, []);
-
-  // 初次掛載粗略量一次 wrapper（imgBox 會在 onLoad 再更新）
-  useEffect(() => {
-    measureLayout();
-  }, [measureLayout]);
-
-  // 滑鼠拖曳移動圖片（pan）
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!previewUrl) return;
-    e.preventDefault();
-    dragState.current = {
-      dragging: true,
-      lastX: e.clientX,
-      lastY: e.clientY,
-    };
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!dragState.current.dragging) return;
-    const dx = e.clientX - dragState.current.lastX;
-    const dy = e.clientY - dragState.current.lastY;
-    dragState.current.lastX = e.clientX;
-    dragState.current.lastY = e.clientY;
-    setPan((prev) => ({
-      x: prev.x + dx,
-      y: prev.y + dy,
-    }));
-  };
-
-  const handleMouseUpOrLeave = () => {
-    dragState.current.dragging = false;
-  };
-
-  // ➕ / ➖ 按鈕縮放
   const handleZoomIn = () => {
-    setScale((prev) => Math.min(3, prev + 0.25)); // 最大 3x
+    setZoom((z) => clampZoom(z + 0.2));
   };
 
   const handleZoomOut = () => {
-    setScale((prev) => Math.max(0.5, prev - 0.25)); // 最小 0.5x
+    setZoom((z) => clampZoom(z - 0.2));
   };
+
+  const handleResetView = () => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const handlePanStart = (e: MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsPanning(true);
+    lastPan.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePanMove = (e: MouseEvent<HTMLDivElement>) => {
+    if (!isPanning || !lastPan.current) return;
+    const dx = e.clientX - lastPan.current.x;
+    const dy = e.clientY - lastPan.current.y;
+    lastPan.current = { x: e.clientX, y: e.clientY };
+    setOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+  };
+
+  const handlePanEnd = () => {
+    setIsPanning(false);
+    lastPan.current = null;
+  };
+
+  /**
+   * 量圖片實際顯示的寬高（用 img 自己的 rect），
+   * 不用再管 wrapper 的座標，SVG 直接貼在這個尺寸上就好。
+   */
+  const measureLayout = useCallback(() => {
+    if (!imgRef.current) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    setImgBox({
+      width: rect.width,
+      height: rect.height,
+    });
+  }, []);
+
+  useEffect(() => {
+    // 視窗大小變化時，重新量一次（避免 RWD 壓縮）
+    window.addEventListener("resize", measureLayout);
+    return () => window.removeEventListener("resize", measureLayout);
+  }, [measureLayout]);
 
   // 檔案選擇
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,12 +118,14 @@ export default function BoneVisionPage() {
     setDetections([]);
     setRawResponse(null);
     setActiveId(null);
-    setScale(1);
-    setPan({ x: 0, y: 0 });
 
     const reader = new FileReader();
     reader.onload = () => setPreviewUrl(reader.result as string);
     reader.readAsDataURL(f);
+
+    // 換圖時視角重置
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
   };
 
   // 呼叫 /predict
@@ -162,6 +163,7 @@ export default function BoneVisionPage() {
             Number(p[0]),
             Number(p[1]),
           ]),
+          bone_info: b.bone_info ?? null,
         })
       );
 
@@ -175,18 +177,17 @@ export default function BoneVisionPage() {
     }
   };
 
-  // 把 normalized poly 轉成 SVG points（套到 imgBox 上，基準是 scale = 1 的位置）
+  // 把 normalized poly 轉成 SVG points（座標系 = 0~imgBox.width / 0~imgBox.height）
   const polyToPoints = (poly: PolyPoint[]): string => {
-    if (!wrapperSize.w || !wrapperSize.h || !imgBox.width || !imgBox.height) {
-      return "";
-    }
+    if (!imgBox.width || !imgBox.height) return "";
 
     return poly
       .map(([nx, ny]) => {
         const cx = Math.min(1, Math.max(0, nx));
         const cy = Math.min(1, Math.max(0, ny));
-        const x = imgBox.left + cx * imgBox.width;
-        const y = imgBox.top + cy * imgBox.height;
+
+        const x = cx * imgBox.width;
+        const y = cy * imgBox.height;
         return `${x},${y}`;
       })
       .join(" ");
@@ -260,26 +261,35 @@ export default function BoneVisionPage() {
           </div>
         </section>
 
-        {/* 中間：影像 + OBB */}
+        {/* 中間：影像 + OBB + Zoom / Pan */}
         <section className="w-full lg:w-1/3">
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold">影像預覽與結果</h2>
 
-              {/* Zoom 控制按鈕 */}
-              <div className="flex items-center gap-2 text-xs text-slate-300">
+              {/* Zoom 控制列 */}
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-slate-400 mr-1">Zoom</span>
                 <button
                   onClick={handleZoomOut}
-                  className="w-7 h-7 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-800"
+                  className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center hover:bg-slate-700"
                 >
                   -
                 </button>
-                <span>{Math.round(scale * 100)}%</span>
+                <span className="w-12 text-center text-slate-300">
+                  {Math.round(zoom * 100)}%
+                </span>
                 <button
                   onClick={handleZoomIn}
-                  className="w-7 h-7 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-800"
+                  className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center hover:bg-slate-700"
                 >
                   +
+                </button>
+                <button
+                  onClick={handleResetView}
+                  className="ml-1 px-2 py-1 rounded-full bg-slate-800 hover:bg-slate-700"
+                >
+                  Reset
                 </button>
               </div>
             </div>
@@ -287,20 +297,25 @@ export default function BoneVisionPage() {
             <div
               ref={wrapperRef}
               className="relative flex-1 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/70"
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUpOrLeave}
-              onMouseLeave={handleMouseUpOrLeave}
-              style={{ cursor: previewUrl ? "grab" : "default" }}
             >
               {previewUrl ? (
-                <>
-                  {/* 這個 inner 容器一起被 scale + pan，img 跟 svg 都會跟著動 */}
+                // 這一層用來做拖曳
+                <div
+                  className={`absolute inset-0 flex items-center justify-center ${
+                    isPanning ? "cursor-grabbing" : "cursor-grab"
+                  }`}
+                  onMouseDown={handlePanStart}
+                  onMouseMove={handlePanMove}
+                  onMouseUp={handlePanEnd}
+                  onMouseLeave={handlePanEnd}
+                >
+                  {/* 這一層同時套用 scale + translate，圖片和框一起動 */}
                   <div
-                    className="relative w-full h-full flex items-center justify-center"
+                    className="relative inline-block"
                     style={{
-                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+                      transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
                       transformOrigin: "center center",
+                      transition: isPanning ? "none" : "transform 0.12s ease-out",
                     }}
                   >
                     <img
@@ -308,19 +323,19 @@ export default function BoneVisionPage() {
                       src={previewUrl}
                       alt="preview"
                       className="max-h-[480px] max-w-full object-contain"
-                      onLoad={measureLayout} // 圖片載入後重量一次（scale 還是 1）
+                      onLoad={measureLayout} // 圖片載入後量一次寬高
                     />
 
-                    {/* OBB overlay（跟著 inner 一起 scale / 平移，所以不需要額外算 scale） */}
-                    {detections.length > 0 && (
+                    {/* OBB overlay：跟圖片一樣大小的 SVG，座標系 0~imgBox.width/height */}
+                    {detections.length > 0 && imgBox.width > 0 && imgBox.height > 0 && (
                       <svg
-                        className="absolute inset-0 w-full h-full pointer-events-none"
-                        viewBox={`0 0 ${wrapperSize.w || 100} ${
-                          wrapperSize.h || 100
-                        }`}
+                        className="absolute inset-0 pointer-events-none"
+                        width={imgBox.width}
+                        height={imgBox.height}
+                        viewBox={`0 0 ${imgBox.width} ${imgBox.height}`}
                         preserveAspectRatio="none"
                       >
-                        {/* 先畫非選中的框（在下層） */}
+                        {/* 先畫非選中的框（下層） */}
                         {detections
                           .filter((b) => b.id !== activeId)
                           .map((box) => {
@@ -331,7 +346,7 @@ export default function BoneVisionPage() {
                                 key={box.id}
                                 points={pts}
                                 fill="none"
-                                stroke="#0076a8ff" // 淡藍
+                                stroke="#0076a8ff"
                                 strokeWidth={2}
                                 strokeDasharray="0"
                                 opacity={0.8}
@@ -339,35 +354,37 @@ export default function BoneVisionPage() {
                             );
                           })}
 
-                        {/* 再畫被選中的框（永遠在最上層＋加粗＋發光） */}
-                        {activeId !== null && (() => {
-                          const box = detections.find(
-                            (b) => b.id === activeId
-                          );
-                          if (!box) return null;
-                          const pts = polyToPoints(box.poly);
-                          if (!pts) return null;
-
-                          return (
-                            <polygon
-                              key={`${box.id}_active`}
-                              points={pts}
-                              fill="none"
-                              stroke="#22d3ee" // 亮藍
-                              strokeWidth={4}
-                              strokeDasharray="0"
-                              className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
-                            />
-                          );
-                        })()}
+                        {/* 再畫被選中的框（在最上層） */}
+                        {activeId !== null &&
+                          (() => {
+                            const box = detections.find(
+                              (b) => b.id === activeId
+                            );
+                            if (!box) return null;
+                            const pts = polyToPoints(box.poly);
+                            if (!pts) return null;
+                            return (
+                              <polygon
+                                key={`${box.id}_active`}
+                                points={pts}
+                                fill="none"
+                                stroke="#22d3ee"
+                                strokeWidth={4}
+                                strokeDasharray="0"
+                                className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
+                              />
+                            );
+                          })()}
                       </svg>
                     )}
                   </div>
-                </>
+                </div>
               ) : (
-                <p className="text-xs text-slate-500 flex items-center justify-center h-full">
-                  尚未上傳圖片，請先選擇一張 X 光影像。
-                </p>
+                <div className="w-full h-full flex items-center justify-center">
+                  <p className="text-xs text-slate-500">
+                    尚未上傳圖片，請先選擇一張 X 光影像。
+                  </p>
+                </div>
               )}
             </div>
 
@@ -381,7 +398,7 @@ export default function BoneVisionPage() {
           </div>
         </section>
 
-        {/* 右側：骨骼列表 */}
+        {/* 右側：骨骼列表 + Bone_Info 說明 */}
         <section className="w-full lg:w-1/3">
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
             <h2 className="text-sm font-semibold mb-3">辨識出的部位</h2>
@@ -392,6 +409,7 @@ export default function BoneVisionPage() {
               </p>
             ) : (
               <>
+                {/* bone chips 列表 */}
                 <div className="flex flex-wrap gap-2 mb-4">
                   {detections.map((box) => (
                     <button
@@ -411,28 +429,69 @@ export default function BoneVisionPage() {
                   ))}
                 </div>
 
+                {/* 詳細資訊（含資料庫 Bone_Info） */}
                 {activeId !== null && (
-                  <div className="mt-2 text-xs space-y-2 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+                  <div className="mt-2 text-xs space-y-3 bg-slate-950/60 border border-slate-800 rounded-xl p-3 flex-1 overflow-auto">
                     {(() => {
                       const box = detections.find((b) => b.id === activeId)!;
+                      const info = box.bone_info;
+
                       return (
                         <>
-                          <p>
-                            <span className="text-slate-400">名稱：</span>
-                            <span className="font-semibold text-cyan-300">
-                              {box.cls_name}
-                            </span>
-                          </p>
-                          <p>
-                            <span className="text-slate-400">信心值：</span>
-                            {box.conf.toFixed(3)}
-                          </p>
-                          <p className="text-slate-400">
-                            poly 座標（normalized）：
-                          </p>
-                          <pre className="text-[11px] text-green-400 whitespace-pre-wrap">
-                            {JSON.stringify(box.poly, null, 2)}
-                          </pre>
+                          <div>
+                            <p className="text-slate-400">模型類別名稱：</p>
+                            <p className="font-semibold text-cyan-300">
+                              {box.cls_name}{" "}
+                              <span className="text-slate-400 text-[11px] ml-1">
+                                conf {box.conf.toFixed(3)}
+                              </span>
+                            </p>
+                          </div>
+
+                          <div className="h-px bg-slate-800 my-1" />
+
+                          {info ? (
+                            <>
+                              <div>
+                                <p className="text-slate-400">骨頭名稱：</p>
+                                <p className="font-semibold text-slate-50">
+                                  {info.bone_zh}{" "}
+                                  <span className="text-cyan-300 text-[11px] ml-1">
+                                    {info.bone_en}
+                                  </span>
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-slate-400">部位區域：</p>
+                                <p className="text-slate-200">
+                                  {info.bone_region || "（未填寫）"}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-slate-400 mb-1">說明：</p>
+                                <p className="text-slate-200 leading-relaxed whitespace-pre-wrap">
+                                  {info.bone_desc || "（尚無說明文字）"}
+                                </p>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-slate-400">
+                              此骨頭在資料庫（Bone_Info）中尚無對應說明。
+                            </p>
+                          )}
+
+                          <div className="h-px bg-slate-800 my-1" />
+
+                          <div>
+                            <p className="text-slate-400">
+                              poly 座標（normalized 0~1）：
+                            </p>
+                            <pre className="text-[11px] text-green-400 whitespace-pre-wrap">
+                              {JSON.stringify(box.poly, null, 2)}
+                            </pre>
+                          </div>
                         </>
                       );
                     })()}
