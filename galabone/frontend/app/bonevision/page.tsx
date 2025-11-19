@@ -1,26 +1,42 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  MouseEvent,
+} from "react";
+import { useRouter } from "next/navigation"; // ⭐ 新增：用來跳轉到 /llm
 
 const PREDICT_URL = "http://127.0.0.1:8000/predict";
 
 type PolyPoint = [number, number];
 
+type BoneInfo = {
+  bone_id: number;
+  bone_en: string;
+  bone_zh: string;
+  bone_region: string;
+  bone_desc: string;
+} | null;
+
 type DetectionBox = {
   id: number;
   cls_name: string;
   conf: number;
-  poly: PolyPoint[]; // [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] (normalized 0~1)
+  poly: PolyPoint[]; // [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] normalized 0~1
+  bone_info?: BoneInfo;
 };
 
 type ImgBox = {
-  left: number;
-  top: number;
   width: number;
   height: number;
 };
 
 export default function BoneVisionPage() {
+  const router = useRouter(); // ⭐ 新增：router
+
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [detections, setDetections] = useState<DetectionBox[]>([]);
@@ -29,48 +45,75 @@ export default function BoneVisionPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 影像與框線用
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-
-  const [wrapperSize, setWrapperSize] = useState({ w: 0, h: 0 });
+  const displayRef = useRef<HTMLDivElement | null>(null); // 包住 img + svg 的容器
   const [imgBox, setImgBox] = useState<ImgBox>({
-    left: 0,
-    top: 0,
     width: 0,
     height: 0,
   });
 
-  // 量容器大小
-  useEffect(() => {
-    function updateWrapperSize() {
-      if (wrapperRef.current) {
-        const rect = wrapperRef.current.getBoundingClientRect();
-        setWrapperSize({ w: rect.width, h: rect.height });
-      }
-    }
-    updateWrapperSize();
-    window.addEventListener("resize", updateWrapperSize);
-    return () => window.removeEventListener("resize", updateWrapperSize);
-  }, []);
+  // Zoom & Pan
+  const [zoom, setZoom] = useState(1); // 1 = 100%
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStart = useRef<{ x: number; y: number } | null>(null);
 
-  // 量圖片在容器裡的位置與尺寸
-  const measureImgBox = () => {
-    if (!wrapperRef.current || !imgRef.current) return;
-    const wRect = wrapperRef.current.getBoundingClientRect();
-    const iRect = imgRef.current.getBoundingClientRect();
-    setImgBox({
-      left: iRect.left - wRect.left,
-      top: iRect.top - wRect.top,
-      width: iRect.width,
-      height: iRect.height,
-    });
+  const clampZoom = (z: number) => Math.min(2, Math.max(0.5, z)); // 50% ~ 200%
+
+  const handleZoomIn = () => setZoom((z) => clampZoom(z + 0.1));
+  const handleZoomOut = () => setZoom((z) => clampZoom(z - 0.1));
+  const handleResetView = () => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
   };
 
-  useEffect(() => {
-    // 視窗大小改變時重新量一次 img
-    window.addEventListener("resize", measureImgBox);
-    return () => window.removeEventListener("resize", measureImgBox);
+  const handlePanStart = (e: MouseEvent<HTMLDivElement>) => {
+    if (!previewUrl) return;
+    setIsPanning(true);
+    panStart.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePanMove = (e: MouseEvent<HTMLDivElement>) => {
+    if (!isPanning || !panStart.current) return;
+    const dx = e.clientX - panStart.current.x;
+    const dy = e.clientY - panStart.current.y;
+    setOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+    panStart.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePanEnd = () => {
+    setIsPanning(false);
+    panStart.current = null;
+  };
+
+  /**
+   * 量 displayRef（img+svg 容器）的實際寬高
+   * 讓 SVG 的 viewBox 跟實際呈現大小一致 → poly 轉像素才不會歪
+   */
+  const measureLayout = useCallback(() => {
+    if (!displayRef.current) return;
+    const rect = displayRef.current.getBoundingClientRect();
+    setImgBox({
+      width: rect.width,
+      height: rect.height,
+    });
   }, []);
+
+  // 初次掛載 & 視窗縮放時 re-measure
+  useEffect(() => {
+    measureLayout();
+    window.addEventListener("resize", measureLayout);
+    return () => window.removeEventListener("resize", measureLayout);
+  }, [measureLayout]);
+
+  // 圖片載入 / 辨識結果更新 / zoom 變化後，再量一次
+  useEffect(() => {
+    if (!previewUrl) return;
+    requestAnimationFrame(() => {
+      measureLayout();
+    });
+  }, [previewUrl, detections.length, zoom, measureLayout]);
 
   // 檔案選擇
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,11 +123,11 @@ export default function BoneVisionPage() {
     setDetections([]);
     setRawResponse(null);
     setActiveId(null);
+    setErrorMsg(null);
+    handleResetView();
 
     const reader = new FileReader();
-    reader.onload = () => {
-      setPreviewUrl(reader.result as string);
-    };
+    reader.onload = () => setPreviewUrl(reader.result as string);
     reader.readAsDataURL(f);
   };
 
@@ -123,6 +166,7 @@ export default function BoneVisionPage() {
             Number(p[0]),
             Number(p[1]),
           ]),
+          bone_info: b.bone_info ?? null,
         })
       );
 
@@ -136,23 +180,25 @@ export default function BoneVisionPage() {
     }
   };
 
-  // 把 normalized poly 轉成 SVG points（考慮圖片在容器中的 offset）
+  // 把 normalized poly 轉成 SVG points（使用 imgBox.width/height 當座標系）
   const polyToPoints = (poly: PolyPoint[]): string => {
-    const { w, h } = wrapperSize;
-    if (!w || !h || !imgBox.width || !imgBox.height) return "";
+    const { width, height } = imgBox;
+    if (!width || !height) return "";
 
     return poly
       .map(([nx, ny]) => {
-        // clamp：有些會略超過 0~1
         const cx = Math.min(1, Math.max(0, nx));
         const cy = Math.min(1, Math.max(0, ny));
 
-        const x = imgBox.left + cx * imgBox.width;
-        const y = imgBox.top + cy * imgBox.height;
+        const x = cx * width;
+        const y = cy * height;
         return `${x},${y}`;
       })
       .join(" ");
   };
+
+  const activeBox =
+    activeId !== null ? detections.find((b) => b.id === activeId) ?? null : null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
@@ -215,7 +261,9 @@ export default function BoneVisionPage() {
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 max-h-72 overflow-auto text-xs">
             <h3 className="text-xs font-semibold mb-2">辨識結果（原始 JSON）</h3>
             <pre className="whitespace-pre-wrap text-[11px] text-green-400">
-              {rawResponse ? JSON.stringify(rawResponse, null, 2) : "// 目前尚無結果"}
+              {rawResponse
+                ? JSON.stringify(rawResponse, null, 2)
+                : "// 目前尚無結果"}
             </pre>
           </div>
         </section>
@@ -223,44 +271,104 @@ export default function BoneVisionPage() {
         {/* 中間：影像 + OBB */}
         <section className="w-full lg:w-1/3">
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
-            <h2 className="text-sm font-semibold mb-3">影像預覽與結果</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">影像預覽與結果</h2>
+              <div className="flex items-center gap-2 text-xs text-slate-300">
+                <span>Zoom</span>
+                <button
+                  onClick={handleZoomOut}
+                  className="w-6 h-6 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-700"
+                >
+                  −
+                </button>
+                <span className="w-12 text-center">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button
+                  onClick={handleZoomIn}
+                  className="w-6 h-6 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-700"
+                >
+                  +
+                </button>
+                <button
+                  onClick={handleResetView}
+                  className="ml-2 px-2 py-1 rounded-full border border-slate-600 hover:bg-slate-700"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
 
             <div
               ref={wrapperRef}
-              className="relative flex-1 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/70 flex items-center justify-center"
+              className="relative bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/70 flex items-center justify-center h-[520px]"
+              onMouseDown={handlePanStart}
+              onMouseMove={handlePanMove}
+              onMouseUp={handlePanEnd}
+              onMouseLeave={handlePanEnd}
             >
               {previewUrl ? (
-                <>
+                <div
+                  ref={displayRef}
+                  className="relative"
+                  style={{
+                    transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+                    transformOrigin: "center center",
+                    transition: isPanning ? "none" : "transform 0.05s linear",
+                  }}
+                >
                   <img
-                    ref={imgRef}
                     src={previewUrl}
                     alt="preview"
-                    className="max-h-full max-w-full object-contain"
-                    onLoad={measureImgBox}
+                    className="max-h-[480px] max-w-full object-contain"
+                    onLoad={measureLayout}
                   />
+
                   {/* OBB overlay */}
                   {detections.length > 0 && (
                     <svg
                       className="absolute inset-0 w-full h-full pointer-events-none"
-                      viewBox={`0 0 ${wrapperSize.w || 100} ${wrapperSize.h || 100}`}
+                      viewBox={`0 0 ${imgBox.width || 100} ${
+                        imgBox.height || 100
+                      }`}
                       preserveAspectRatio="none"
                     >
-                      {detections.map((box) => (
-                        <polygon
-                          key={box.id}
-                          points={polyToPoints(box.poly)}
-                          fill="none"
-                          stroke={
-                            activeId === box.id ? "#22d3ee" : "rgba(34,211,238,0.6)"
-                          }
-                          strokeWidth={activeId === box.id ? 3 : 2}
-                          strokeDasharray={activeId === box.id ? "0" : "4 4"}
-                          className="drop-shadow-[0_0_6px_rgba(34,211,238,0.7)]"
-                        />
-                      ))}
+                      {/* 先畫非 active 的框 */}
+                      {detections
+                        .filter((b) => b.id !== activeId)
+                        .map((box) => {
+                          const pts = polyToPoints(box.poly);
+                          if (!pts) return null;
+                          return (
+                            <polygon
+                              key={box.id}
+                              points={pts}
+                              fill="none"
+                              stroke="#0ea5e9"
+                              strokeWidth={2}
+                              opacity={0.7}
+                            />
+                          );
+                        })}
+
+                      {/* 再畫 active 的框，永遠在最上層 */}
+                      {activeBox && (() => {
+                        const pts = polyToPoints(activeBox.poly);
+                        if (!pts) return null;
+                        return (
+                          <polygon
+                            key={`${activeBox.id}_active`}
+                            points={pts}
+                            fill="none"
+                            stroke="#22d3ee"
+                            strokeWidth={4}
+                            className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
+                          />
+                        );
+                      })()}
                     </svg>
                   )}
-                </>
+                </div>
               ) : (
                 <p className="text-xs text-slate-500">
                   尚未上傳圖片，請先選擇一張 X 光影像。
@@ -278,7 +386,7 @@ export default function BoneVisionPage() {
           </div>
         </section>
 
-        {/* 右側：骨骼列表 */}
+        {/* 右側：骨骼列表 + 說明 */}
         <section className="w-full lg:w-1/3">
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
             <h2 className="text-sm font-semibold mb-3">辨識出的部位</h2>
@@ -289,6 +397,7 @@ export default function BoneVisionPage() {
               </p>
             ) : (
               <>
+                {/* 上方 chips */}
                 <div className="flex flex-wrap gap-2 mb-4">
                   {detections.map((box) => (
                     <button
@@ -308,33 +417,79 @@ export default function BoneVisionPage() {
                   ))}
                 </div>
 
-                {activeId !== null && (
-                  <div className="mt-2 text-xs space-y-2 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
-                    {(() => {
-                      const box = detections.find((b) => b.id === activeId)!;
-                      return (
-                        <>
-                          <p>
-                            <span className="text-slate-400">名稱：</span>
-                            <span className="font-semibold text-cyan-300">
-                              {box.cls_name}
-                            </span>
-                          </p>
-                          <p>
-                            <span className="text-slate-400">信心值：</span>
-                            {box.conf.toFixed(3)}
-                          </p>
-                          <p className="text-slate-400">
-                            poly 座標（normalized）：
-                          </p>
-                          <pre className="text-[11px] text-green-400 whitespace-pre-wrap">
-                            {JSON.stringify(box.poly, null, 2)}
-                          </pre>
-                        </>
-                      );
-                    })()}
-                  </div>
-                )}
+                {/* 下方詳細說明卡片 */}
+                <div className="mt-2 text-xs space-y-3 bg-slate-950/60 border border-slate-800 rounded-xl p-4 flex-1 overflow-auto">
+                  {activeBox ? (
+                    <>
+                      <p className="text-slate-400">
+                        模型類別名稱：{" "}
+                        <span className="font-semibold text-cyan-300">
+                          {activeBox.cls_name}
+                        </span>{" "}
+                        <span className="ml-1 text-slate-500">
+                          conf {activeBox.conf.toFixed(3)}
+                        </span>
+                      </p>
+
+                      <hr className="border-slate-800" />
+
+                      <p>
+                        <span className="text-slate-400">骨頭名稱：</span>
+                        <span className="font-semibold text-slate-100">
+                          {activeBox.bone_info?.bone_zh ?? "—"}{" "}
+                        </span>
+                        <span className="text-slate-500">
+                          {activeBox.bone_info?.bone_en
+                            ? `(${activeBox.bone_info.bone_en})`
+                            : ""}
+                        </span>
+                      </p>
+
+                      <p>
+                        <span className="text-slate-400">部位區域：</span>
+                        <span className="text-slate-100">
+                          {activeBox.bone_info?.bone_region ?? "—"}
+                        </span>
+                      </p>
+
+                      <div>
+                        <p className="text-slate-400 mb-1">說明：</p>
+                        <p className="text-slate-100 whitespace-pre-wrap leading-relaxed">
+                          {activeBox.bone_info?.bone_desc ?? "—"}
+                        </p>
+                      </div>
+
+                      {/* ⭐ 新增：LLM 按鈕 */}
+                      <button
+                        onClick={() =>
+                          router.push(
+                            `/llm?bone=${encodeURIComponent(
+                              activeBox.cls_name
+                            )}`
+                          )
+                        }
+                        className="mt-2 inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
+                                   bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40
+                                   hover:bg-cyan-400 transition-colors"
+                      >
+                        了解更多（galabone）
+                      </button>
+
+                      <div className="mt-3">
+                        <p className="text-slate-400 mb-1">
+                          poly 座標（normalized 0–1）：
+                        </p>
+                        <pre className="text-[11px] text-green-400 whitespace-pre-wrap">
+                          {JSON.stringify(activeBox.poly, null, 2)}
+                        </pre>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      請從上方選擇一個偵測框，這裡會顯示該部位的資料。
+                    </p>
+                  )}
+                </div>
               </>
             )}
           </div>
