@@ -1,6 +1,6 @@
-"use client";
+"use client"; 
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 
 const PREDICT_URL = "http://127.0.0.1:8000/predict";
 
@@ -10,7 +10,7 @@ type DetectionBox = {
   id: number;
   cls_name: string;
   conf: number;
-  poly: PolyPoint[]; // [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] (normalized 0~1)
+  poly: PolyPoint[]; // [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] normalized 0~1
 };
 
 type ImgBox = {
@@ -40,37 +40,33 @@ export default function BoneVisionPage() {
     height: 0,
   });
 
-  // 量容器大小
-  useEffect(() => {
-    function updateWrapperSize() {
-      if (wrapperRef.current) {
-        const rect = wrapperRef.current.getBoundingClientRect();
-        setWrapperSize({ w: rect.width, h: rect.height });
-      }
-    }
-    updateWrapperSize();
-    window.addEventListener("resize", updateWrapperSize);
-    return () => window.removeEventListener("resize", updateWrapperSize);
-  }, []);
+  /**
+   * 同時量 wrapper 大小 + 圖片在 wrapper 內的位置
+   * ❗ 這個會在：圖片 onLoad / 視窗 resize 的時候被呼叫
+   */
+  const measureLayout = useCallback(() => {
+    if (!wrapperRef.current) return;
 
-  // 量圖片在容器裡的位置與尺寸
-  const measureImgBox = () => {
-    if (!wrapperRef.current || !imgRef.current) return;
     const wRect = wrapperRef.current.getBoundingClientRect();
-    const iRect = imgRef.current.getBoundingClientRect();
-    setImgBox({
-      left: iRect.left - wRect.left,
-      top: iRect.top - wRect.top,
-      width: iRect.width,
-      height: iRect.height,
-    });
-  };
+    setWrapperSize({ w: wRect.width, h: wRect.height });
 
-  useEffect(() => {
-    // 視窗大小改變時重新量一次 img
-    window.addEventListener("resize", measureImgBox);
-    return () => window.removeEventListener("resize", measureImgBox);
+    if (imgRef.current) {
+      const iRect = imgRef.current.getBoundingClientRect();
+      setImgBox({
+        left: iRect.left - wRect.left,
+        top: iRect.top - wRect.top,
+        width: iRect.width,
+        height: iRect.height,
+      });
+    }
   }, []);
+
+  // 初次掛載與之後視窗 resize 時重量一次
+  useEffect(() => {
+    measureLayout();
+    window.addEventListener("resize", measureLayout);
+    return () => window.removeEventListener("resize", measureLayout);
+  }, [measureLayout]);
 
   // 檔案選擇
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,9 +78,7 @@ export default function BoneVisionPage() {
     setActiveId(null);
 
     const reader = new FileReader();
-    reader.onload = () => {
-      setPreviewUrl(reader.result as string);
-    };
+    reader.onload = () => setPreviewUrl(reader.result as string);
     reader.readAsDataURL(f);
   };
 
@@ -136,14 +130,14 @@ export default function BoneVisionPage() {
     }
   };
 
-  // 把 normalized poly 轉成 SVG points（考慮圖片在容器中的 offset）
+  // 把 normalized poly 轉成 SVG points（套到 imgBox 上）
   const polyToPoints = (poly: PolyPoint[]): string => {
-    const { w, h } = wrapperSize;
-    if (!w || !h || !imgBox.width || !imgBox.height) return "";
+    if (!wrapperSize.w || !wrapperSize.h || !imgBox.width || !imgBox.height) {
+      return "";
+    }
 
     return poly
       .map(([nx, ny]) => {
-        // clamp：有些會略超過 0~1
         const cx = Math.min(1, Math.max(0, nx));
         const cy = Math.min(1, Math.max(0, ny));
 
@@ -215,7 +209,9 @@ export default function BoneVisionPage() {
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 max-h-72 overflow-auto text-xs">
             <h3 className="text-xs font-semibold mb-2">辨識結果（原始 JSON）</h3>
             <pre className="whitespace-pre-wrap text-[11px] text-green-400">
-              {rawResponse ? JSON.stringify(rawResponse, null, 2) : "// 目前尚無結果"}
+              {rawResponse
+                ? JSON.stringify(rawResponse, null, 2)
+                : "// 目前尚無結果"}
             </pre>
           </div>
         </section>
@@ -235,29 +231,60 @@ export default function BoneVisionPage() {
                     ref={imgRef}
                     src={previewUrl}
                     alt="preview"
-                    className="max-h-full max-w-full object-contain"
-                    onLoad={measureImgBox}
+                    // ⭐ 限制圖片高度，太長的會縮到 480px 以內
+                    className="max-h-[480px] max-w-full object-contain"
+                    onLoad={measureLayout} // 圖片載入後重量一次
                   />
+
                   {/* OBB overlay */}
                   {detections.length > 0 && (
                     <svg
                       className="absolute inset-0 w-full h-full pointer-events-none"
-                      viewBox={`0 0 ${wrapperSize.w || 100} ${wrapperSize.h || 100}`}
+                      viewBox={`0 0 ${wrapperSize.w || 100} ${
+                        wrapperSize.h || 100
+                      }`}
                       preserveAspectRatio="none"
                     >
-                      {detections.map((box) => (
-                        <polygon
-                          key={box.id}
-                          points={polyToPoints(box.poly)}
-                          fill="none"
-                          stroke={
-                            activeId === box.id ? "#22d3ee" : "rgba(34,211,238,0.6)"
-                          }
-                          strokeWidth={activeId === box.id ? 3 : 2}
-                          strokeDasharray={activeId === box.id ? "0" : "4 4"}
-                          className="drop-shadow-[0_0_6px_rgba(34,211,238,0.7)]"
-                        />
-                      ))}
+                      {/* 先畫非選中的框（在下層） */}
+                      {detections
+                        .filter((b) => b.id !== activeId)
+                        .map((box) => {
+                          const pts = polyToPoints(box.poly);
+                          if (!pts) return null;
+                          return (
+                            <polygon
+                              key={box.id}
+                              points={pts}
+                              fill="none"
+                              stroke="#0076a8ff" // 淡藍
+                              strokeWidth={2}
+                              strokeDasharray="0"
+                              opacity={0.8}
+                            />
+                          );
+                        })}
+
+                      {/* 再畫被選中的框（永遠在最上層＋加粗＋發光） */}
+                      {activeId !== null && (() => {
+                        const box = detections.find(
+                          (b) => b.id === activeId
+                        );
+                        if (!box) return null;
+                        const pts = polyToPoints(box.poly);
+                        if (!pts) return null;
+
+                        return (
+                          <polygon
+                            key={`${box.id}_active`}
+                            points={pts}
+                            fill="none"
+                            stroke="#22d3ee" // 亮藍
+                            strokeWidth={4}
+                            strokeDasharray="0"
+                            className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
+                          />
+                        );
+                      })()}
                     </svg>
                   )}
                 </>
