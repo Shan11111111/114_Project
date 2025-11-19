@@ -58,10 +58,7 @@ export default function LLMPage() {
     el.style.height = "0px";
     const contentHeight = el.scrollHeight;
 
-    const newHeight = Math.max(
-      MIN_HEIGHT,
-      Math.min(contentHeight, MAX_HEIGHT)
-    );
+    const newHeight = Math.max(MIN_HEIGHT, Math.min(contentHeight, MAX_HEIGHT));
 
     el.style.height = `${newHeight}px`;
     el.style.overflowY = contentHeight > MAX_HEIGHT ? "auto" : "hidden";
@@ -141,19 +138,19 @@ export default function LLMPage() {
 
         <nav className="flex-1 px-3 py-4 space-y-1 text-sm">
           <button className="w-full text-left px-3 py-2 rounded-lg text-slate-200 hover:bg-slate-800">
-            🦴 BoneVision
+            BoneVision
           </button>
           <button className="w-full text-left px-3 py-2 rounded-lg bg-sky-600/80 text-white font-semibold">
-            💬 LLM Assistant
+            LLM Assistant
           </button>
           <button className="w-full text-left px-3 py-2 rounded-lg text-slate-200 hover:bg-slate-800">
-            📚 EduGen
+            EduGen
           </button>
           <button className="w-full text-left px-3 py-2 rounded-lg text-slate-200 hover:bg-slate-800">
-            📊 Source
+            Resource
           </button>
           <button className="w-full text-left px-3 py-2 rounded-lg text-slate-200 hover:bg-slate-800">
-            ⚙️ Settings
+            Settings
           </button>
         </nav>
 
@@ -163,7 +160,7 @@ export default function LLMPage() {
       </aside>
 
       {/* 右側主畫面 */}
-      <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden">
+      <div className=" chat-scroll flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden">
         {/* Header */}
         <header className="flex items-center justify-between">
           <div>
@@ -227,115 +224,87 @@ export default function LLMPage() {
           {/* 底部輸入列（GPT 風格：同一排，textarea 變高） */}
           <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-3 pb-4">
             <form onSubmit={sendMessage}>
-              <div className="flex items-center gap-3">
-                {/* 膠囊輸入框 */}
-                <div className="flex-1 relative">
-                  <div
-                    className={`
-                      bg-[#0f172a]
-                      border border-slate-700
-                      px-4 py-2
-                      flex items-end gap-3
-                      shadow-lg shadow-slate-900/50
-                      backdrop-blur-sm
-                      ${isMultiLine ? "rounded-2xl" : "rounded-full"}
-                    `}
-                  >
-                    {/* 左側 + */}
-                    <button
-                      type="button"
-                      onClick={() => setShowToolMenu((v) => !v)}
-                      className="text-2xl text-slate-400 hover:text-slate-200 pb-[2px]"
+              {/* ✅ 先用一層 wrapper 控制整體寬度 */}
+              <div className="w-full flex justify-center">
+                {/* ✅ 這裡決定整排的固定長度：max-w-3xl = 約 768px */}
+                {/* 想更寬就改成 max-w-4xl / w-[900px] 之類都可以 */}
+                <div className="flex items-end gap-3 w-full max-w-3xl">
+                  {/* 膠囊輸入框：用 flex-1 在「這個 768px 容器」裡面分配剩餘寬度 */}
+                  <div className="flex-1 relative">
+                    <div
+                      className={`
+              bg-[#0f172a]
+              border border-slate-700
+              px-4 py-2
+              flex items-end gap-3
+              shadow-lg shadow-slate-900/50
+              backdrop-blur-sm
+              ${isMultiLine ? "rounded-2xl" : "rounded-full"}
+            `}
                     >
-                      +
-                    </button>
-
-                    {/* 中間 textarea（自動長高） */}
-                    <textarea
-                      ref={inputRef}
-                      value={input}
-                      onChange={handleInputChange}
-                      onKeyDown={handleKeyDown}
-                      placeholder="提出任何問題⋯"
-                      className="
-                        flex-1
-                        bg-transparent
-                        resize-none
-                        border-none
-                        outline-none
-                        text-sm
-                        text-slate-50
-                        placeholder:text-slate-500
-                        leading-relaxed
-                        max-h-[160px]
-                      "
-                    />
-
-                    {/* 右側 綠點 + 送出箭頭 */}
-                    <div className="flex items-center gap-3">
-                      <span className="text-[11px] text-emerald-300 pb-[3px]">
-                        ●
-                      </span>
-                      <button
-                        type="submit"
-                        disabled={!input.trim() || loading}
-                        className="h-9 w-9 rounded-full bg-sky-500 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
-                      >
-                        {loading ? "…" : "↗"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 上傳檔案 hidden input */}
-                  <input
-                    id="file-upload"
-                    type="file"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setMessages((prev) => [
-                          ...prev,
-                          {
-                            id: Date.now(),
-                            role: "user",
-                            content: `（已選取檔案）${file.name}`,
-                          },
-                        ]);
-                      }
-                    }}
-                  />
-
-                  {/* 工具選單 */}
-                  {showToolMenu && (
-                    <div className="absolute left-0 bottom-full mb-2 w-40 bg-slate-900 border border-slate-700 rounded-xl shadow-lg text-xs text-slate-100 py-1 z-20">
+                      {/* 左側 + */}
                       <button
                         type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-slate-800"
-                        onClick={() => {
-                          document.getElementById("file-upload")?.click();
-                          setShowToolMenu(false);
-                        }}
+                        onClick={() => setShowToolMenu((v) => !v)}
+                        className="self-end text-2xl text-slate-400 hover:text-slate-200 pb-[2px]"
                       >
-                        上傳檔案
+                        +
                       </button>
-                    </div>
-                  )}
-                </div>
 
-                {/* 匯出按鈕 */}
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-full bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs border border-slate-700"
-                >
-                  匯出 PDF
-                </button>
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-500 text-xs border border-indigo-500"
-                >
-                  匯出 PPT
-                </button>
+                      {/* textarea */}
+                      <textarea
+                        ref={inputRef}
+                        value={input}
+                        onChange={handleInputChange}
+                        onKeyDown={handleKeyDown}
+                        placeholder="提出任何問題⋯"
+                        className=" chat-scroll
+                flex-1
+                self-end
+                bg-transparent
+                resize-none
+                border-none
+                outline-none
+                text-sm
+                text-slate-50
+                placeholder:text-slate-500
+                leading-relaxed
+                max-h-[160px]
+              "
+                      />
+
+                      {/* 右側 綠點 + 箭頭 */}
+                      <div className="flex items-end gap-3 self-end">
+                        <span className="text-[11px] text-emerald-300 pb-[3px]">
+                          ●
+                        </span>
+                        <button
+                          type="submit"
+                          disabled={!input.trim() || loading}
+                          className="h-9 w-9 rounded-full bg-sky-500 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                        >
+                          {loading ? "…" : "↗"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 工具選單略 */}
+                  </div>
+
+                  {/* 匯出按鈕也一起被包在 max-w-3xl 容器裡，所以整排寬度固定 */}
+                  <button
+                    type="button"
+                    className="self-end px-4 py-2 rounded-full bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs border border-slate-700"
+                  >
+                    匯出 PDF
+                  </button>
+                  <button
+                    type="button"
+                    className="self-end px-4 py-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-500 text-xs border border-indigo-500"
+                  >
+                    匯出 PPT
+                  </button>
+                </div>
               </div>
             </form>
           </div>
