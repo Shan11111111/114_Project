@@ -1,4 +1,4 @@
-"use client"; 
+"use client";  
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 
@@ -40,9 +40,18 @@ export default function BoneVisionPage() {
     height: 0,
   });
 
+  // ⭐ 縮放 + 平移狀態
+  const [scale, setScale] = useState(1);                // 圖片縮放倍率
+  const [pan, setPan] = useState({ x: 0, y: 0 });       // 圖片平移
+  const dragState = useRef<{
+    dragging: boolean;
+    lastX: number;
+    lastY: number;
+  }>({ dragging: false, lastX: 0, lastY: 0 });
+
   /**
    * 同時量 wrapper 大小 + 圖片在 wrapper 內的位置
-   * ❗ 這個會在：圖片 onLoad / 視窗 resize 的時候被呼叫
+   * ❗ 這個會在：圖片 onLoad 時被呼叫（scale=1，還沒放大）
    */
   const measureLayout = useCallback(() => {
     if (!wrapperRef.current) return;
@@ -61,12 +70,46 @@ export default function BoneVisionPage() {
     }
   }, []);
 
-  // 初次掛載與之後視窗 resize 時重量一次
+  // 初次掛載粗略量一次 wrapper（imgBox 會在 onLoad 再更新）
   useEffect(() => {
     measureLayout();
-    window.addEventListener("resize", measureLayout);
-    return () => window.removeEventListener("resize", measureLayout);
   }, [measureLayout]);
+
+  // 滑鼠拖曳移動圖片（pan）
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!previewUrl) return;
+    e.preventDefault();
+    dragState.current = {
+      dragging: true,
+      lastX: e.clientX,
+      lastY: e.clientY,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!dragState.current.dragging) return;
+    const dx = e.clientX - dragState.current.lastX;
+    const dy = e.clientY - dragState.current.lastY;
+    dragState.current.lastX = e.clientX;
+    dragState.current.lastY = e.clientY;
+    setPan((prev) => ({
+      x: prev.x + dx,
+      y: prev.y + dy,
+    }));
+  };
+
+  const handleMouseUpOrLeave = () => {
+    dragState.current.dragging = false;
+  };
+
+  // ➕ / ➖ 按鈕縮放
+  const handleZoomIn = () => {
+    setScale((prev) => Math.min(3, prev + 0.25)); // 最大 3x
+  };
+
+  const handleZoomOut = () => {
+    setScale((prev) => Math.max(0.5, prev - 0.25)); // 最小 0.5x
+  };
 
   // 檔案選擇
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,6 +119,8 @@ export default function BoneVisionPage() {
     setDetections([]);
     setRawResponse(null);
     setActiveId(null);
+    setScale(1);
+    setPan({ x: 0, y: 0 });
 
     const reader = new FileReader();
     reader.onload = () => setPreviewUrl(reader.result as string);
@@ -130,7 +175,7 @@ export default function BoneVisionPage() {
     }
   };
 
-  // 把 normalized poly 轉成 SVG points（套到 imgBox 上）
+  // 把 normalized poly 轉成 SVG points（套到 imgBox 上，基準是 scale = 1 的位置）
   const polyToPoints = (poly: PolyPoint[]): string => {
     if (!wrapperSize.w || !wrapperSize.h || !imgBox.width || !imgBox.height) {
       return "";
@@ -140,7 +185,6 @@ export default function BoneVisionPage() {
       .map(([nx, ny]) => {
         const cx = Math.min(1, Math.max(0, nx));
         const cy = Math.min(1, Math.max(0, ny));
-
         const x = imgBox.left + cx * imgBox.width;
         const y = imgBox.top + cy * imgBox.height;
         return `${x},${y}`;
@@ -219,77 +263,109 @@ export default function BoneVisionPage() {
         {/* 中間：影像 + OBB */}
         <section className="w-full lg:w-1/3">
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
-            <h2 className="text-sm font-semibold mb-3">影像預覽與結果</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">影像預覽與結果</h2>
+
+              {/* Zoom 控制按鈕 */}
+              <div className="flex items-center gap-2 text-xs text-slate-300">
+                <button
+                  onClick={handleZoomOut}
+                  className="w-7 h-7 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-800"
+                >
+                  -
+                </button>
+                <span>{Math.round(scale * 100)}%</span>
+                <button
+                  onClick={handleZoomIn}
+                  className="w-7 h-7 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-800"
+                >
+                  +
+                </button>
+              </div>
+            </div>
 
             <div
               ref={wrapperRef}
-              className="relative flex-1 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/70 flex items-center justify-center"
+              className="relative flex-1 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/70"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUpOrLeave}
+              onMouseLeave={handleMouseUpOrLeave}
+              style={{ cursor: previewUrl ? "grab" : "default" }}
             >
               {previewUrl ? (
                 <>
-                  <img
-                    ref={imgRef}
-                    src={previewUrl}
-                    alt="preview"
-                    // ⭐ 限制圖片高度，太長的會縮到 480px 以內
-                    className="max-h-[480px] max-w-full object-contain"
-                    onLoad={measureLayout} // 圖片載入後重量一次
-                  />
+                  {/* 這個 inner 容器一起被 scale + pan，img 跟 svg 都會跟著動 */}
+                  <div
+                    className="relative w-full h-full flex items-center justify-center"
+                    style={{
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+                      transformOrigin: "center center",
+                    }}
+                  >
+                    <img
+                      ref={imgRef}
+                      src={previewUrl}
+                      alt="preview"
+                      className="max-h-[480px] max-w-full object-contain"
+                      onLoad={measureLayout} // 圖片載入後重量一次（scale 還是 1）
+                    />
 
-                  {/* OBB overlay */}
-                  {detections.length > 0 && (
-                    <svg
-                      className="absolute inset-0 w-full h-full pointer-events-none"
-                      viewBox={`0 0 ${wrapperSize.w || 100} ${
-                        wrapperSize.h || 100
-                      }`}
-                      preserveAspectRatio="none"
-                    >
-                      {/* 先畫非選中的框（在下層） */}
-                      {detections
-                        .filter((b) => b.id !== activeId)
-                        .map((box) => {
+                    {/* OBB overlay（跟著 inner 一起 scale / 平移，所以不需要額外算 scale） */}
+                    {detections.length > 0 && (
+                      <svg
+                        className="absolute inset-0 w-full h-full pointer-events-none"
+                        viewBox={`0 0 ${wrapperSize.w || 100} ${
+                          wrapperSize.h || 100
+                        }`}
+                        preserveAspectRatio="none"
+                      >
+                        {/* 先畫非選中的框（在下層） */}
+                        {detections
+                          .filter((b) => b.id !== activeId)
+                          .map((box) => {
+                            const pts = polyToPoints(box.poly);
+                            if (!pts) return null;
+                            return (
+                              <polygon
+                                key={box.id}
+                                points={pts}
+                                fill="none"
+                                stroke="#0076a8ff" // 淡藍
+                                strokeWidth={2}
+                                strokeDasharray="0"
+                                opacity={0.8}
+                              />
+                            );
+                          })}
+
+                        {/* 再畫被選中的框（永遠在最上層＋加粗＋發光） */}
+                        {activeId !== null && (() => {
+                          const box = detections.find(
+                            (b) => b.id === activeId
+                          );
+                          if (!box) return null;
                           const pts = polyToPoints(box.poly);
                           if (!pts) return null;
+
                           return (
                             <polygon
-                              key={box.id}
+                              key={`${box.id}_active`}
                               points={pts}
                               fill="none"
-                              stroke="#0076a8ff" // 淡藍
-                              strokeWidth={2}
+                              stroke="#22d3ee" // 亮藍
+                              strokeWidth={4}
                               strokeDasharray="0"
-                              opacity={0.8}
+                              className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
                             />
                           );
-                        })}
-
-                      {/* 再畫被選中的框（永遠在最上層＋加粗＋發光） */}
-                      {activeId !== null && (() => {
-                        const box = detections.find(
-                          (b) => b.id === activeId
-                        );
-                        if (!box) return null;
-                        const pts = polyToPoints(box.poly);
-                        if (!pts) return null;
-
-                        return (
-                          <polygon
-                            key={`${box.id}_active`}
-                            points={pts}
-                            fill="none"
-                            stroke="#22d3ee" // 亮藍
-                            strokeWidth={4}
-                            strokeDasharray="0"
-                            className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
-                          />
-                        );
-                      })()}
-                    </svg>
-                  )}
+                        })()}
+                      </svg>
+                    )}
+                  </div>
                 </>
               ) : (
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 flex items-center justify-center h-full">
                   尚未上傳圖片，請先選擇一張 X 光影像。
                 </p>
               )}
