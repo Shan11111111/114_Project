@@ -26,6 +26,9 @@ function fakeLLMReply(prompt: string): string {
   return `（Demo 回覆）你剛剛說：「${prompt}」。正式版本會把這段文字送到後端的大語言模型，產生真正的解釋。`;
 }
 
+const MIN_HEIGHT = 28; // textarea 最小高度
+const MAX_HEIGHT = 160; // textarea 最大高度，超過就捲動
+
 export default function LLMPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -43,9 +46,39 @@ export default function LLMPage() {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // ⭐ 控制泡泡形狀：false = 一行（超圓），true = 多行（長方形一點）
+  const [isMultiLine, setIsMultiLine] = useState(false);
+
+  // --- 共用：自動調整 textarea 高度（像 GPT 那樣） ---
+  function autoResizeTextarea() {
+    const el = inputRef.current;
+    if (!el) return;
+
+    // 先歸零再量 scrollHeight
+    el.style.height = "0px";
+    const contentHeight = el.scrollHeight;
+
+    const newHeight = Math.max(
+      MIN_HEIGHT,
+      Math.min(contentHeight, MAX_HEIGHT)
+    );
+
+    el.style.height = `${newHeight}px`;
+    el.style.overflowY = contentHeight > MAX_HEIGHT ? "auto" : "hidden";
+
+    // 超過一行就把泡泡改成「比較方」
+    // 這裡加 4px 當作一點緩衝，不會因為很小的差異一直跳
+    setIsMultiLine(contentHeight > MIN_HEIGHT + 4);
+  }
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // 首次載入也跑一次，讓 placeholder 就是正確高度
+  useEffect(() => {
+    autoResizeTextarea();
+  }, []);
 
   async function sendMessage(e?: FormEvent) {
     if (e) e.preventDefault();
@@ -61,11 +94,13 @@ export default function LLMPage() {
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
 
-    // 清空後把輸入框高度與捲動位置都重設
     if (inputRef.current) {
-      inputRef.current.style.height = "0px";
+      inputRef.current.value = "";
+      inputRef.current.style.height = `${MIN_HEIGHT}px`;
+      inputRef.current.style.overflowY = "hidden";
       inputRef.current.scrollTop = 0;
     }
+    setIsMultiLine(false); // 送出後恢復成單行膠囊
 
     setLoading(true);
 
@@ -88,20 +123,9 @@ export default function LLMPage() {
     }
   }
 
-  // ✅ 輸入時自動調整高度（最多 160px）
   function handleInputChange(e: ChangeEvent<HTMLTextAreaElement>) {
-    const value = e.target.value;
-    setInput(value);
-
-    if (inputRef.current) {
-      // 先歸零高度，才能正確拿到新的 scrollHeight
-      inputRef.current.style.height = "0px";
-
-      const maxHeight = 160; // 輸入框最大高度（px）
-      const newHeight = Math.min(inputRef.current.scrollHeight, maxHeight);
-
-      inputRef.current.style.height = `${newHeight}px`;
-    }
+    setInput(e.target.value);
+    autoResizeTextarea();
   }
 
   return (
@@ -167,7 +191,7 @@ export default function LLMPage() {
             <span>Demo mode（尚未接後端）</span>
           </div>
 
-          {/* 聊天訊息 */}
+          {/* 聊天訊息列表 */}
           <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 text-sm break-words pb-24">
             {messages.map((msg) => (
               <div
@@ -200,23 +224,33 @@ export default function LLMPage() {
             <div ref={chatEndRef} />
           </div>
 
-          {/* 浮在上面的輸入列 */}
+          {/* 底部輸入列（GPT 風格：同一排，textarea 變高） */}
           <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-3 pb-4">
             <form onSubmit={sendMessage}>
               <div className="flex items-center gap-3">
                 {/* 膠囊輸入框 */}
                 <div className="flex-1 relative">
-                  <div className="bg-[#0f172a] border border-slate-700 rounded-full px-4 flex items-center gap-3 shadow-lg shadow-slate-900/50 backdrop-blur-sm min-h-[52px]">
-                    {/* 左側 + 按鈕 */}
+                  <div
+                    className={`
+                      bg-[#0f172a]
+                      border border-slate-700
+                      px-4 py-2
+                      flex items-end gap-3
+                      shadow-lg shadow-slate-900/50
+                      backdrop-blur-sm
+                      ${isMultiLine ? "rounded-2xl" : "rounded-full"}
+                    `}
+                  >
+                    {/* 左側 + */}
                     <button
                       type="button"
                       onClick={() => setShowToolMenu((v) => !v)}
-                      className="text-2xl text-slate-400 hover:text-slate-200"
+                      className="text-2xl text-slate-400 hover:text-slate-200 pb-[2px]"
                     >
                       +
                     </button>
 
-                    {/* 中間 textarea（會自動變高） */}
+                    {/* 中間 textarea（自動長高） */}
                     <textarea
                       ref={inputRef}
                       value={input}
@@ -224,31 +258,32 @@ export default function LLMPage() {
                       onKeyDown={handleKeyDown}
                       placeholder="提出任何問題⋯"
                       className="
-    flex-1
-    bg-transparent
-    resize-none
-    border-none
-    outline-none
-    text-sm
-    text-slate-50
-    placeholder:text-slate-500
-    overflow-y-auto
-    h-[32px]          /* 初始高度固定 */
-    leading-[32px]    /* 文字垂直置中 */
-  "
+                        flex-1
+                        bg-transparent
+                        resize-none
+                        border-none
+                        outline-none
+                        text-sm
+                        text-slate-50
+                        placeholder:text-slate-500
+                        leading-relaxed
+                        max-h-[160px]
+                      "
                     />
 
-                    {/* 小綠點 */}
-                    <span className="text-[11px] text-emerald-300">●</span>
-
-                    {/* 送出箭頭 */}
-                    <button
-                      type="submit"
-                      disabled={!input.trim() || loading}
-                      className="h-9 w-9 rounded-full bg-sky-500 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
-                    >
-                      {loading ? "…" : "↗"}
-                    </button>
+                    {/* 右側 綠點 + 送出箭頭 */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-[11px] text-emerald-300 pb-[3px]">
+                        ●
+                      </span>
+                      <button
+                        type="submit"
+                        disabled={!input.trim() || loading}
+                        className="h-9 w-9 rounded-full bg-sky-500 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                      >
+                        {loading ? "…" : "↗"}
+                      </button>
+                    </div>
                   </div>
 
                   {/* 上傳檔案 hidden input */}
@@ -288,7 +323,7 @@ export default function LLMPage() {
                   )}
                 </div>
 
-                {/* 匯出按鈕（仍在右側） */}
+                {/* 匯出按鈕 */}
                 <button
                   type="button"
                   className="px-4 py-2 rounded-full bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs border border-slate-700"
