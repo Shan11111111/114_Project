@@ -7,6 +7,7 @@ import React, {
   useCallback,
   MouseEvent,
 } from "react";
+import { useRouter } from "next/navigation"; // ⭐ 新增：用來跳轉到 /llm
 
 const PREDICT_URL = "http://127.0.0.1:8000/predict";
 
@@ -34,6 +35,8 @@ type ImgBox = {
 };
 
 export default function BoneVisionPage() {
+  const router = useRouter(); // ⭐ 新增：router
+
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [detections, setDetections] = useState<DetectionBox[]>([]);
@@ -456,7 +459,23 @@ export default function BoneVisionPage() {
                         </p>
                       </div>
 
-                      <div>
+                      {/* ⭐ 新增：LLM 按鈕 */}
+                      <button
+                        onClick={() =>
+                          router.push(
+                            `/llm?bone=${encodeURIComponent(
+                              activeBox.cls_name
+                            )}`
+                          )
+                        }
+                        className="mt-2 inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
+                                   bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40
+                                   hover:bg-cyan-400 transition-colors"
+                      >
+                        了解更多（galabone）
+                      </button>
+
+                      <div className="mt-3">
                         <p className="text-slate-400 mb-1">
                           poly 座標（normalized 0–1）：
                         </p>
