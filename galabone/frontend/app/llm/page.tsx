@@ -27,7 +27,7 @@ function fakeLLMReply(prompt: string): string {
 }
 
 const MIN_HEIGHT = 28; // textarea 最小高度
-const MAX_HEIGHT = 160; // textarea 最大高度，超過就捲動
+const MAX_HEIGHT = 120; ; // textarea 最大高度，超過就捲動
 
 export default function LLMPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -48,6 +48,8 @@ export default function LLMPage() {
 
   // ⭐ 控制泡泡形狀：false = 一行（超圓），true = 多行（長方形一點）
   const [isMultiLine, setIsMultiLine] = useState(false);
+  // ⭐ 記錄輸入框高度，用來動態推開上面的聊天區（解決「巨大空白」）
+  const [inputBoxHeight, setInputBoxHeight] = useState(MIN_HEIGHT);
 
   // --- 共用：自動調整 textarea 高度（像 GPT 那樣） ---
   function autoResizeTextarea() {
@@ -61,11 +63,14 @@ export default function LLMPage() {
     const newHeight = Math.max(MIN_HEIGHT, Math.min(contentHeight, MAX_HEIGHT));
 
     el.style.height = `${newHeight}px`;
+    // ⭐ 高度到 MAX 之後就顯示卷軸
     el.style.overflowY = contentHeight > MAX_HEIGHT ? "auto" : "hidden";
 
     // 超過一行就把泡泡改成「比較方」
-    // 這裡加 4px 當作一點緩衝，不會因為很小的差異一直跳
     setIsMultiLine(contentHeight > MIN_HEIGHT + 4);
+
+    // ⭐ 記錄現在輸入框高度，等一下拿來算聊天區的 paddingBottom
+    setInputBoxHeight(newHeight);
   }
 
   useEffect(() => {
@@ -98,6 +103,7 @@ export default function LLMPage() {
       inputRef.current.scrollTop = 0;
     }
     setIsMultiLine(false); // 送出後恢復成單行膠囊
+    setInputBoxHeight(MIN_HEIGHT); // ⭐ 聊天區 padding 也一起回到最小
 
     setLoading(true);
 
@@ -160,7 +166,7 @@ export default function LLMPage() {
       </aside>
 
       {/* 右側主畫面 */}
-      <div className=" chat-scroll flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden">
         {/* Header */}
         <header className="flex items-center justify-between">
           <div>
@@ -189,7 +195,10 @@ export default function LLMPage() {
           </div>
 
           {/* 聊天訊息列表 */}
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 text-sm break-words pb-24">
+          <div
+            className="chat-scroll flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 text-sm break-words"
+            style={{ paddingBottom: inputBoxHeight + 40 }}
+          >
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -221,77 +230,124 @@ export default function LLMPage() {
             <div ref={chatEndRef} />
           </div>
 
-          {/* 底部輸入列（GPT 風格：同一排，textarea 變高） */}
+          {/* 底部輸入列（GPT 風格） */}
           <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-3 pb-4">
             <form onSubmit={sendMessage}>
-              {/* ✅ 先用一層 wrapper 控制整體寬度 */}
+              {/* 先用一層 wrapper 控制整體寬度 */}
               <div className="w-full flex justify-center">
-                {/* ✅ 這裡決定整排的固定長度：max-w-3xl = 約 768px */}
-                {/* 想更寬就改成 max-w-4xl / w-[900px] 之類都可以 */}
+                {/* max-w-3xl = 約 768px，想更寬就改成 max-w-4xl / w-[900px] */}
                 <div className="flex items-end gap-3 w-full max-w-3xl">
-                  {/* 膠囊輸入框：用 flex-1 在「這個 768px 容器」裡面分配剩餘寬度 */}
+                  {/* 膠囊輸入框：用 flex-1 在這個容器裡分配剩餘寬度 */}
                   <div className="flex-1 relative">
                     <div
                       className={`
-              bg-[#0f172a]
-              border border-slate-700
-              px-4 py-2
-              flex items-end gap-3
-              shadow-lg shadow-slate-900/50
-              backdrop-blur-sm
-              ${isMultiLine ? "rounded-2xl" : "rounded-full"}
-            `}
+                        bg-[#0f172a]
+                        border border-slate-700
+                        px-4 py-2
+                        shadow-lg shadow-slate-900/50
+                        backdrop-blur-sm
+                        ${isMultiLine ? "rounded-2xl" : "rounded-full"}
+                      `}
                     >
-                      {/* 左側 + */}
-                      <button
-                        type="button"
-                        onClick={() => setShowToolMenu((v) => !v)}
-                        className="self-end text-2xl text-slate-400 hover:text-slate-200 pb-[2px]"
-                      >
-                        +
-                      </button>
-
-                      {/* textarea */}
-                      <textarea
-                        ref={inputRef}
-                        value={input}
-                        onChange={handleInputChange}
-                        onKeyDown={handleKeyDown}
-                        placeholder="提出任何問題⋯"
-                        className=" chat-scroll
-                flex-1
-                self-end
-                bg-transparent
-                resize-none
-                border-none
-                outline-none
-                text-sm
-                text-slate-50
-                placeholder:text-slate-500
-                leading-relaxed
-                max-h-[160px]
-              "
-                      />
-
-                      {/* 右側 綠點 + 箭頭 */}
-                      <div className="flex items-end gap-3 self-end">
-                        <span className="text-[11px] text-emerald-300 pb-[3px]">
-                          ●
-                        </span>
-                        <button
-                          type="submit"
-                          disabled={!input.trim() || loading}
-                          className="h-9 w-9 rounded-full bg-sky-500 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                      {/* 這一層：上面永遠是 textarea；下面在多行時才出現按鈕列 */}
+                      <div className="flex flex-col gap-2">
+                        {/* 上半：單行 = 一排 + textarea + 送出；多行 = 只剩 textarea */}
+                        <div
+                          className={
+                            isMultiLine ? "" : "flex items-end gap-3"
+                          }
                         >
-                          {loading ? "…" : "↗"}
-                        </button>
+                          {/* 單行模式時的左側 + */}
+                          {!isMultiLine && (
+                            <button
+                              type="button"
+                              onClick={() => setShowToolMenu((v) => !v)}
+                              className="self-end text-2xl text-slate-400 hover:text-slate-200 pb-[2px]"
+                            >
+                              +
+                            </button>
+                          )}
+
+                          {/* textarea（永遠同一顆元件） */}
+                          <textarea
+                            ref={inputRef}
+                            value={input}
+                            onChange={handleInputChange}
+                            onKeyDown={handleKeyDown}
+                            placeholder="提出任何問題⋯"
+                            className={` 
+                              custom-scroll
+                              bg-transparent
+                              resize-none
+                              border-none
+                              outline-none
+                              text-sm
+                              text-slate-50
+                              placeholder:text-slate-500
+                              leading-relaxed
+                              ${
+                                isMultiLine
+                                  ? "w-full"
+                                  : "flex-1 self-end"
+                              }
+                            `}
+                          />
+
+                          {/* 單行模式時的右側 綠點 + 箭頭 */}
+                          {!isMultiLine && (
+                            <div className="flex items-end gap-3 self-end">
+                              <span className="text-[10px] text-emerald-200 pb-[3px]">
+                                ●
+                              </span>
+                              <button
+                                type="submit"
+                                disabled={!input.trim() || loading}
+                                className="h-7 w-7 rounded-full bg-sky-400 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                              >
+                                {loading ? (
+                                  "…"
+                                ) : (
+                                  <i className="fa-solid fa-arrow-up text-[13px]" />
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 多行模式時的下半：左 + 右 綠點 + 箭頭 */}
+                        {isMultiLine && (
+                          <div className="flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setShowToolMenu((v) => !v)}
+                              className="text-2xl text-slate-400 hover:text-slate-200"
+                            >
+                              +
+                            </button>
+
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] text-emerald-200">
+                                ●
+                              </span>
+                              <button
+                                type="submit"
+                                disabled={!input.trim() || loading}
+                                className="h-7 w-7 rounded-full bg-sky-400 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                              >
+                                {loading ? (
+                                  "…"
+                                ) : (
+                                  <i className="fa-solid fa-arrow-up text-[13px]" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
-
-                    {/* 工具選單略 */}
                   </div>
 
-                  {/* 匯出按鈕也一起被包在 max-w-3xl 容器裡，所以整排寬度固定 */}
+                  {/* 匯出按鈕 */}
                   <button
                     type="button"
                     className="self-end px-4 py-2 rounded-full bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs border border-slate-700"
