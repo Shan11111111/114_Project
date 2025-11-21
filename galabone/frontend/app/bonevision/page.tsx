@@ -220,7 +220,7 @@ export default function BoneVisionPage() {
 
       <main className="flex-1 flex flex-col lg:flex-row gap-6 px-6 py-6">
         {/* 左側：上傳 & 控制 */}
-        <section className="w-full lg:w-1/3 space-y-4">
+        <section className="w-full lg:w-5/20 space-y-4">
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 shadow-xl shadow-slate-900/60">
             <h2 className="text-sm font-semibold mb-3">資料與設定</h2>
 
@@ -269,7 +269,7 @@ export default function BoneVisionPage() {
         </section>
 
         {/* 中間：影像 + OBB */}
-        <section className="w-full lg:w-1/3">
+        <section className="w-full lg:w-8/20">
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold">影像預覽與結果</h2>
@@ -387,7 +387,7 @@ export default function BoneVisionPage() {
         </section>
 
         {/* 右側：骨骼列表 + 說明 */}
-        <section className="w-full lg:w-1/3">
+        <section className="w-full lg:w-7/20">
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
             <h2 className="text-sm font-semibold mb-3">辨識出的部位</h2>
 
@@ -459,7 +459,7 @@ export default function BoneVisionPage() {
                         </p>
                       </div>
 
-                      {/* ⭐ 新增：LLM 按鈕 */}
+                      
                       <button
                         onClick={() =>
                           router.push(
