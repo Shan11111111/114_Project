@@ -24,3 +24,42 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+
+/* ===== GPT Style 全站超細 scrollbar（支援所有可捲動元素）===== */
+
+/* 適用於所有元素 */
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.05);
+  border-radius: 9999px;
+  opacity: 0;
+  transition:
+    background 0.2s ease,
+    opacity 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+/* hover / 使用時淡淡浮出 */
+*::-webkit-scrollbar-thumb:active,
+*:hover::-webkit-scrollbar-thumb {
+  opacity: 1;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
