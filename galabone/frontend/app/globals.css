@@ -5,30 +5,40 @@
    深色在 html.dark 內覆蓋
 ============================ */
 :root {
-  /* 🔹 柔和背景（比純白舒服很多） */
-  --background: #f5f7fb;  /* 類似 slate-50 帶一點藍灰感 */
-  --foreground: #0f172a;  /* 主文字：深灰藍，清楚但不刺眼 */
+  /* 🔹 柔和背景，比純白更舒服 */
+  --background: #f5f7fa;          /* 柔白藍（醫療系常用） */
+  --foreground: #1e293b;          /* 深灰藍（比現在更清楚） */
 
-  /* 🔹 文字層級（淺色模式） */
-  --text-strong: #0f172a;  /* 標題 / 重要文字 */
-  --text-medium: #334155;  /* 一般內文 */
-  --text-weak: #64748b;    /* 次要說明 */
+  /* 🔹 小字更清楚（不再是超淡灰） */
+  --text-strong: #0f172a;
+  --text-medium: #1f2835;
+  --text-weak: #212831;           /* 小字用這個 → 完全可讀 */
 
-  /* 🔹 Navbar / 卡片 / Icon / Link 顏色（light） */
-  --navbar-bg: rgba(250, 252, 255, 0.9); /* 很淺的灰白，有一點層次 */
-  --navbar-border: #d1d5db;
+  /* 🔹 Navbar */
+  --navbar-bg: rgba(255, 255, 255, 0.85);
+  --navbar-border: #d3d7de;
   --navbar-text: #0f172a;
 
   --navbar-logo-bg: #22d3ee;
   --navbar-logo-text: #020617;
 
-  --navbar-icon-bg: #e5e7eb;
-  --navbar-icon-text: #111827;
+  --navbar-icon-bg: #e2e8f0;
+  --navbar-icon-text: #0f172a;
 
-  --link-hover: #0284c7;   /* 比較深的藍，hover 更明顯 */
+  /* 🔹 Link hover（柔藍，不刺眼） */
+  --link-hover: #0ea5e9;
 
-  /* 🔹 卡片背景：白色搭配柔背景 */
+  /* 🔹 卡片背景 */
   --card-bg: #ffffff;
+
+  /* 🔹 Bone chip（未選中） */
+  --chip-bg: #e7eef6;                 /* 柔和淡藍 */
+  --chip-border: #c9d4e2;
+  --chip-text: #3b1e1e;
+
+  /* 🔹 Bone chip（已選中） */
+  --chip-active-bg: #06b6d4;          /* 保留原本亮藍 */
+  --chip-active-text: #0f172a;
 
   color-scheme: light;
 }
@@ -110,8 +120,8 @@ body {
 
 /* 淺色模式：避免灰字太淡，看不清楚 */
 html:not(.dark) .text-slate-900,
-html:not(.dark) .text-slate-800,
-html:not(.dark) .text-slate-700 {
+html:not(.dark) .text-slate-900,
+html:not(.dark) .text-slate-800 {
   color: var(--text-strong) !important;
 }
 
@@ -191,4 +201,27 @@ html:not(.dark) .text-slate-300,
 html:not(.dark) .text-slate-200,
 html:not(.dark) .text-slate-100 {
   color: #475569 !important; /* slate-600：淺色模式下最清楚的小字色 */
+}
+/* ===============================
+   淺色模式：chip 一般狀態（未選中）
+================================*/
+html:not(.dark) .bg-slate-800 {
+  background-color: #e2e8f0 !important; /* 淺藍灰 */
+}
+
+html:not(.dark) .hover\:bg-slate-700:hover {
+  background-color: #d1d9e3 !important; /* hover 再淺一點 */
+}
+
+html:not(.dark) .text-slate-100 {
+  color: #1e293b !important; /* 淺色模式字體改深，不會淡掉 */
+}
+
+
+/* ===============================
+   淺色模式：chip 選中狀態（bg-cyan-500）
+   → 保留原本樣式，不動
+================================*/
+html:not(.dark) .text-slate-900 {
+  color: #0f172a !important; /* 保留深藍黑，看起來更舒服 */
 }
