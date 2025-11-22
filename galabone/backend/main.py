@@ -33,7 +33,7 @@ DB_DRIVER = "{ODBC Driver 17 for SQL Server}"
 DB_SERVER = "localhost"
 DB_DATABASE = "BoneDB"
 DB_UID = "sa"
-DB_PWD = "123456"  # 換成你真的 sa 密碼
+DB_PWD = "123456"  # sa 密碼
 
 def get_connection():
     conn_str = (

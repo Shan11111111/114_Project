@@ -7,7 +7,7 @@ import React, {
   useCallback,
   MouseEvent,
 } from "react";
-import { useRouter } from "next/navigation"; // ⭐ 新增：用來跳轉到 /llm
+import { useRouter } from "next/navigation";
 
 const PREDICT_URL = "http://127.0.0.1:8000/predict";
 
@@ -35,7 +35,7 @@ type ImgBox = {
 };
 
 export default function BoneVisionPage() {
-  const router = useRouter(); // ⭐ 新增：router
+  const router = useRouter();
 
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -45,9 +45,12 @@ export default function BoneVisionPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // ⭐ 新增：是否只顯示目前選取框
+  const [showOnlyActive, setShowOnlyActive] = useState(false);
+
   // 影像與框線用
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const displayRef = useRef<HTMLDivElement | null>(null); // 包住 img + svg 的容器
+  const displayRef = useRef<HTMLDivElement | null>(null);
   const [imgBox, setImgBox] = useState<ImgBox>({
     width: 0,
     height: 0,
@@ -124,6 +127,7 @@ export default function BoneVisionPage() {
     setRawResponse(null);
     setActiveId(null);
     setErrorMsg(null);
+    setShowOnlyActive(false);
     handleResetView();
 
     const reader = new FileReader();
@@ -172,6 +176,7 @@ export default function BoneVisionPage() {
 
       setDetections(boxes);
       setActiveId(boxes.length ? boxes[0].id : null);
+      setShowOnlyActive(false);
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message ?? "推論失敗，請檢查後端");
@@ -203,20 +208,7 @@ export default function BoneVisionPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
       {/* Top bar */}
-      <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-cyan-400 shadow-lg shadow-cyan-500/40 flex items-center justify-center text-slate-900 font-bold">
-            B
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold">BoneVision</h1>
-            <p className="text-xs text-slate-400">
-              Next.js + FastAPI + YOLO OBB
-            </p>
-          </div>
-        </div>
-        <span className="text-xs text-slate-400">骨骼偵測 Demo</span>
-      </header>
+      
 
       <main className="flex-1 flex flex-col lg:flex-row gap-6 px-6 py-6">
         {/* 左側：上傳 & 控制 */}
@@ -296,6 +288,18 @@ export default function BoneVisionPage() {
                 >
                   Reset
                 </button>
+
+                {/* ⭐ 新增：只顯示目前選取框切換按鈕 */}
+                <button
+                  onClick={() => setShowOnlyActive((v) => !v)}
+                  className={`ml-2 px-2 py-1 rounded-full border text-[11px] ${
+                    showOnlyActive
+                      ? "border-cyan-400 bg-cyan-500/20 text-cyan-300"
+                      : "border-slate-600 hover:bg-slate-700 text-slate-300"
+                  }`}
+                >
+                  {showOnlyActive ? "顯示全部框" : "只顯示目前框"}
+                </button>
               </div>
             </div>
 
@@ -333,23 +337,24 @@ export default function BoneVisionPage() {
                       }`}
                       preserveAspectRatio="none"
                     >
-                      {/* 先畫非 active 的框 */}
-                      {detections
-                        .filter((b) => b.id !== activeId)
-                        .map((box) => {
-                          const pts = polyToPoints(box.poly);
-                          if (!pts) return null;
-                          return (
-                            <polygon
-                              key={box.id}
-                              points={pts}
-                              fill="none"
-                              stroke="#0ea5e9"
-                              strokeWidth={2}
-                              opacity={0.7}
-                            />
-                          );
-                        })}
+                      {/* 先畫非 active 的框；如果 showOnlyActive=true 就不畫 */}
+                      {!showOnlyActive &&
+                        detections
+                          .filter((b) => b.id !== activeId)
+                          .map((box) => {
+                            const pts = polyToPoints(box.poly);
+                            if (!pts) return null;
+                            return (
+                              <polygon
+                                key={box.id}
+                                points={pts}
+                                fill="none"
+                                stroke="#0ea5e9"
+                                strokeWidth={2}
+                                opacity={0.7}
+                              />
+                            );
+                          })}
 
                       {/* 再畫 active 的框，永遠在最上層 */}
                       {activeBox && (() => {
@@ -459,7 +464,6 @@ export default function BoneVisionPage() {
                         </p>
                       </div>
 
-                      
                       <button
                         onClick={() =>
                           router.push(

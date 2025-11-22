@@ -6,17 +6,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
       {/* Top Nav */}
-      <header className="border-b border-slate-800/70 bg-slate-900/70 backdrop-blur flex items-center justify-between px-8 py-4">
-        <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-xl bg-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.8)]" />
-          <div className="text-lg font-semibold tracking-wide">
-            GalaBone <span className="text-cyan-400">AI</span>
-          </div>
-        </div>
-        <div className="text-sm text-slate-300">
-          智慧骨科影像與學習助手
-        </div>
-      </header>
+     
 
       {/* Hero Section */}
       <section className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-10 px-8">

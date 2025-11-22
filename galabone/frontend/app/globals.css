@@ -1,10 +1,12 @@
 @import "tailwindcss";
 
+/* ===== 基本顏色（預設：亮色） ===== */
 :root {
   --background: #ffffff;
   --foreground: #171717;
 }
 
+/* Tailwind v4 @theme：讓你可以用 bg-background / text-foreground 等等 */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -12,19 +14,30 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ===== 手動深色模式（由 html.dark 控制）===== */
+html.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  color-scheme: dark; /* 保留你原本的設定，讓瀏覽器知道現在是 dark */
+}
+
+/* （如果你還是想讓系統預設成暗色，可加這段，否則可以完全刪掉） */
+/*
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
   }
 }
+*/
 
+/* ===== 全站 body 使用變數顏色 ===== */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-
 
 /* ===== GPT Style 全站超細 scrollbar（支援所有可捲動元素）===== */
 
