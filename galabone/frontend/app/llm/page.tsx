@@ -35,7 +35,7 @@ export default function LLMPage() {
       id: 1,
       role: "assistant",
       content:
-        "嗨，我是 GalaBone LLM Demo。現在還沒接後端模型，先用模擬回覆讓你測試 UI 和互動流程。",
+        "嗨，我是 GalaBone LLM Demo。在這裡輸入你的問題，我會用骨科知識與多模態概念幫你解釋。。",
     },
   ]);
   const [input, setInput] = useState("");
@@ -176,7 +176,13 @@ export default function LLMPage() {
   }
 
   return (
-    <main className="h-screen bg-slate-950 text-slate-50 flex overflow-hidden">
+    <div
+      className="
+        h-[calc(100vh-4rem)]
+        bg-slate-950 text-slate-50
+        flex overflow-hidden
+      "
+    >
       {/* 左側導覽列（ChatGPT 風格） */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
         {/* Logo 區 */}
@@ -220,13 +226,23 @@ export default function LLMPage() {
           </div>
         </nav>
 
-        {/* 底部設定列 */}
-        <div className="px-4 py-3 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
-          <span className="flex items-center gap-2">
+        {/* 底部設定列 + Session ID */}
+        <div className="px-4 py-3 border-t border-slate-800 flex flex-col gap-2 text-[11px] text-slate-500">
+          {/* 設定列 */}
+          <div className="flex items-center gap-2">
             <i className="fa-solid fa-gear text-[11px]" />
             <span>設定</span>
-          </span>
-          <span className="text-slate-400">Session：{sessionId}</span>
+          </div>
+
+          {/* Session ID 輸入框 */}
+          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
+            <span>Session ID</span>
+            <input
+              className="bg-slate-900 border border-slate-700 rounded-md px-2 py-[4px] text-[11px] outline-none focus:border-sky-500"
+              value={sessionId}
+              onChange={(e) => setSessionId(e.target.value)}
+            />
+          </label>
         </div>
       </aside>
 
@@ -235,19 +251,6 @@ export default function LLMPage() {
         {/* Header */}
         <header className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold">GalaBone LLM Console</h2>
-            <p className="text-xs text-slate-400 mt-1">
-              在這裡輸入你的問題，我會用骨科知識與多模態概念幫你解釋。
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-400">Session ID：</span>
-            <input
-              className="bg-slate-900 border border-slate-700 rounded-md px-2 py-[4px] text-xs outline-none focus:border-sky-500 w-32"
-              value={sessionId}
-              onChange={(e) => setSessionId(e.target.value)}
-            />
           </div>
         </header>
 
@@ -255,8 +258,7 @@ export default function LLMPage() {
         <section className="flex-1 min-h-0 flex flex-col relative">
           {/* 上方小標題 */}
           <div className="flex items-center justify-between mb-2 text-xs text-slate-400 px-1">
-            <span>對話紀錄 · LLM 回覆</span>
-            <span>Demo mode（尚未接後端）</span>
+            <span>Demo 1.0 ver.（尚未接後端）</span>
           </div>
 
           {/* 聊天訊息列表 */}
@@ -462,6 +464,6 @@ export default function LLMPage() {
           </div>
         </section>
       </div>
-    </main>
+    </div>
   );
 }
