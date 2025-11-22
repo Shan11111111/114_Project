@@ -1,12 +1,39 @@
 @import "tailwindcss";
 
-/* ===== 基本顏色（預設：亮色） ===== */
+/* ============================
+   顏色變數：預設是「柔和淺色」
+   深色在 html.dark 內覆蓋
+============================ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 🔹 柔和背景（比純白舒服很多） */
+  --background: #f5f7fb;  /* 類似 slate-50 帶一點藍灰感 */
+  --foreground: #0f172a;  /* 主文字：深灰藍，清楚但不刺眼 */
+
+  /* 🔹 文字層級（淺色模式） */
+  --text-strong: #0f172a;  /* 標題 / 重要文字 */
+  --text-medium: #334155;  /* 一般內文 */
+  --text-weak: #64748b;    /* 次要說明 */
+
+  /* 🔹 Navbar / 卡片 / Icon / Link 顏色（light） */
+  --navbar-bg: rgba(250, 252, 255, 0.9); /* 很淺的灰白，有一點層次 */
+  --navbar-border: #d1d5db;
+  --navbar-text: #0f172a;
+
+  --navbar-logo-bg: #22d3ee;
+  --navbar-logo-text: #020617;
+
+  --navbar-icon-bg: #e5e7eb;
+  --navbar-icon-text: #111827;
+
+  --link-hover: #0284c7;   /* 比較深的藍，hover 更明顯 */
+
+  /* 🔹 卡片背景：白色搭配柔背景 */
+  --card-bg: #ffffff;
+
+  color-scheme: light;
 }
 
-/* Tailwind v4 @theme：讓你可以用 bg-background / text-foreground 等等 */
+/* Tailwind v4 @theme：讓你可以用 bg-background / text-foreground */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -14,24 +41,39 @@
   --font-mono: var(--font-geist-mono);
 }
 
-/* ===== 手動深色模式（由 html.dark 控制）===== */
+/* ============================
+   深色模式：當 html 有 .dark
+   → 覆蓋上面的變數
+============================ */
 html.dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  color-scheme: dark; /* 保留你原本的設定，讓瀏覽器知道現在是 dark */
+  --background: #020617; /* 深藍幾乎黑的背景 */
+  --foreground: #e5e7eb;
+
+  /* 🔹 文字層級（深色模式） */
+  --text-strong: #f9fafb;  /* 標題 / 重要文字 */
+  --text-medium: #e5e7eb;  /* 一般內文 */
+  --text-weak: #9ca3af;    /* 次要說明 */
+
+  --navbar-bg: rgba(15, 23, 42, 0.85);
+  --navbar-border: #1f2937;
+  --navbar-text: #e5e7eb;
+
+  --navbar-logo-bg: #22d3ee;
+  --navbar-logo-text: #020617;
+
+  --navbar-icon-bg: #111827;
+  --navbar-icon-text: #e5e7eb;
+
+  --link-hover: #67e8f9;
+
+  --card-bg: #020617;
+
+  color-scheme: dark;
 }
 
-/* （如果你還是想讓系統預設成暗色，可加這段，否則可以完全刪掉） */
-/*
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-*/
-
-/* ===== 全站 body 使用變數顏色 ===== */
+/* ============================
+   全站 body 使用變數顏色
+============================ */
 body {
   background: var(--background);
   color: var(--foreground);
@@ -39,9 +81,74 @@ body {
     BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-/* ===== GPT Style 全站超細 scrollbar（支援所有可捲動元素）===== */
+/* ============================
+   Navbar 連結 hover 共用 class
+============================ */
+.hover-link {
+  transition: color 0.15s ease;
+}
 
-/* 適用於所有元素 */
+.hover-link:hover {
+  color: var(--link-hover);
+}
+
+/* ============================
+   共用卡片樣式
+   要用就加 className="card"
+============================ */
+.card {
+  background: var(--card-bg);
+  color: var(--foreground);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+/* ============================
+   自動調整灰色文字：讓 text-slate-xxx
+   會跟著 light/dark 變得清楚
+============================ */
+
+/* 淺色模式：避免灰字太淡，看不清楚 */
+html:not(.dark) .text-slate-900,
+html:not(.dark) .text-slate-800,
+html:not(.dark) .text-slate-700 {
+  color: var(--text-strong) !important;
+}
+
+html:not(.dark) .text-slate-600,
+html:not(.dark) .text-slate-500 {
+  color: var(--text-medium) !important;
+}
+
+html:not(.dark) .text-slate-400,
+html:not(.dark) .text-slate-300,
+html:not(.dark) .text-slate-200 {
+  color: var(--text-weak) !important;
+}
+
+/* 深色模式：維持原本舒服的高對比 */
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-slate-700 {
+  color: var(--text-strong) !important;
+}
+
+html.dark .text-slate-600,
+html.dark .text-slate-500 {
+  color: var(--text-medium) !important;
+}
+
+html.dark .text-slate-400,
+html.dark .text-slate-300,
+html.dark .text-slate-200 {
+  color: var(--text-weak) !important;
+}
+
+/* ============================
+   GPT Style 超細 scrollbar
+============================ */
+
+/* 適用於所有元素（Chrome / Edge / Safari） */
 *::-webkit-scrollbar {
   width: 4px;
   height: 4px;
@@ -75,4 +182,13 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+/* ============================================================
+   淺色模式下的小字(text-slate-400 以下) 變深，避免不可見
+============================================================ */
+html:not(.dark) .text-slate-400,
+html:not(.dark) .text-slate-300,
+html:not(.dark) .text-slate-200,
+html:not(.dark) .text-slate-100 {
+  color: #475569 !important; /* slate-600：淺色模式下最清楚的小字色 */
 }

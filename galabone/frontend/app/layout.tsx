@@ -5,6 +5,7 @@ import "./globals.css";
 // ⭐ 新增：匯入 Navbar
 import Navbar from "./components/Navbar";
 
+// ⭐ 字體設定
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -26,7 +27,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    // ⭐⭐ 最重要：預設深色，SSR 一開始就帶 dark，避免閃白
+    <html lang="en" className="dark">
       <head>
         <link
           rel="stylesheet"
@@ -37,10 +39,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {/* ⭐ 在這裡插入 Navbar（每頁都會有） */}
+        {/* ⭐ Navbar（全站統一） */}
         <Navbar />
 
-        {/* ⭐ 所有頁面內容 */}
+        {/* ⭐ 主內容 */}
         <main>{children}</main>
       </body>
     </html>

@@ -3,29 +3,30 @@
 import { useEffect, useState } from "react";
 
 export default function ThemeToggle() {
-  const [isDark, setIsDark] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // 初次載入讀取目前 class 狀態
-    setIsDark(document.documentElement.classList.contains("dark"));
+    setMounted(true);
+    // ✅ 預設深色：第一次載入時加上 dark
+    if (!document.documentElement.classList.contains("dark")) {
+      document.documentElement.classList.add("dark");
+    }
   }, []);
 
+  if (!mounted) return null;
+
+  const isDark = document.documentElement.classList.contains("dark");
+
   const toggleTheme = () => {
-    const html = document.documentElement;
-    html.classList.toggle("dark");
-    setIsDark(html.classList.contains("dark"));
+    document.documentElement.classList.toggle("dark");
   };
 
   return (
     <button
       onClick={toggleTheme}
-      className="w-9 h-9 bg-slate-700 rounded-full flex items-center justify-center hover:bg-slate-600"
+      className="w-9 h-9 rounded-full flex items-center justify-center border border-slate-600 text-xs"
     >
-      {isDark ? (
-        <i className="fa-solid fa-sun text-yellow-300"></i>
-      ) : (
-        <i className="fa-solid fa-moon text-slate-200"></i>
-      )}
+      {isDark ? "☀️" : "🌙"}
     </button>
   );
 }

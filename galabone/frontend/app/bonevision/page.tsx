@@ -45,7 +45,7 @@ export default function BoneVisionPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ⭐ 新增：是否只顯示目前選取框
+  // ⭐ 是否只顯示目前選取框
   const [showOnlyActive, setShowOnlyActive] = useState(false);
 
   // 影像與框線用
@@ -206,14 +206,13 @@ export default function BoneVisionPage() {
     activeId !== null ? detections.find((b) => b.id === activeId) ?? null : null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
-      {/* Top bar */}
-      
-
+    // ✅ 去掉固定 bg-slate-950 / text-slate-50，改用全域變數（body 已處理）
+    <div className="min-h-screen flex flex-col">
       <main className="flex-1 flex flex-col lg:flex-row gap-6 px-6 py-6">
         {/* 左側：上傳 & 控制 */}
         <section className="w-full lg:w-5/20 space-y-4">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 shadow-xl shadow-slate-900/60">
+          {/* ✅ 改用共用 card + 邊框，背景跟隨 theme */}
+          <div className="card border border-slate-800/70 shadow-xl shadow-slate-900/40">
             <h2 className="text-sm font-semibold mb-3">資料與設定</h2>
 
             <label className="block">
@@ -250,7 +249,7 @@ export default function BoneVisionPage() {
           </div>
 
           {/* JSON debug 區塊 */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 max-h-72 overflow-auto text-xs">
+          <div className="card border border-slate-800 max-h-72 overflow-auto text-xs">
             <h3 className="text-xs font-semibold mb-2">辨識結果（原始 JSON）</h3>
             <pre className="whitespace-pre-wrap text-[11px] text-green-400">
               {rawResponse
@@ -262,7 +261,7 @@ export default function BoneVisionPage() {
 
         {/* 中間：影像 + OBB */}
         <section className="w-full lg:w-8/20">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
+          <div className="card border border-slate-800 rounded-2xl h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold">影像預覽與結果</h2>
               <div className="flex items-center gap-2 text-xs text-slate-300">
@@ -289,7 +288,7 @@ export default function BoneVisionPage() {
                   Reset
                 </button>
 
-                {/* ⭐ 新增：只顯示目前選取框切換按鈕 */}
+                {/* ⭐ 只顯示目前選取框切換按鈕 */}
                 <button
                   onClick={() => setShowOnlyActive((v) => !v)}
                   className={`ml-2 px-2 py-1 rounded-full border text-[11px] ${
@@ -305,7 +304,11 @@ export default function BoneVisionPage() {
 
             <div
               ref={wrapperRef}
-              className="relative bg-slate-950 rounded-2xl overflow-hidden border border-slate-800/70 flex items-center justify-center h-[520px]"
+              className="relative rounded-2xl overflow-hidden border border-slate-800/70 flex items-center justify-center h-[520px]"
+              style={{
+                // ✅ 預覽區背景改用全域背景變數，而不是固定 slate-950
+                backgroundColor: "var(--background)",
+              }}
               onMouseDown={handlePanStart}
               onMouseMove={handlePanMove}
               onMouseUp={handlePanEnd}
@@ -393,7 +396,7 @@ export default function BoneVisionPage() {
 
         {/* 右側：骨骼列表 + 說明 */}
         <section className="w-full lg:w-7/20">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 h-full flex flex-col">
+          <div className="card border border-slate-800 rounded-2xl h-full flex flex-col">
             <h2 className="text-sm font-semibold mb-3">辨識出的部位</h2>
 
             {detections.length === 0 ? (
@@ -423,7 +426,7 @@ export default function BoneVisionPage() {
                 </div>
 
                 {/* 下方詳細說明卡片 */}
-                <div className="mt-2 text-xs space-y-3 bg-slate-950/60 border border-slate-800 rounded-xl p-4 flex-1 overflow-auto">
+                <div className="mt-2 text-xs space-y-3 card border border-slate-800 flex-1 overflow-auto rounded-xl">
                   {activeBox ? (
                     <>
                       <p className="text-slate-400">

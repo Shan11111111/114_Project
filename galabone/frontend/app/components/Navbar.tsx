@@ -5,12 +5,23 @@ import ThemeToggle from "./ThemeToggle";
 
 export default function Navbar() {
   return (
-    <nav className="w-full h-16 border-b border-slate-800 bg-slate-900/60 
-                    backdrop-blur-md flex items-center justify-between px-6">
-      
+    <nav
+      className="w-full h-16 border-b backdrop-blur-md flex items-center justify-between px-6"
+      style={{
+        backgroundColor: "var(--navbar-bg)",
+        borderColor: "var(--navbar-border)",
+        color: "var(--navbar-text)",
+      }}
+    >
       {/* Left - Logo */}
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 bg-cyan-400 rounded-full flex items-center justify-center font-bold text-slate-900">
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center font-bold"
+          style={{
+            backgroundColor: "var(--navbar-logo-bg)",
+            color: "var(--navbar-logo-text)",
+          }}
+        >
           G
         </div>
         <span className="text-lg font-semibold">GalaBone</span>
@@ -18,10 +29,18 @@ export default function Navbar() {
 
       {/* Middle - Links */}
       <div className="hidden md:flex items-center gap-6 text-sm">
-        <Link href="/" className="hover:text-cyan-300">首頁</Link>
-        <Link href="/bonevision" className="hover:text-cyan-300">辨識頁面</Link>
-        <Link href="/llm" className="hover:text-cyan-300">LLM</Link>
-        <Link href="/model" className="hover:text-cyan-300">3D 模型</Link>
+        <Link href="/" className="hover-link">
+          <b>首頁</b>
+        </Link>
+        <Link href="/bonevision" className="hover-link">
+          <b>辨識頁面</b>
+        </Link>
+        <Link href="/llm" className="hover-link">
+          <b>LLM</b>
+        </Link>
+        <Link href="/model" className="hover-link">
+          <b>3D 模型</b>
+        </Link>
       </div>
 
       {/* Right - Theme + Login */}
@@ -29,8 +48,15 @@ export default function Navbar() {
         <ThemeToggle />
 
         {/* Login icon */}
-        <button className="w-9 h-9 bg-slate-700 rounded-full flex items-center justify-center hover:bg-slate-600">
-          <i className="fa-solid fa-user text-slate-200"></i>
+        <button
+          className="w-9 h-9 rounded-full flex items-center justify-center"
+          style={{
+            backgroundColor: "var(--navbar-icon-bg)",
+            color: "var(--navbar-icon-text)",
+          }}
+          aria-label="登入"
+        >
+          <i className="fa-solid fa-user" />
         </button>
       </div>
     </nav>
