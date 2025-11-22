@@ -1,18 +1,17 @@
 @import "tailwindcss";
 
 /* ============================
-   顏色變數：預設是「柔和淺色」
-   深色在 html.dark 內覆蓋
+   顏色變數：預設柔和淺色
 ============================ */
 :root {
-  /* 🔹 柔和背景，比純白更舒服 */
-  --background: #f5f7fa;          /* 柔白藍（醫療系常用） */
-  --foreground: #1e293b;          /* 深灰藍（比現在更清楚） */
+  /* 🔹 背景 / 字色 */
+  --background: #f5f7fa;
+  --foreground: #1e293b;
 
-  /* 🔹 小字更清楚（不再是超淡灰） */
+  /* 🔹 文字清晰層級 */
   --text-strong: #0f172a;
   --text-medium: #1f2835;
-  --text-weak: #212831;           /* 小字用這個 → 完全可讀 */
+  --text-weak: #212831;
 
   /* 🔹 Navbar */
   --navbar-bg: rgba(255, 255, 255, 0.85);
@@ -25,25 +24,25 @@
   --navbar-icon-bg: #e2e8f0;
   --navbar-icon-text: #0f172a;
 
-  /* 🔹 Link hover（柔藍，不刺眼） */
+  /* 🔹 Link hover（柔藍） */
   --link-hover: #0ea5e9;
 
   /* 🔹 卡片背景 */
   --card-bg: #ffffff;
 
-  /* 🔹 Bone chip（未選中） */
-  --chip-bg: #e7eef6;                 /* 柔和淡藍 */
-  --chip-border: #c9d4e2;
-  --chip-text: #3b1e1e;
+  /* 🔹 chip（未選） */
+  --chip-bg: #e2e8f0;
+  --chip-text: #1e293b;
+  --chip-hover: #d1d9e3;
 
-  /* 🔹 Bone chip（已選中） */
-  --chip-active-bg: #06b6d4;          /* 保留原本亮藍 */
+  /* 🔹 chip（選中） */
+  --chip-active-bg: #06b6d4;
   --chip-active-text: #0f172a;
 
   color-scheme: light;
 }
 
-/* Tailwind v4 @theme：讓你可以用 bg-background / text-foreground */
+/* Tailwind 顏色引用 */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -52,17 +51,15 @@
 }
 
 /* ============================
-   深色模式：當 html 有 .dark
-   → 覆蓋上面的變數
+   深色模式
 ============================ */
 html.dark {
-  --background: #020617; /* 深藍幾乎黑的背景 */
+  --background: #020617;
   --foreground: #e5e7eb;
 
-  /* 🔹 文字層級（深色模式） */
-  --text-strong: #f9fafb;  /* 標題 / 重要文字 */
-  --text-medium: #e5e7eb;  /* 一般內文 */
-  --text-weak: #9ca3af;    /* 次要說明 */
+  --text-strong: #f9fafb;
+  --text-medium: #e5e7eb;
+  --text-weak: #9ca3af;
 
   --navbar-bg: rgba(15, 23, 42, 0.85);
   --navbar-border: #1f2937;
@@ -78,11 +75,19 @@ html.dark {
 
   --card-bg: #020617;
 
+  /* 深色 chip 還是用你原本的深灰 */
+  --chip-bg: #1e293b;
+  --chip-text: #e5e7eb;
+  --chip-hover: #334155;
+
+  --chip-active-bg: #06b6d4;
+  --chip-active-text: #020617;
+
   color-scheme: dark;
 }
 
 /* ============================
-   全站 body 使用變數顏色
+   全站 body
 ============================ */
 body {
   background: var(--background);
@@ -92,19 +97,17 @@ body {
 }
 
 /* ============================
-   Navbar 連結 hover 共用 class
+   Navbar link hover
 ============================ */
 .hover-link {
   transition: color 0.15s ease;
 }
-
 .hover-link:hover {
   color: var(--link-hover);
 }
 
 /* ============================
-   共用卡片樣式
-   要用就加 className="card"
+   共用卡片
 ============================ */
 .card {
   background: var(--card-bg);
@@ -114,17 +117,10 @@ body {
 }
 
 /* ============================
-   自動調整灰色文字：讓 text-slate-xxx
-   會跟著 light/dark 變得清楚
+   灰字在 Light/Dark 調整
 ============================ */
 
-/* 淺色模式：避免灰字太淡，看不清楚 */
-html:not(.dark) .text-slate-900,
-html:not(.dark) .text-slate-900,
-html:not(.dark) .text-slate-800 {
-  color: var(--text-strong) !important;
-}
-
+/* 淺色模式：灰字要深一些 */
 html:not(.dark) .text-slate-600,
 html:not(.dark) .text-slate-500 {
   color: var(--text-medium) !important;
@@ -132,22 +128,16 @@ html:not(.dark) .text-slate-500 {
 
 html:not(.dark) .text-slate-400,
 html:not(.dark) .text-slate-300,
-html:not(.dark) .text-slate-200 {
+html:not(.dark) .text-slate-200,
+html:not(.dark) .text-slate-100 {
   color: var(--text-weak) !important;
 }
 
-/* 深色模式：維持原本舒服的高對比 */
-html.dark .text-slate-900,
-html.dark .text-slate-800,
-html.dark .text-slate-700 {
-  color: var(--text-strong) !important;
-}
-
+/* 深色模式：維持高對比 */
 html.dark .text-slate-600,
 html.dark .text-slate-500 {
   color: var(--text-medium) !important;
 }
-
 html.dark .text-slate-400,
 html.dark .text-slate-300,
 html.dark .text-slate-200 {
@@ -155,73 +145,52 @@ html.dark .text-slate-200 {
 }
 
 /* ============================
-   GPT Style 超細 scrollbar
+   chip（讓你的原本樣式保留）
+   → 不動 Tailwind class 結構
+   → 只覆蓋顏色
 ============================ */
 
-/* 適用於所有元素（Chrome / Edge / Safari） */
+/* 未選中 chip */
+html:not(.dark) .bg-slate-800 {
+  background-color: var(--chip-bg) !important;
+}
+html:not(.dark) .hover\:bg-slate-700:hover {
+  background-color: var(--chip-hover) !important;
+}
+html:not(.dark) .text-slate-100 {
+  color: var(--chip-text) !important;
+}
+
+/* 已選中 chip（保持亮藍） */
+html:not(.dark) .text-slate-900 {
+  color: var(--chip-active-text) !important;
+}
+
+/* ============================
+   Scrollbar
+============================ */
 *::-webkit-scrollbar {
   width: 4px;
   height: 4px;
 }
-
 *::-webkit-scrollbar-track {
   background: transparent;
 }
-
 *::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.05);
   border-radius: 9999px;
   opacity: 0;
-  transition:
-    background 0.2s ease,
-    opacity 0.2s ease;
+  transition: background 0.2s ease, opacity 0.2s ease;
 }
-
 *::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.45);
 }
-
-/* hover / 使用時淡淡浮出 */
 *::-webkit-scrollbar-thumb:active,
 *:hover::-webkit-scrollbar-thumb {
   opacity: 1;
   background: rgba(148, 163, 184, 0.25);
 }
-
-/* Firefox */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
-}
-/* ============================================================
-   淺色模式下的小字(text-slate-400 以下) 變深，避免不可見
-============================================================ */
-html:not(.dark) .text-slate-400,
-html:not(.dark) .text-slate-300,
-html:not(.dark) .text-slate-200,
-html:not(.dark) .text-slate-100 {
-  color: #475569 !important; /* slate-600：淺色模式下最清楚的小字色 */
-}
-/* ===============================
-   淺色模式：chip 一般狀態（未選中）
-================================*/
-html:not(.dark) .bg-slate-800 {
-  background-color: #e2e8f0 !important; /* 淺藍灰 */
-}
-
-html:not(.dark) .hover\:bg-slate-700:hover {
-  background-color: #d1d9e3 !important; /* hover 再淺一點 */
-}
-
-html:not(.dark) .text-slate-100 {
-  color: #1e293b !important; /* 淺色模式字體改深，不會淡掉 */
-}
-
-
-/* ===============================
-   淺色模式：chip 選中狀態（bg-cyan-500）
-   → 保留原本樣式，不動
-================================*/
-html:not(.dark) .text-slate-900 {
-  color: #0f172a !important; /* 保留深藍黑，看起來更舒服 */
 }
