@@ -27,7 +27,7 @@ function fakeLLMReply(prompt: string): string {
 }
 
 const MIN_HEIGHT = 28; // textarea 最小高度
-const MAX_HEIGHT = 120; ; // textarea 最大高度，超過就捲動
+const MAX_HEIGHT = 120; // textarea 最大高度，超過就捲動
 
 export default function LLMPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -46,30 +46,64 @@ export default function LLMPage() {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // ⭐ 控制泡泡形狀：false = 一行（超圓），true = 多行（長方形一點）
+  // 記錄「單行」狀態下 scrollHeight 的基準值
+  const baseHeightRef = useRef<number | null>(null);
+
+  // false = 一行（超圓），true = 多行（長方形）
   const [isMultiLine, setIsMultiLine] = useState(false);
-  // ⭐ 記錄輸入框高度，用來動態推開上面的聊天區（解決「巨大空白」）
+  // 聊天區底部 padding 用
   const [inputBoxHeight, setInputBoxHeight] = useState(MIN_HEIGHT);
 
-  // --- 共用：自動調整 textarea 高度（像 GPT 那樣） ---
+  // --- 自動調整 textarea 高度（像 GPT 那樣） ---
   function autoResizeTextarea() {
     const el = inputRef.current;
     if (!el) return;
 
-    // 先歸零再量 scrollHeight
-    el.style.height = "0px";
+    const text = el.value;
+
+    // 沒文字時：回到單行小膠囊
+    if (text.trim().length === 0) {
+      baseHeightRef.current = null;
+      el.style.height = `${MIN_HEIGHT}px`;
+      el.style.overflowY = "hidden";
+      setIsMultiLine(false);
+      setInputBoxHeight(MIN_HEIGHT);
+      return;
+    }
+
+    // 先讓瀏覽器照內容算實際高度
+    el.style.height = "auto";
     const contentHeight = el.scrollHeight;
 
-    const newHeight = Math.max(MIN_HEIGHT, Math.min(contentHeight, MAX_HEIGHT));
+    // 如果目前還是「單行模式」
+    if (!isMultiLine) {
+      // 第一次有字：記錄當下 scrollHeight 當作單行基準
+      if (baseHeightRef.current === null) {
+        baseHeightRef.current = contentHeight;
+      }
+
+      const singleLineHeight = baseHeightRef.current;
+
+      // 如果已經超過單行高度一點點，就切換成多行
+      if (contentHeight > singleLineHeight + 2) {
+        setIsMultiLine(true); // ⭐ 只會從 false -> true
+      }
+
+      // 單行模式下，高度永遠固定為膠囊高度，不跟著 contentHeight 跳
+      el.style.height = `${MIN_HEIGHT}px`;
+      el.style.overflowY = "hidden";
+      setInputBoxHeight(MIN_HEIGHT);
+      return;
+    }
+
+    // 走到這裡 = 已經是多行模式，才開始真的依內容調整高度
+    const newHeight = Math.max(
+      MIN_HEIGHT * 2,
+      Math.min(contentHeight, MAX_HEIGHT)
+    );
 
     el.style.height = `${newHeight}px`;
-    // ⭐ 高度到 MAX 之後就顯示卷軸
     el.style.overflowY = contentHeight > MAX_HEIGHT ? "auto" : "hidden";
-
-    // 超過一行就把泡泡改成「比較方」
-    setIsMultiLine(contentHeight > MIN_HEIGHT + 4);
-
-    // ⭐ 記錄現在輸入框高度，等一下拿來算聊天區的 paddingBottom
     setInputBoxHeight(newHeight);
   }
 
@@ -102,8 +136,10 @@ export default function LLMPage() {
       inputRef.current.style.overflowY = "hidden";
       inputRef.current.scrollTop = 0;
     }
-    setIsMultiLine(false); // 送出後恢復成單行膠囊
-    setInputBoxHeight(MIN_HEIGHT); // ⭐ 聊天區 padding 也一起回到最小
+    // ⭐ 重置成單行膠囊狀態
+    baseHeightRef.current = null;
+    setIsMultiLine(false);
+    setInputBoxHeight(MIN_HEIGHT);
 
     setLoading(true);
 
@@ -233,11 +269,9 @@ export default function LLMPage() {
           {/* 底部輸入列（GPT 風格） */}
           <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-3 pb-4">
             <form onSubmit={sendMessage}>
-              {/* 先用一層 wrapper 控制整體寬度 */}
               <div className="w-full flex justify-center">
-                {/* max-w-3xl = 約 768px，想更寬就改成 max-w-4xl / w-[900px] */}
                 <div className="flex items-end gap-3 w-full max-w-3xl">
-                  {/* 膠囊輸入框：用 flex-1 在這個容器裡分配剩餘寬度 */}
+                  {/* 膠囊輸入框 */}
                   <div className="flex-1 relative">
                     <div
                       className={`
@@ -249,13 +283,10 @@ export default function LLMPage() {
                         ${isMultiLine ? "rounded-2xl" : "rounded-full"}
                       `}
                     >
-                      {/* 這一層：上面永遠是 textarea；下面在多行時才出現按鈕列 */}
                       <div className="flex flex-col gap-2">
-                        {/* 上半：單行 = 一排 + textarea + 送出；多行 = 只剩 textarea */}
+                        {/* 上半：單行 = 一排 + textarea + 送出；多行 = 只剩 textarea 撐滿 */}
                         <div
-                          className={
-                            isMultiLine ? "" : "flex items-end gap-3"
-                          }
+                          className={isMultiLine ? "" : "flex items-end gap-3"}
                         >
                           {/* 單行模式時的左側 + */}
                           {!isMultiLine && (
@@ -268,14 +299,15 @@ export default function LLMPage() {
                             </button>
                           )}
 
-                          {/* textarea（永遠同一顆元件） */}
+                          {/* textarea */}
                           <textarea
                             ref={inputRef}
                             value={input}
                             onChange={handleInputChange}
                             onKeyDown={handleKeyDown}
                             placeholder="提出任何問題⋯"
-                            className={` 
+                            rows={1}
+                            className={`
                               custom-scroll
                               bg-transparent
                               resize-none
@@ -285,11 +317,7 @@ export default function LLMPage() {
                               text-slate-50
                               placeholder:text-slate-500
                               leading-relaxed
-                              ${
-                                isMultiLine
-                                  ? "w-full"
-                                  : "flex-1 self-end"
-                              }
+                              ${isMultiLine ? "w-full" : "flex-1 self-end"}
                             `}
                           />
 
