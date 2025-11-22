@@ -66,7 +66,6 @@ export default function LLMPage() {
     if (text.trim().length === 0) {
       baseHeightRef.current = null;
       el.style.height = `${MIN_HEIGHT}px`;
-      el.style.overflowY = "hidden";
       setIsMultiLine(false);
       setInputBoxHeight(MIN_HEIGHT);
       return;
@@ -92,19 +91,14 @@ export default function LLMPage() {
 
       // 單行模式下，高度永遠固定為膠囊高度，不跟著 contentHeight 跳
       el.style.height = `${MIN_HEIGHT}px`;
-      el.style.overflowY = "hidden";
       setInputBoxHeight(MIN_HEIGHT);
       return;
     }
 
-    // 走到這裡 = 已經是多行模式，才開始真的依內容調整高度
-    const newHeight = Math.max(
-      MIN_HEIGHT * 2,
-      Math.min(contentHeight, MAX_HEIGHT)
-    );
+    // 多行模式：高度直接跟內容一樣高（最多到 MAX_HEIGHT）
+    const newHeight = Math.min(contentHeight, MAX_HEIGHT);
 
     el.style.height = `${newHeight}px`;
-    el.style.overflowY = contentHeight > MAX_HEIGHT ? "auto" : "hidden";
     setInputBoxHeight(newHeight);
   }
 
@@ -132,10 +126,10 @@ export default function LLMPage() {
     setInput("");
 
     if (inputRef.current) {
-      inputRef.current.value = "";
-      inputRef.current.style.height = `${MIN_HEIGHT}px`;
-      inputRef.current.style.overflowY = "hidden";
-      inputRef.current.scrollTop = 0;
+      const el = inputRef.current;
+      el.value = "";
+      el.style.height = `${MIN_HEIGHT}px`;
+      el.scrollTop = 0;
     }
     // 重置成單行膠囊狀態
     baseHeightRef.current = null;
@@ -179,28 +173,60 @@ export default function LLMPage() {
     <div
       className="
         h-[calc(100vh-4rem)]
-        bg-slate-950 text-slate-50
         flex overflow-hidden
       "
+      style={{
+        backgroundColor: "var(--background)",
+        color: "var(--foreground)",
+      }}
     >
       {/* 左側導覽列（ChatGPT 風格） */}
-      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
-        {/* Logo 區 */}
-        <div className="px-4 pt-4 pb-3 border-b border-slate-800">
-          <h1 className="text-lg font-semibold tracking-wide">GalaBone</h1>
-          <p className="text-[11px] text-slate-400 mt-1">
-            BoneVision · LLM · EduGen
-          </p>
+      <aside
+        className="w-64 border-r flex flex-col"
+        style={{
+          backgroundColor: "var(--background)",
+          borderColor: "var(--navbar-border)",
+          color: "var(--navbar-text)",
+        }}
+      >
+        {/* Logo 區 + Session ID */}
+        <div
+          className="px-4 pt-4 pb-3 border-b flex flex-col gap-3"
+          style={{ borderColor: "var(--navbar-border)" }}
+        >
+          <div>
+            <h1 className="text-lg font-semibold tracking-wide">GalaBone</h1>
+            <p className="text-[11px] mt-1 opacity-70">Your Bone We Care</p>
+          </div>
+
+          <label className="flex flex-col gap-1 text-[11px] opacity-80">
+            <span>Session ID</span>
+            <input
+              className="rounded-md px-2 py-[4px] text-[11px] outline-none border"
+              style={{
+                backgroundColor: "var(--background)",
+                color: "var(--foreground)",
+                borderColor: "var(--navbar-border)",
+              }}
+              value={sessionId}
+              onChange={(e) => setSessionId(e.target.value)}
+            />
+          </label>
         </div>
 
         {/* Nav 區 */}
         <nav className="flex-1 px-2 pt-4 pb-2 space-y-4 text-sm">
           {/* 工作區（目前頁面） */}
           <div>
-            <p className="px-3 mb-1 text-[11px] tracking-wide text-slate-500">
+            <p className="px-3 mb-1 text-[11px] tracking-wide opacity-60">
               工作區
             </p>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md bg-slate-800 text-slate-50">
+            <button
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md"
+              style={{
+                backgroundColor: "rgba(148,163,184,0.15)",
+              }}
+            >
               <i className="fa-regular fa-message text-[13px]" />
               <span>LLM Console</span>
             </button>
@@ -208,56 +234,40 @@ export default function LLMPage() {
 
           {/* 工具與管理 */}
           <div>
-            <p className="px-3 mb-1 text-[11px] tracking-wide text-slate-500">
+            <p className="px-3 mb-1 text-[11px] tracking-wide opacity-60">
               工具與管理
             </p>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-slate-200 hover:bg-slate-800">
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10">
               <i className="fa-solid fa-wand-magic-sparkles text-[13px]" />
               <span>EduGen</span>
             </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-slate-200 hover:bg-slate-800">
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10">
               <i className="fa-solid fa-folder-tree text-[13px]" />
               <span>資源管理</span>
             </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-slate-200 hover:bg-slate-800">
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10">
               <i className="fa-regular fa-clock text-[13px]" />
               <span>對話紀錄</span>
             </button>
           </div>
         </nav>
 
-        {/* 底部設定列 + Session ID */}
-        <div className="px-4 py-3 border-t border-slate-800 flex flex-col gap-2 text-[11px] text-slate-500">
-          {/* 設定列 */}
-          <div className="flex items-center gap-2">
-            <i className="fa-solid fa-gear text-[11px]" />
-            <span>設定</span>
-          </div>
-
-          {/* Session ID 輸入框 */}
-          <label className="flex flex-col gap-1 text-[11px] text-slate-400">
-            <span>Session ID</span>
-            <input
-              className="bg-slate-900 border border-slate-700 rounded-md px-2 py-[4px] text-[11px] outline-none focus:border-sky-500"
-              value={sessionId}
-              onChange={(e) => setSessionId(e.target.value)}
-            />
-          </label>
+        {/* 底部設定列（只留齒輪文字） */}
+        <div
+          className="px-4 py-3 flex items-center gap-2 text-[11px] opacity-70 border-t"
+          style={{ borderColor: "var(--navbar-border)" }}
+        >
+          <i className="fa-solid fa-gear text-[11px]" />
+          <span>設定</span>
         </div>
       </aside>
 
       {/* 右側主畫面 */}
       <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden">
-        {/* Header */}
-        <header className="flex items-center justify-between">
-          <div>
-          </div>
-        </header>
-
         {/* 聊天區 + 浮動輸入列 */}
         <section className="flex-1 min-h-0 flex flex-col relative">
           {/* 上方小標題 */}
-          <div className="flex items-center justify-between mb-2 text-xs text-slate-400 px-1">
+          <div className="flex items-center justify-between mb-2 text-xs opacity-70 px-1">
             <span>Demo 1.0 ver.（尚未接後端）</span>
           </div>
 
@@ -298,7 +308,10 @@ export default function LLMPage() {
           </div>
 
           {/* 底部輸入列（GPT 風格） */}
-          <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent pt-3 pb-4">
+          <div
+            className="sticky bottom-0 left-0 right-0 pt-3 pb-4"
+            style={{ backgroundColor: "var(--background)" }}
+          >
             <form onSubmit={sendMessage}>
               <div className="w-full flex justify-center">
                 <div className="flex items-end gap-3 w-full max-w-3xl">
@@ -306,13 +319,15 @@ export default function LLMPage() {
                   <div className="flex-1 relative">
                     <div
                       className={`
-                        bg-[#0f172a]
-                        border border-slate-700
-                        px-4 py-2
-                        shadow-lg shadow-slate-900/50
-                        backdrop-blur-sm
+                        border px-4 py-2 shadow-lg backdrop-blur-sm
                         ${isMultiLine ? "rounded-2xl" : "rounded-full"}
                       `}
+                      // ⭐ 這裡改成吃全域變數：白天 = 淺灰卡片，夜間 = 深色
+                      style={{
+                        backgroundColor: "var(--navbar-bg)",
+                        borderColor: "var(--navbar-border)",
+                        color: "var(--foreground)",
+                      }}
                     >
                       <div className="flex flex-col gap-2">
                         {/* 上半：單行 = 一排 + textarea + 送出；多行 = 只剩 textarea 撐滿 */}
@@ -324,7 +339,8 @@ export default function LLMPage() {
                             <button
                               type="button"
                               onClick={() => setShowToolMenu((v) => !v)}
-                              className="self-end text-2xl text-slate-400 hover:text-slate-200 pb-[2px]"
+                              className="self-end text-2xl pb-[2px]"
+                              style={{ color: "var(--foreground)" }}
                             >
                               +
                             </button>
@@ -345,23 +361,33 @@ export default function LLMPage() {
                               border-none
                               outline-none
                               text-sm
-                              text-slate-50
-                              placeholder:text-slate-500
                               leading-relaxed
+                              overflow-hidden
+                              placeholder:text-slate-500
                               ${isMultiLine ? "w-full" : "flex-1 self-end"}
                             `}
+                            style={{
+                              color: "var(--foreground)",
+                              caretColor: "var(--foreground)",
+                            }}
                           />
 
                           {/* 單行模式時的右側 綠點 + 箭頭 */}
                           {!isMultiLine && (
                             <div className="flex items-end gap-3 self-end">
-                              <span className="text-[10px] text-emerald-200 pb-[3px]">
+                              <span className="text-[10px] text-emerald-400 pb-[3px]">
                                 ●
                               </span>
                               <button
                                 type="submit"
                                 disabled={!input.trim() || loading}
-                                className="h-7 w-7 rounded-full bg-sky-400 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                                className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                                style={{
+                                  background:
+                                    "linear-gradient(135deg,#0ea5e9,#22c55e)",
+                                  boxShadow:
+                                    "0 10px 25px rgba(56,189,248,0.45)",
+                                }}
                               >
                                 {loading ? (
                                   "…"
@@ -379,19 +405,26 @@ export default function LLMPage() {
                             <button
                               type="button"
                               onClick={() => setShowToolMenu((v) => !v)}
-                              className="text-2xl text-slate-400 hover:text-slate-200"
+                              className="text-2xl"
+                              style={{ color: "var(--foreground)" }}
                             >
                               +
                             </button>
 
                             <div className="flex items-center gap-3">
-                              <span className="text-[10px] text-emerald-200">
+                              <span className="text-[10px] text-emerald-400">
                                 ●
                               </span>
                               <button
                                 type="submit"
                                 disabled={!input.trim() || loading}
-                                className="h-7 w-7 rounded-full bg-sky-400 flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                                className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                                style={{
+                                  background:
+                                    "linear-gradient(135deg,#0ea5e9,#22c55e)",
+                                  boxShadow:
+                                    "0 10px 25px rgba(56,189,248,0.45)",
+                                }}
                               >
                                 {loading ? (
                                   "…"
@@ -408,21 +441,17 @@ export default function LLMPage() {
 
                   {/* 匯出按鈕 +「往上」展開選單 */}
                   <div className="relative self-end">
+                    {/* 紫色 pill + 黑邊 */}
                     <button
                       type="button"
                       onClick={() => setShowExportMenu((v) => !v)}
-                      className="
-                        px-4 py-2
-                        rounded-2xl
-                        bg-indigo-500/90
-                        text-white
-                        text-xs font-medium
-                        border border-indigo-400/40
-                        shadow-lg shadow-indigo-900/30
-                        hover:bg-indigo-500
-                        transition-all duration-150
-                        flex items-center gap-1
-                      "
+                      className="px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1"
+                      style={{
+                        backgroundColor: "#6366f1",
+                        color: "#ffffff",
+                        border: "2px solid #0f172a",
+                        boxShadow: "0 18px 40px rgba(15,23,42,0.35)",
+                      }}
                     >
                       匯出
                       <span className="text-[10px]">
@@ -432,26 +461,43 @@ export default function LLMPage() {
 
                     {showExportMenu && (
                       <div
-                        className="
-                          absolute right-0 bottom-full mb-2
-                          w-32
-                          bg-slate-900/95 backdrop-blur-sm
-                          border border-slate-700/60
-                          rounded-xl shadow-xl
-                          text-xs overflow-hidden z-20
-                        "
+                        className="absolute right-0 bottom-full mb-2 w-32 rounded-xl shadow-xl text-xs overflow-hidden z-20 border"
+                        style={{
+                          backgroundColor: "var(--background)",
+                          borderColor: "var(--navbar-border)",
+                          color: "var(--foreground)",
+                          boxShadow: "0 18px 40px rgba(15,23,42,0.2)",
+                        }}
                       >
                         <button
                           type="button"
                           onClick={() => handleExport("pdf")}
-                          className="w-full text-left px-3 py-2 hover:bg-slate-800/70 transition"
+                          className="w-full text-left px-3 py-2"
+                          style={{ cursor: "pointer" }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.backgroundColor =
+                              "rgba(148,163,184,0.18)")
+                          }
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.backgroundColor =
+                              "transparent")
+                          }
                         >
                           匯出 PDF
                         </button>
                         <button
                           type="button"
                           onClick={() => handleExport("ppt")}
-                          className="w-full text-left px-3 py-2 hover:bg-slate-800/70 transition"
+                          className="w-full text-left px-3 py-2"
+                          style={{ cursor: "pointer" }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.backgroundColor =
+                              "rgba(148,163,184,0.18)")
+                          }
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.backgroundColor =
+                              "transparent")
+                          }
                         >
                           匯出 PPT
                         </button>
