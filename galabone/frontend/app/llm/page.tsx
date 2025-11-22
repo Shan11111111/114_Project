@@ -42,6 +42,7 @@ export default function LLMPage() {
   const [sessionId, setSessionId] = useState("test-1");
   const [loading, setLoading] = useState(false);
   const [showToolMenu, setShowToolMenu] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false); // 匯出選單開關
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -86,7 +87,7 @@ export default function LLMPage() {
 
       // 如果已經超過單行高度一點點，就切換成多行
       if (contentHeight > singleLineHeight + 2) {
-        setIsMultiLine(true); // ⭐ 只會從 false -> true
+        setIsMultiLine(true); // 只會從 false -> true
       }
 
       // 單行模式下，高度永遠固定為膠囊高度，不跟著 contentHeight 跳
@@ -136,7 +137,7 @@ export default function LLMPage() {
       inputRef.current.style.overflowY = "hidden";
       inputRef.current.scrollTop = 0;
     }
-    // ⭐ 重置成單行膠囊狀態
+    // 重置成單行膠囊狀態
     baseHeightRef.current = null;
     setIsMultiLine(false);
     setInputBoxHeight(MIN_HEIGHT);
@@ -167,37 +168,65 @@ export default function LLMPage() {
     autoResizeTextarea();
   }
 
+  // 匯出動作（之後在這邊接真正匯出邏輯）
+  function handleExport(type: "pdf" | "ppt") {
+    setShowExportMenu(false);
+    console.log("export:", type);
+    // TODO: 接後端匯出功能
+  }
+
   return (
     <main className="h-screen bg-slate-950 text-slate-50 flex overflow-hidden">
-      {/* 左側導覽列 */}
-      <aside className="w-60 bg-slate-900 border-r border-slate-800 flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-800">
-          <h1 className="text-xl font-bold tracking-wide">GalaBone</h1>
-          <p className="text-xs text-slate-400 mt-1">
+      {/* 左側導覽列（ChatGPT 風格） */}
+      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
+        {/* Logo 區 */}
+        <div className="px-4 pt-4 pb-3 border-b border-slate-800">
+          <h1 className="text-lg font-semibold tracking-wide">GalaBone</h1>
+          <p className="text-[11px] text-slate-400 mt-1">
             BoneVision · LLM · EduGen
           </p>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 text-sm">
-          <button className="w-full text-left px-3 py-2 rounded-lg text-slate-200 hover:bg-slate-800">
-            BoneVision
-          </button>
-          <button className="w-full text-left px-3 py-2 rounded-lg bg-sky-600/80 text-white font-semibold">
-            LLM Assistant
-          </button>
-          <button className="w-full text-left px-3 py-2 rounded-lg text-slate-200 hover:bg-slate-800">
-            EduGen
-          </button>
-          <button className="w-full text-left px-3 py-2 rounded-lg text-slate-200 hover:bg-slate-800">
-            Resource
-          </button>
-          <button className="w-full text-left px-3 py-2 rounded-lg text-slate-200 hover:bg-slate-800">
-            Settings
-          </button>
+        {/* Nav 區 */}
+        <nav className="flex-1 px-2 pt-4 pb-2 space-y-4 text-sm">
+          {/* 工作區（目前頁面） */}
+          <div>
+            <p className="px-3 mb-1 text-[11px] tracking-wide text-slate-500">
+              工作區
+            </p>
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md bg-slate-800 text-slate-50">
+              <i className="fa-regular fa-message text-[13px]" />
+              <span>LLM Console</span>
+            </button>
+          </div>
+
+          {/* 工具與管理 */}
+          <div>
+            <p className="px-3 mb-1 text-[11px] tracking-wide text-slate-500">
+              工具與管理
+            </p>
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-slate-200 hover:bg-slate-800">
+              <i className="fa-solid fa-wand-magic-sparkles text-[13px]" />
+              <span>EduGen</span>
+            </button>
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-slate-200 hover:bg-slate-800">
+              <i className="fa-solid fa-folder-tree text-[13px]" />
+              <span>資源管理</span>
+            </button>
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-slate-200 hover:bg-slate-800">
+              <i className="fa-regular fa-clock text-[13px]" />
+              <span>對話紀錄</span>
+            </button>
+          </div>
         </nav>
 
-        <div className="px-4 py-3 border-t border-slate-800 text-[11px] text-slate-400">
-          Session：{sessionId}
+        {/* 底部設定列 */}
+        <div className="px-4 py-3 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <i className="fa-solid fa-gear text-[11px]" />
+            <span>設定</span>
+          </span>
+          <span className="text-slate-400">Session：{sessionId}</span>
         </div>
       </aside>
 
@@ -375,19 +404,58 @@ export default function LLMPage() {
                     </div>
                   </div>
 
-                  {/* 匯出按鈕 */}
-                  <button
-                    type="button"
-                    className="self-end px-4 py-2 rounded-full bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs border border-slate-700"
-                  >
-                    匯出 PDF
-                  </button>
-                  <button
-                    type="button"
-                    className="self-end px-4 py-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-500 text-xs border border-indigo-500"
-                  >
-                    匯出 PPT
-                  </button>
+                  {/* 匯出按鈕 +「往上」展開選單 */}
+                  <div className="relative self-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowExportMenu((v) => !v)}
+                      className="
+                        px-4 py-2
+                        rounded-2xl
+                        bg-indigo-500/90
+                        text-white
+                        text-xs font-medium
+                        border border-indigo-400/40
+                        shadow-lg shadow-indigo-900/30
+                        hover:bg-indigo-500
+                        transition-all duration-150
+                        flex items-center gap-1
+                      "
+                    >
+                      匯出
+                      <span className="text-[10px]">
+                        {showExportMenu ? "▴" : "▾"}
+                      </span>
+                    </button>
+
+                    {showExportMenu && (
+                      <div
+                        className="
+                          absolute right-0 bottom-full mb-2
+                          w-32
+                          bg-slate-900/95 backdrop-blur-sm
+                          border border-slate-700/60
+                          rounded-xl shadow-xl
+                          text-xs overflow-hidden z-20
+                        "
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleExport("pdf")}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-800/70 transition"
+                        >
+                          匯出 PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleExport("ppt")}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-800/70 transition"
+                        >
+                          匯出 PPT
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </form>
