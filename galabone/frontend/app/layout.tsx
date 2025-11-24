@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-// ⭐ 新增：匯入 Navbar
 import Navbar from "./components/Navbar";
 
-// ⭐ 字體設定
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -27,22 +24,38 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    // ⭐⭐ 最重要：預設深色，SSR 一開始就帶 dark，避免閃白
-    <html lang="en" className="dark">
+    // ❗❗ 不要 className="dark"，SSR 不要預設 dark
+    <html lang="zh-Hant">
       <head>
         <link
           rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
         />
+
+        {/* 🚀 在 React hydrate 前設定 dark/light（避免閃爍 + 避免 hydration error） */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var stored = localStorage.getItem('theme');
+                  var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                  var theme = stored || (systemDark ? 'dark' : 'light');
+                  
+                  if (theme === 'dark') {
+                    document.documentElement.classList.add('dark');
+                  } else {
+                    document.documentElement.classList.remove('dark');
+                  }
+                } catch (_) {}
+              })();
+            `,
+          }}
+        />
       </head>
 
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {/* ⭐ Navbar（全站統一） */}
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <Navbar />
-
-        {/* ⭐ 主內容 */}
         <main>{children}</main>
       </body>
     </html>
