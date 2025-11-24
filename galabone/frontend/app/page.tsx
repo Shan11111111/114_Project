@@ -4,10 +4,13 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
-      {/* Top Nav */}
-     
-
+    <main
+      className="min-h-screen flex flex-col transition-colors duration-300"
+      style={{
+        backgroundColor: "var(--background)",
+        color: "var(--foreground)",
+      }}
+    >
       {/* Hero Section */}
       <section className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-10 px-8">
         <div className="max-w-xl space-y-5">
@@ -15,6 +18,7 @@ export default function Home() {
             讓骨科影像
             <span className="text-cyan-400"> 更直覺、好理解</span>
           </h1>
+
           <p className="text-slate-300 text-sm lg:text-base">
             GalaBone 結合 YOLOv8-OBB 與多模態 AI，
             幫助你在 X 光中快速找出骨骼、理解位置與臨床意義，
@@ -40,16 +44,49 @@ export default function Home() {
 
         {/* 右側示意卡片 */}
         <div className="w-full max-w-sm">
-          <div className="relative rounded-3xl border border-slate-800 bg-slate-900/70 p-4 overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-slate-900 to-slate-950 pointer-events-none" />
+          <div
+            className="relative rounded-3xl p-4 overflow-hidden transition-colors duration-300"
+            style={{
+              backgroundColor: "var(--card-bg)",
+              border: "1px solid var(--card-border)",
+            }}
+          >
+            {/* 上面淡淡漸層（也吃變數顏色） */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(56,189,248,0.10), transparent 40%, var(--card-bg))",
+              }}
+            />
+
             <div className="relative">
-              <p className="text-xs text-slate-400 mb-2">預覽 · BoneVision</p>
-              <div className="aspect-[3/4] rounded-2xl border border-slate-800 bg-slate-950 flex items-center justify-center">
-                <span className="text-[11px] text-slate-500">
+              <p
+                className="text-xs mb-2"
+                style={{ color: "var(--text-medium)" }}
+              >
+                預覽 · BoneVision
+              </p>
+
+              <div
+                className="aspect-[3/4] rounded-2xl flex items-center justify-center transition-colors duration-300"
+                style={{
+                  backgroundColor: "var(--card-inner-bg)",
+                  border: "1px solid var(--card-border)",
+                }}
+              >
+                <span
+                  className="text-[11px]"
+                  style={{ color: "var(--text-weak)" }}
+                >
                   之後會在這裡顯示 X 光與偵測框
                 </span>
               </div>
-              <p className="mt-3 text-[11px] text-slate-400">
+
+              <p
+                className="mt-3 text-[11px]"
+                style={{ color: "var(--text-weak)" }}
+              >
                 在 /bonevision 頁面中，你將可以上傳 X 光影像，並查看骨骼偵測結果與說明。
               </p>
             </div>

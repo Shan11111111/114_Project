@@ -77,17 +77,21 @@ export default function Navbar() {
               relative h-8 w-20 rounded-full border
               flex items-center
               transition-colors duration-300
-              ${dark ? "bg-slate-900 border-slate-100/70" : "bg-slate-200 border-slate-300"}
+              ${
+                dark
+                  ? "bg-slate-900 border-slate-100/70"
+                  : "bg-slate-200 border-slate-300"
+              }
             `}
           >
-            {/* 縮小版 iOS 風格滑動圓角球 */}
+            {/* 滑動膠囊：上下距離平均 → 用 inset-y-1 */}
             <div
               className={`
-                absolute top-1 left-1 h-6 w-12 rounded-full
+                absolute inset-y-1 w-12 rounded-full
                 bg-white shadow-md flex items-center justify-center gap-1
                 text-[9px] font-semibold
-                transition-transform duration-300
-                ${dark ? "translate-x-8" : "translate-x-0"}
+                transition-all duration-300
+                ${dark ? "right-1" : "left-1"}
               `}
             >
               {dark ? (

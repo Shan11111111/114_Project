@@ -24,15 +24,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    // ❗❗ 不要 className="dark"，SSR 不要預設 dark
-    <html lang="zh-Hant">
+    // ⭐ 這裡加 suppressHydrationWarning，讓 React 忽略 html 屬性初始不一致
+    <html lang="zh-Hant" suppressHydrationWarning>
       <head>
         <link
           rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
         />
 
-        {/* 🚀 在 React hydrate 前設定 dark/light（避免閃爍 + 避免 hydration error） */}
+        {/* 在 React hydrate 前設定 dark/light（避免閃爍 + 不碰 React 狀態） */}
         <script
           dangerouslySetInnerHTML={{
             __html: `

@@ -27,8 +27,11 @@
   /* 🔹 Link hover（柔藍） */
   --link-hover: #0ea5e9;
 
-  /* 🔹 卡片背景 */
+  /* 🔹 卡片背景（新增補強） */
   --card-bg: #ffffff;
+  --card-inner-bg: #f1f5f9;   /* ⭐ 新增：卡片內襯背景 */
+  --card-border: #d1d5db;    /* ⭐ 新增：卡片邊框 */
+  --card-gradient: linear-gradient(135deg, rgba(56,189,248,0.10), transparent 40%, #ffffff);
 
   /* 🔹 chip（未選） */
   --chip-bg: #e2e8f0;
@@ -73,9 +76,13 @@ html.dark {
 
   --link-hover: #67e8f9;
 
-  --card-bg: #020617;
+  /* ⭐ 深色卡片補強 */
+  --card-bg: #0f172a;
+  --card-inner-bg: #020617;
+  --card-border: #1e293b;
+  --card-gradient: linear-gradient(135deg, rgba(6,182,212,0.08), transparent 40%, #0f172a);
 
-  /* 深色 chip 還是用你原本的深灰 */
+  /* 深色 chip */
   --chip-bg: #1e293b;
   --chip-text: #e5e7eb;
   --chip-hover: #334155;
@@ -114,10 +121,11 @@ body {
   color: var(--foreground);
   border-radius: 0.75rem;
   padding: 1rem;
+  border: 1px solid var(--card-border);
 }
 
 /* ============================
-   灰字在 Light/Dark 調整
+   灰字 Light / Dark 調整
 ============================ */
 
 /* 淺色模式：灰字要深一些 */
@@ -133,7 +141,7 @@ html:not(.dark) .text-slate-100 {
   color: var(--text-weak) !important;
 }
 
-/* 深色模式：維持高對比 */
+/* 深色模式 */
 html.dark .text-slate-600,
 html.dark .text-slate-500 {
   color: var(--text-medium) !important;
@@ -145,9 +153,7 @@ html.dark .text-slate-200 {
 }
 
 /* ============================
-   chip（讓你的原本樣式保留）
-   → 不動 Tailwind class 結構
-   → 只覆蓋顏色
+   chip
 ============================ */
 
 /* 未選中 chip */
@@ -161,7 +167,7 @@ html:not(.dark) .text-slate-100 {
   color: var(--chip-text) !important;
 }
 
-/* 已選中 chip（保持亮藍） */
+/* 已選中 chip */
 html:not(.dark) .text-slate-900 {
   color: var(--chip-active-text) !important;
 }
