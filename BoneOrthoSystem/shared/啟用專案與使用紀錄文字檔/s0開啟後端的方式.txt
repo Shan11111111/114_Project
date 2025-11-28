@@ -1,3 +1,4 @@
+#貼這三行在cmd，不能用vs code的power shell，會被檔
 cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\s0_annotation\backend
 
 env\Scripts\activate.bat
