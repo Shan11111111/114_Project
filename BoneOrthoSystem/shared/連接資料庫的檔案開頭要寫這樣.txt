@@ -1,0 +1,26 @@
+# 例如：C:\BoneOrthoSystem\s1_detection\backend\main.py
+
+from fastapi import FastAPI
+from typing import List
+import os
+import sys
+from pathlib import Path
+
+# 把專案根目錄加進 sys.path
+BASE_DIR = Path(__file__).resolve().parents[2]  # C:\BoneOrthoSystem
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
+
+from shared.db import get_conn  # ✅ 共用同一個 MSSQL 連線設定
+
+app = FastAPI(title="S1 Detection API")
+
+@app.get("/health")
+def health():
+    # 可以簡單測一下 DB 有沒有接到
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1")
+    row = cursor.fetchone()
+    conn.close()
+    return {"ok": True, "db": row[0]}
