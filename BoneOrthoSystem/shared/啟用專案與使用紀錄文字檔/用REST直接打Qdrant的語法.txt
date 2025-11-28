@@ -1,0 +1,5 @@
+base URL 是：
+http://localhost:6333
+
+例如查詢：POST
+http://localhost:6333/collections/bone_teaching_materials/points/search

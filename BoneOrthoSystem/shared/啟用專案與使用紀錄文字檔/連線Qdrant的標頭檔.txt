@@ -1,0 +1,28 @@
+from qdrant_client import QdrantClient
+
+client = QdrantClient(
+    host="localhost",  # 之後如果放到伺服器，換成伺服器 IP
+    port=6333,
+)
+
+COLLECTION_NAME = "bone_teaching_materials"
+
+def search_vector(query_vector, top_k=5):
+    return client.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=query_vector,
+        limit=top_k,
+    )
+
+
+####向量資料庫：Qdrant
+
+####Host：localhost（如果在同一台機器開發）
+
+####Port：6333
+
+####Base URL：http://localhost:6333
+
+####沒有 API Key（本地開發，不開啟認證）
+
+####之後預設的 collection 名稱：bone_teaching_materials（骨科教材向量）

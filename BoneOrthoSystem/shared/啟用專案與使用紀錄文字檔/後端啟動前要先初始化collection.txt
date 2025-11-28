@@ -1,0 +1,9 @@
+from fastapi import FastAPI
+from services.vector_store import init_collection
+
+app = FastAPI()
+
+@app.on_event("startup")
+def startup_event():
+    # 1536 只是範例，要跟實際用的 OpenAI / 其他 embedding 模型維度對齊
+    init_collection(vector_size=1536)
