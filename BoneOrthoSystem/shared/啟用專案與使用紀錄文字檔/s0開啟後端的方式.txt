@@ -1,0 +1,5 @@
+cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\s0_annotation\backend
+
+env\Scripts\activate.bat
+
+uvicorn main:app --host 0.0.0.0 --port 8001
