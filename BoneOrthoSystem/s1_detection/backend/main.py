@@ -80,6 +80,54 @@ def get_bone_info(bone_en: str) -> Optional[Dict[str, Any]]:
         return None
 
 # ==========================================
+# 🔥 脊椎後處理：C1~C7 / T1~T12 / L1~L5
+# ==========================================
+
+SPINE_LEVELS = {
+    "Cervical_Vertebrae": ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+    "Thoracic_Vertebrae": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12"],
+    "Lumbar_Vertebrae": ["L1", "L2", "L3", "L4", "L5"],
+}
+
+def assign_spine_levels(boxes: List[Dict]) -> Dict[int, str]:
+    """
+    針對 boxes（已含 poly / cls_name）
+    幫頸椎 / 胸椎 / 腰椎自動分配 C3 / T7 / L5 等小類。
+
+    回傳 { index: "C3" } 這種 mapping。
+    """
+    index_to_sub = {}
+
+    for major_name, level_list in SPINE_LEVELS.items():
+        # 找出同一大類的框
+        idx_and_boxes = [
+            (idx, box)
+            for idx, box in enumerate(boxes)
+            if box.get("cls_name") == major_name
+        ]
+        if not idx_and_boxes:
+            continue
+
+        # Y 軸中心點（上→下排序）
+        def y_center(item):
+            _, b = item
+            poly = b.get("poly", [])
+            if not poly:
+                return 0.0
+            ys = [p[1] for p in poly]
+            return sum(ys) / len(ys)
+
+        idx_and_boxes_sorted = sorted(idx_and_boxes, key=y_center)
+
+        max_levels = len(level_list)
+        for i, (idx, b) in enumerate(idx_and_boxes_sorted):
+            sub_label = level_list[i] if i < max_levels else "unknown"
+            index_to_sub[idx] = sub_label
+
+    return index_to_sub
+
+
+# ==========================================
 # 健康檢查
 # ==========================================
 @app.get("/")
@@ -92,7 +140,7 @@ async def root():
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     """
-    接收前端圖片 → YOLO OBB 推論 → 回傳每個偵測框的 poly, conf, cls, bone_info
+    接收前端圖片 → YOLO OBB 推論 → 回傳每個偵測框的 poly, conf, cls, bone_info, sub_label
     """
     image_bytes = await file.read()
     pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -111,7 +159,6 @@ async def predict(file: UploadFile = File(...)):
     if obb is None or len(obb) == 0:
         return {"count": 0, "boxes": []}
 
-    # 8 點 polygon（已經 normalized 到 0~1）
     polys_flat: List[Any] = obb.xyxyxyxyn.tolist()
     confs: List[float] = obb.conf.tolist()
     clses: List[float] = obb.cls.tolist()
@@ -119,48 +166,47 @@ async def predict(file: UploadFile = File(...)):
     boxes = []
 
     for i in range(len(confs)):
-        # ==== 你指定要保留的邏輯 ====
-        flat_poly = polys_flat[i]  # 有可能是 [[x1,y1],...[x4,y4]] 或 [x1,y1,...,x4,y4]
+        flat_poly = polys_flat[i]
         conf = round(float(confs[i]), 3)
         cls_id = int(clses[i])
 
-        # 取得類別名稱（支援 model.names 是 list 或 dict）
+        # 類別轉名稱
         if hasattr(model, "names"):
             names = model.names
             if isinstance(names, dict):
                 cls_name = names.get(cls_id, f"class_{cls_id}")
-            else:  # list-like
-                cls_name = (
-                    names[cls_id]
-                    if isinstance(cls_id, int) and 0 <= cls_id < len(names)
-                    else f"class_{cls_id}"
-                )
+            else:
+                cls_name = names[cls_id] if 0 <= cls_id < len(names) else f"class_{cls_id}"
         else:
             cls_name = f"class_{cls_id}"
 
-        # 轉成 [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+        # polygon
         if flat_poly and isinstance(flat_poly[0], (list, tuple)):
-            # 目前實際情況：[[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
             poly_pairs = [[float(x), float(y)] for x, y in flat_poly]
         else:
-            # 備用：如果哪天變成 [x1,y1,x2,y2,...,x4,y4]
             poly_pairs = [
-                [float(flat_poly[j]), float(flat_poly[j + 1])]
+                [float(flat_poly[j]), float(flat_poly[j+1])]
                 for j in range(0, len(flat_poly), 2)
             ]
-        # ==========================
 
         bone_info = get_bone_info(cls_name)
 
         boxes.append(
             {
-                "poly": poly_pairs,     # [[x1,y1],...[x4,y4]] (normalized)
+                "poly": poly_pairs,
                 "conf": conf,
                 "cls_id": cls_id,
                 "cls_name": cls_name,
-                "bone_info": bone_info,  # 可能是 None（查不到）
+                "bone_info": bone_info,
             }
         )
+
+    # ===================================
+    # 🔥 套用脊椎後處理（C/T/L 節數）
+    # ===================================
+    spine_sub_map = assign_spine_levels(boxes)
+    for idx, sub_label in spine_sub_map.items():
+        boxes[idx]["sub_label"] = sub_label
 
     return {
         "count": len(boxes),
