@@ -13,13 +13,15 @@ const PREDICT_URL = "http://127.0.0.1:8000/predict";
 
 type PolyPoint = [number, number];
 
-type BoneInfo = {
-  bone_id: number;
-  bone_en: string;
-  bone_zh: string;
-  bone_region: string;
-  bone_desc: string;
-} | null;
+type BoneInfo =
+  | {
+      bone_id: number;
+      bone_en: string;
+      bone_zh: string;
+      bone_region: string;
+      bone_desc: string;
+    }
+  | null;
 
 type DetectionBox = {
   id: number;
@@ -27,6 +29,7 @@ type DetectionBox = {
   conf: number;
   poly: PolyPoint[]; // [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] normalized 0~1
   bone_info?: BoneInfo;
+  sub_label?: string | null; // ⭐ 小類（例如 C4 / T7 / L3）
 };
 
 type ImgBox = {
@@ -171,6 +174,7 @@ export default function BoneVisionPage() {
             Number(p[1]),
           ]),
           bone_info: b.bone_info ?? null,
+          sub_label: b.sub_label ?? null, // ⭐ 接收後端的 sub_label
         })
       );
 
@@ -206,12 +210,10 @@ export default function BoneVisionPage() {
     activeId !== null ? detections.find((b) => b.id === activeId) ?? null : null;
 
   return (
-    // ✅ 去掉固定 bg-slate-950 / text-slate-50，改用全域變數（body 已處理）
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 flex flex-col lg:flex-row gap-6 px-6 py-6">
         {/* 左側：上傳 & 控制 */}
         <section className="w-full lg:w-5/20 space-y-4">
-          {/* ✅ 改用共用 card + 邊框，背景跟隨 theme */}
           <div className="card border border-slate-800/70 shadow-xl shadow-slate-900/40">
             <h2 className="text-sm font-semibold mb-3">資料與設定</h2>
 
@@ -306,7 +308,6 @@ export default function BoneVisionPage() {
               ref={wrapperRef}
               className="relative rounded-2xl overflow-hidden border border-slate-800/70 flex items-center justify-center h-[520px]"
               style={{
-                // ✅ 預覽區背景改用全域背景變數，而不是固定 slate-950
                 backgroundColor: "var(--background)",
               }}
               onMouseDown={handlePanStart}
@@ -340,7 +341,7 @@ export default function BoneVisionPage() {
                       }`}
                       preserveAspectRatio="none"
                     >
-                      {/* 先畫非 active 的框；如果 showOnlyActive=true 就不畫 */}
+                      {/* 非 active 的框 */}
                       {!showOnlyActive &&
                         detections
                           .filter((b) => b.id !== activeId)
@@ -359,21 +360,22 @@ export default function BoneVisionPage() {
                             );
                           })}
 
-                      {/* 再畫 active 的框，永遠在最上層 */}
-                      {activeBox && (() => {
-                        const pts = polyToPoints(activeBox.poly);
-                        if (!pts) return null;
-                        return (
-                          <polygon
-                            key={`${activeBox.id}_active`}
-                            points={pts}
-                            fill="none"
-                            stroke="#22d3ee"
-                            strokeWidth={4}
-                            className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
-                          />
-                        );
-                      })()}
+                      {/* active 的框 */}
+                      {activeBox &&
+                        (() => {
+                          const pts = polyToPoints(activeBox.poly);
+                          if (!pts) return null;
+                          return (
+                            <polygon
+                              key={`${activeBox.id}_active`}
+                              points={pts}
+                              fill="none"
+                              stroke="#22d3ee"
+                              strokeWidth={4}
+                              className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
+                            />
+                          );
+                        })()}
                     </svg>
                   )}
                 </div>
@@ -417,7 +419,8 @@ export default function BoneVisionPage() {
                           : "bg-slate-800 text-slate-100 hover:bg-slate-700"
                       }`}
                     >
-                      {box.cls_name}{" "}
+                      {box.cls_name}
+                      {box.sub_label ? ` - ${box.sub_label}` : ""}{" "}
                       <span className="opacity-70">
                         ({box.conf.toFixed(2)})
                       </span>
@@ -438,6 +441,16 @@ export default function BoneVisionPage() {
                           conf {activeBox.conf.toFixed(3)}
                         </span>
                       </p>
+
+                      {/* ⭐ 顯示脊椎節數 / 小類 */}
+                      {activeBox.sub_label && (
+                        <p className="text-slate-400 mt-1">
+                          節數 / 小類：{" "}
+                          <span className="font-semibold text-emerald-300">
+                            {activeBox.sub_label}
+                          </span>
+                        </p>
+                      )}
 
                       <hr className="border-slate-800" />
 
