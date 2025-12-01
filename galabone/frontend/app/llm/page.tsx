@@ -35,7 +35,7 @@ export default function LLMPage() {
       id: 1,
       role: "assistant",
       content:
-        "嗨，我是 GalaBone LLM Demo。在這裡輸入你的問題，我會用骨科知識與多模態概念幫你解釋。。",
+        "嗨，我是 GalaBone LLM Demo。在這裡輸入你的問題，我會用骨科知識與多模態概念幫你解釋。",
     },
   ]);
   const [input, setInput] = useState("");
@@ -174,6 +174,7 @@ export default function LLMPage() {
       className="
         h-[calc(100vh-4rem)]
         flex overflow-hidden
+        transition-colors duration-500
       "
       style={{
         backgroundColor: "var(--background)",
@@ -182,7 +183,10 @@ export default function LLMPage() {
     >
       {/* 左側導覽列（ChatGPT 風格） */}
       <aside
-        className="w-64 border-r flex flex-col"
+        className="
+          w-64 border-r flex flex-col
+          transition-colors duration-500
+        "
         style={{
           backgroundColor: "var(--background)",
           borderColor: "var(--navbar-border)",
@@ -191,7 +195,7 @@ export default function LLMPage() {
       >
         {/* Logo 區 + Session ID */}
         <div
-          className="px-4 pt-4 pb-3 border-b flex flex-col gap-3"
+          className="px-4 pt-4 pb-3 border-b flex flex-col gap-3 transition-colors duration-500"
           style={{ borderColor: "var(--navbar-border)" }}
         >
           <div>
@@ -202,7 +206,7 @@ export default function LLMPage() {
           <label className="flex flex-col gap-1 text-[11px] opacity-80">
             <span>Session ID</span>
             <input
-              className="rounded-md px-2 py-[4px] text-[11px] outline-none border"
+              className="rounded-md px-2 py-[4px] text-[11px] outline-none border transition-colors duration-500"
               style={{
                 backgroundColor: "var(--background)",
                 color: "var(--foreground)",
@@ -222,7 +226,7 @@ export default function LLMPage() {
               工作區
             </p>
             <button
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-md"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors duration-500"
               style={{
                 backgroundColor: "rgba(148,163,184,0.15)",
               }}
@@ -237,15 +241,15 @@ export default function LLMPage() {
             <p className="px-3 mb-1 text-[11px] tracking-wide opacity-60">
               工具與管理
             </p>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10">
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10 transition-colors duration-500">
               <i className="fa-solid fa-wand-magic-sparkles text-[13px]" />
               <span>EduGen</span>
             </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10">
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10 transition-colors duration-500">
               <i className="fa-solid fa-folder-tree text-[13px]" />
               <span>資源管理</span>
             </button>
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10">
+            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-slate-800/10 transition-colors duration-500">
               <i className="fa-regular fa-clock text-[13px]" />
               <span>對話紀錄</span>
             </button>
@@ -254,7 +258,7 @@ export default function LLMPage() {
 
         {/* 底部設定列（只留齒輪文字） */}
         <div
-          className="px-4 py-3 flex items-center gap-2 text-[11px] opacity-70 border-t"
+          className="px-4 py-3 flex items-center gap-2 text-[11px] opacity-70 border-t transition-colors duration-500"
           style={{ borderColor: "var(--navbar-border)" }}
         >
           <i className="fa-solid fa-gear text-[11px]" />
@@ -263,7 +267,7 @@ export default function LLMPage() {
       </aside>
 
       {/* 右側主畫面 */}
-      <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden llm-main-shell">
         {/* 聊天區 + 浮動輸入列 */}
         <section className="flex-1 min-h-0 flex flex-col relative">
           {/* 上方小標題 */}
@@ -284,12 +288,26 @@ export default function LLMPage() {
                 }`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-3 py-2 whitespace-pre-wrap break-words leading-relaxed
+                  className={`
+                    max-w-[80%]
+                    chat-bubble
                     ${
                       msg.role === "user"
-                        ? "bg-sky-500 text-white rounded-br-sm"
-                        : "bg-slate-800/70 text-slate-50 rounded-bl-sm"
-                    }`}
+                        ? "chat-bubble-user"
+                        : "chat-bubble-assistant"
+                    }
+                    whitespace-pre-wrap break-words leading-relaxed
+                  `}
+                  style={{
+                    backgroundColor:
+                      msg.role === "user"
+                        ? "var(--chat-user-bg)"
+                        : "var(--chat-assistant-bg)",
+                    color:
+                      msg.role === "user"
+                        ? "var(--chat-user-text)"
+                        : "var(--chat-assistant-text)",
+                  }}
                 >
                   {msg.content}
                 </div>
@@ -298,7 +316,16 @@ export default function LLMPage() {
 
             {loading && (
               <div className="flex justify-start">
-                <div className="bg-slate-800/80 text-slate-200 text-xs rounded-2xl rounded-bl-sm px-3 py-2">
+                <div
+                  className={`
+                    chat-bubble chat-bubble-assistant
+                    text-xs
+                  `}
+                  style={{
+                    backgroundColor: "var(--chat-assistant-bg)",
+                    color: "var(--chat-assistant-text)",
+                  }}
+                >
                   正在思考中…
                 </div>
               </div>
@@ -309,7 +336,7 @@ export default function LLMPage() {
 
           {/* 底部輸入列（GPT 風格） */}
           <div
-            className="sticky bottom-0 left-0 right-0 pt-3 pb-4"
+            className="sticky bottom-0 left-0 right-0 pt-3 pb-4 transition-colors duration-500"
             style={{ backgroundColor: "var(--background)" }}
           >
             <form onSubmit={sendMessage}>
@@ -321,8 +348,9 @@ export default function LLMPage() {
                       className={`
                         border px-4 py-2 shadow-lg backdrop-blur-sm
                         ${isMultiLine ? "rounded-2xl" : "rounded-full"}
+                        transition-colors duration-500
+                        neon-shell
                       `}
-                      // ⭐ 這裡改成吃全域變數：白天 = 淺灰卡片，夜間 = 深色
                       style={{
                         backgroundColor: "var(--navbar-bg)",
                         borderColor: "var(--navbar-border)",
@@ -461,7 +489,7 @@ export default function LLMPage() {
 
                     {showExportMenu && (
                       <div
-                        className="absolute right-0 bottom-full mb-2 w-32 rounded-xl shadow-xl text-xs overflow-hidden z-20 border"
+                        className="absolute right-0 bottom-full mb-2 w-32 rounded-xl shadow-xl text-xs overflow-hidden z-20 border transition-colors duration-500"
                         style={{
                           backgroundColor: "var(--background)",
                           borderColor: "var(--navbar-border)",
