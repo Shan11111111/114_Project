@@ -1,4 +1,4 @@
-# app/db.py
+# db.py
 import pyodbc
 
 DRIVER_NAME = "ODBC Driver 18 for SQL Server"

@@ -4,3 +4,15 @@ cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\s0_annotation\backend
 env\Scripts\activate.bat
 
 uvicorn main:app --host 0.0.0.0 --port 8001
+
+#查看api有沒有活著
+http://127.0.0.1:8001/docs
+
+#網站要開
+http://localhost:8001
+或是
+http://127.0.0.1:8001
+
+#開前端的方法
+cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\s0_annotation\frontend
+npm start
