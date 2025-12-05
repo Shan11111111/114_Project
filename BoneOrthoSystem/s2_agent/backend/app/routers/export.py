@@ -1,4 +1,3 @@
-# app/routers/export.py
 from __future__ import annotations
 
 from io import BytesIO
@@ -15,6 +14,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from pptx.oxml.xmlchemy import OxmlElement  # 正確匯入
 
 from ..models import ChatRequest
 
@@ -23,14 +23,12 @@ router = APIRouter(prefix="/export", tags=["export"])
 # -------------------------
 # 字型設定（PDF 用）
 # -------------------------
-# 這裡改成專案根目錄 ai_agent_backend
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # ai_agent_backend
 FONT_DIR = PROJECT_ROOT / "fonts"
 FONT_DIR.mkdir(parents=True, exist_ok=True)
 
 REGULAR_FONT_PATH = FONT_DIR / "NotoSansTC-Regular.ttf"
 BOLD_FONT_PATH = FONT_DIR / "NotoSansTC-Bold.ttf"
-
 
 FONT_NAME = "NotoSansTC"          # 內文字型
 FONT_BOLD = "NotoSansTC-Bold"     # 粗體字型
@@ -48,12 +46,36 @@ def register_fonts() -> None:
 
 
 # -------------------------
-# 把對話整理成文字行
+# 文字前處理：去掉 ### / **...**
+# -------------------------
+def normalize_line_text(text: str) -> str:
+    """
+    共用的行文字清理：
+    - '### xxx' 變成 ● xxx
+    - 移除 Markdown 的 **粗體符號**
+    """
+    if not text:
+        return ""
+
+    # 去掉 Markdown 粗體符號
+    t = text.replace("**", "")
+
+    # 處理 '### 標題'
+    stripped = t.lstrip()
+    if stripped.startswith("### "):
+        title = stripped[4:].strip()
+        return f"● {title}"
+
+    return t
+
+
+# -------------------------
+# 把對話整理成文字行（PDF 用）
 # -------------------------
 def flatten_messages(req: ChatRequest) -> List[str]:
     """
     把 ChatRequest 轉成一行一行的文字。
-    不再在這裡放 Session ID，Session ID 交給 export_pdf 自己畫。
+    不在這裡畫 Session ID，Session ID 交給 export_pdf 自己處理。
     """
     lines: List[str] = []
 
@@ -64,14 +86,22 @@ def flatten_messages(req: ChatRequest) -> List[str]:
         if m.role == "user":
             prefix = "我"
         elif m.role == "assistant":
-            prefix = "GalaBone"
+            prefix = "Dr.Bone"
         else:
             prefix = "系統"
 
-        # 保留原本的換行
-        for seg in m.content.splitlines() or [""]:
-            lines.append(f"{prefix}：{seg}")
-        lines.append("")  # 每則訊息後空一行
+        # 保留原本的換行，但先做文字清理
+        chunks = m.content.splitlines() or [""]
+        for idx, raw_seg in enumerate(chunks):
+            seg = normalize_line_text(raw_seg)
+            if idx == 0:
+                # 第一行帶前綴
+                lines.append(f"{prefix}：{seg}")
+            else:
+                # 後續行縮排但不再重複前綴
+                lines.append(f"　{seg}")
+        # 每則訊息後補一個空行
+        lines.append("")
 
     return lines
 
@@ -170,18 +200,17 @@ def export_pdf(req: ChatRequest):
     heading_font_name = FONT_BOLD if BOLD_FONT_PATH.exists() else "Helvetica-Bold"
     body_font_name = FONT_NAME if REGULAR_FONT_PATH.exists() else "Helvetica"
 
-    # 尺寸設定：類似你範例的感覺
+    # 尺寸設定
     title_font_size = 20      # 報告標題
-    heading_font_size = 14    # 「一、」「二、」等小標
+    heading_font_size = 14    # 小標
     body_font_size = 12       # 一般文字
 
     # ---- 標題 ----
     c.setFont(title_font_name, title_font_size)
     title_text = "骨科互動助理－學習報告"
-    # 範例是靠左排版，留一點空白
     c.drawString(left_margin, height - top_margin, title_text)
 
-    # Session ID
+    # Session ID：前端已經傳「User ID」，直接顯示
     c.setFont(body_font_name, body_font_size)
     y = height - top_margin - (title_font_size + 12)
     c.drawString(left_margin, y, f"Session ID：{req.session_id}")
@@ -204,7 +233,7 @@ def export_pdf(req: ChatRequest):
                 y = height - top_margin
             continue
 
-        # 判斷是不是「一、」「二、」這種小標
+        # 判斷是不是「一、」「二、」這種小標（如果之後需要）
         stripped = line.lstrip()
         is_heading = stripped.startswith(
             ("一、", "二、", "三、", "四、", "五、", "六、")
@@ -225,7 +254,6 @@ def export_pdf(req: ChatRequest):
         for seg in wrapped_lines:
             if y < bottom_margin:
                 c.showPage()
-                # 新頁面只需要設定內文字型，之後每行會再切換
                 c.setFont(body_font_name, body_font_size)
                 y = height - top_margin
 
@@ -246,6 +274,22 @@ def export_pdf(req: ChatRequest):
 
 
 # -------------------------
+# 小工具：把段落的項目符號拿掉（PPTX 用）
+# -------------------------
+def disable_bullet(paragraph) -> None:
+    """
+    把這個 paragraph 的 ● 項目符號拿掉。
+    """
+    pPr = paragraph._element.get_or_add_pPr()
+    # 先移除原本的 buChar / buAutoNum / buNone
+    for child in list(pPr):
+        if child.tag.endswith("}buChar") or child.tag.endswith("}buAutoNum") or child.tag.endswith("}buNone"):
+            pPr.remove(child)
+    bu_none = OxmlElement("a:buNone")
+    pPr.insert(0, bu_none)
+
+
+# -------------------------
 # PPTX 匯出：標題頁 + 內容頁
 # -------------------------
 @router.post("/pptx")
@@ -254,7 +298,7 @@ def export_pptx(req: ChatRequest):
     匯出 PPT：
     - 第 1 張：骨科互動助理－學習報告 + Session ID
     - 第 2 張開始：條列所有對話內容（我 / AI / 系統）
-      標題粗黑字、內文一般字，字體大小有區分。
+      只有「我：」「Dr.Bone：」是粗體，其餘一般字重。
     """
     prs = Presentation()
 
@@ -265,6 +309,7 @@ def export_pptx(req: ChatRequest):
     subtitle_shape = slide.placeholders[1]
 
     title_shape.text = "骨科互動助理－學習報告"
+    # 一樣使用 req.session_id（前端已塞 User ID）
     subtitle_shape.text = f"Session ID：{req.session_id}"
 
     # 標題字體大一點、粗體；subtitle 小一點
@@ -318,38 +363,74 @@ def export_pptx(req: ChatRequest):
         if m.role == "user":
             prefix = "我"
         elif m.role == "assistant":
-            prefix = "GalaBone"
+            prefix = "Dr.Bone"
         else:
             prefix = "系統"
 
-        # 先拆成多行，避免一則訊息太長
         chunks = m.content.splitlines() or [""]
 
-        for idx, chunk in enumerate(chunks):
-            text = f"{prefix}：{chunk}" if idx == 0 else f"　{chunk}"
+        for idx, raw_chunk in enumerate(chunks):
+            chunk = normalize_line_text(raw_chunk)
 
-            if slide_paragraph_count >= max_paragraphs_per_slide:
-                # 換到新的內容頁
-                slide, tf = add_new_content_slide()
-                slide_paragraph_count = 0
-                first_para = True
+            # 第一行：顯示「我：...」「Dr.Bone：...」
+            if idx == 0:
+                text_body = chunk
+                if slide_paragraph_count >= max_paragraphs_per_slide:
+                    slide, tf = add_new_content_slide()
+                    slide_paragraph_count = 0
+                    first_para = True
 
-            if first_para:
-                p = tf.paragraphs[0]
-                p.text = text
-                first_para = False
+                if first_para:
+                    p = tf.paragraphs[0]
+                    first_para = False
+                else:
+                    p = tf.add_paragraph()
+
+                # 清掉預設文字
+                p.text = ""
+                p.level = 0
+                disable_bullet(p)
+
+                # 前綴 run（粗體：只對 user / assistant）
+                run_prefix = p.add_run()
+                run_prefix.text = f"{prefix}："
+                run_prefix.font.size = Pt(20)
+                run_prefix.font.bold = (m.role in ("user", "assistant"))
+
+                # 內容 run（一般字重）
+                if text_body:
+                    run_body = p.add_run()
+                    run_body.text = text_body
+                    run_body.font.size = Pt(20)
+                    run_body.font.bold = False
+
+                slide_paragraph_count += 1
+
+            # 後續行：只縮排內容，不再有前綴，也不粗體
             else:
-                p = tf.add_paragraph()
+                text = "　" + chunk  # 全形空白縮排
+
+                if slide_paragraph_count >= max_paragraphs_per_slide:
+                    slide, tf = add_new_content_slide()
+                    slide_paragraph_count = 0
+                    first_para = True
+
+                if first_para:
+                    p = tf.paragraphs[0]
+                    first_para = False
+                    p.text = ""
+                else:
+                    p = tf.add_paragraph()
+
                 p.text = text
+                p.level = 0
+                disable_bullet(p)
 
-            p.level = 0
-            for run in p.runs:
-                # 內文字體大小固定，比標題小一點
-                run.font.size = Pt(20)
-                # 只有 AI 的內容粗體，其他正常
-                run.font.bold = (m.role == "assistant")
+                for run in p.runs:
+                    run.font.size = Pt(20)
+                    run.font.bold = False
 
-            slide_paragraph_count += 1
+                slide_paragraph_count += 1
 
     bio = BytesIO()
     prs.save(bio)

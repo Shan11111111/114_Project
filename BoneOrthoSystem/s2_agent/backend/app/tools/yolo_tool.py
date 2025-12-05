@@ -1,58 +1,82 @@
-import uuid
+# app/tools/yolo_tool.py
 from pathlib import Path
-from typing import Dict, Any, List  # ★ 記得把 List 也匯進來
+from typing import Dict, Any, List
+import uuid
+import re
 
 import numpy as np
 from ultralytics import YOLO
 from PIL import Image, ImageDraw, ImageFont
 
-from .bone_labels import BONE_LABELS_ZH_EN  # ★ 中英骨頭名稱對照表
-
+from shared.db import get_bone_zh_en_by_en
 
 # ======================================
 # 路徑設定
 # ======================================
 
-# /app  => .../ai_agent_backend/app
-BASE_APP_DIR = Path(__file__).resolve().parent.parent
-# 專案根目錄 => .../ai_agent_backend
-PROJECT_ROOT = BASE_APP_DIR.parent
+BASE_APP_DIR = Path(__file__).resolve().parent.parent  # .../ai_agent_backend/app
+PROJECT_ROOT = BASE_APP_DIR.parent                     # .../ai_agent_backend
 
-# 上傳資料夾（要跟 main.py 的 UPLOAD_DIR 一樣：ai_agent_backend/data/uploads）
+# 上傳資料夾（要跟 main.py 的 UPLOAD_DIR 一樣）
 UPLOAD_DIR = PROJECT_ROOT / "data" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# 模型路徑：ai_agent_backend/app/models/best.pt
+# 模型
 MODEL_PATH = BASE_APP_DIR / "models" / "best.pt"
 if not MODEL_PATH.exists():
     raise FileNotFoundError(f"YOLO 模型檔不存在：{MODEL_PATH}")
 
-# 字型路徑：ai_agent_backend/fonts/NotoSansTC-Regular.ttf
+# 字型
 FONT_PATH = PROJECT_ROOT / "fonts" / "NotoSansTC-Regular.ttf"
 
-# 固定輸出影像寬度（為了讓框線粗細 / 字體大小看起來一致）
+# 固定輸出寬度
 TARGET_WIDTH = 800
 
 # 載入 YOLO 模型
 model = YOLO(str(MODEL_PATH))
 
 
-# ==============================
-# 中英骨頭名稱對照
-# ==============================
-def to_zh_en(name: str) -> str:
+# ======================================
+# 資料庫名稱查詢 & 顯示格式
+# ======================================
+
+def _clean_zh_name(zh: str) -> str:
     """
-    把 YOLO 的英文 class name 轉成「中文 (English)」。
-    如果查不到對應，就直接回傳原本英文。
-    例如：'tibia' -> '脛骨 (Tibia)'
+    把『肋骨 (24)』這種中文名稱，去掉最後面 '(數字)' 的部分。
+    例如：
+      '肋骨 (24)' -> '肋骨'
+      '腕骨 (16)' -> '腕骨'
     """
-    key = name.lower().strip()
-    return BONE_LABELS_ZH_EN.get(key, name)
+    if not zh:
+        return zh
+    # 去掉結尾的 (數字)
+    zh = re.sub(r"\s*\(\d+\)\s*$", "", zh)
+    return zh.strip()
 
 
-# ==============================
+def get_bone_label_for_display(yolo_name: str) -> str:
+    """
+    給 YOLO 的英文類別名稱，回傳要顯示在畫面上的「中文(英文)」。
+
+    如果資料庫查不到，就直接回傳原本英文。
+    """
+    zh, en_db = get_bone_zh_en_by_en(yolo_name)
+
+    if zh and en_db:
+        zh_clean = _clean_zh_name(zh)
+        label = f"{zh_clean}({en_db})"
+        print(f"[DB-LOOKUP] {yolo_name} => {label}")
+        return label
+    else:
+        print(f"[DB-LOOKUP] {yolo_name} => NOT FOUND, use original")
+        # 這裡維持原本 YOLO 類別名稱（例如 'Tibia'）
+        return yolo_name
+
+
+# ======================================
 # 主功能：分析圖片
-# ==============================
+# ======================================
+
 def analyze_image(image_url: str) -> Dict[str, Any]:
     """
     傳入圖片 URL（例如：/uploads/xxx.png）
@@ -60,7 +84,7 @@ def analyze_image(image_url: str) -> Dict[str, Any]:
     {
       "boxed_url": "/uploads/xxx_boxed.png",
       "detections": [
-        {"bone": "Tibia", "confidence": 0.93, "box": [x1,y1,x2,y2]},
+        {"bone": "肋骨(Ribs)", "confidence": 0.93, "box": [x1,y1,x2,y2]},
         ...
       ]
     }
@@ -72,31 +96,28 @@ def analyze_image(image_url: str) -> Dict[str, Any]:
     if not image_path.exists():
         raise FileNotFoundError(f"找不到圖片檔案：{image_path}")
 
-    # 2) 讀圖，先統一縮放成固定寬度，再丟給 YOLO
+    # 2) 讀圖並縮放
     img = Image.open(image_path).convert("RGB")
-
     orig_w, orig_h = img.size
     if orig_w != TARGET_WIDTH:
         scale = TARGET_WIDTH / float(orig_w)
         new_h = int(orig_h * scale)
         img = img.resize((TARGET_WIDTH, new_h), Image.Resampling.LANCZOS)
 
-    # 這張 img 會同時給 YOLO 推論 & 畫框，這樣粗細 / 字體就固定
+    # 3) YOLO 推論
     results = model(np.array(img))[0]
-
     detections: List[Dict[str, Any]] = []
 
-    # 3) 解析 OBB（旋轉框）或一般 boxes
     obb = getattr(results, "obb", None)
 
     if obb is not None and len(obb) > 0:
-        # xyxyxyxy: 每個框 8 個值 (x1,y1,x2,y2,x3,y3,x4,y4)
+        # 旋轉框
         xyxyxyxy = obb.xyxyxyxy.cpu().numpy()
         cls = obb.cls.cpu().numpy()
         conf = obb.conf.cpu().numpy()
 
         for i in range(len(cls)):
-            arr = np.array(xyxyxyxy[i]).reshape(-1)  # 長度 8
+            arr = np.array(xyxyxyxy[i]).reshape(-1)  # 8 個座標
             coords = arr.tolist()
 
             xs = coords[0::2]
@@ -108,62 +129,68 @@ def analyze_image(image_url: str) -> Dict[str, Any]:
             name_en = str(model.names[cid])
             score = float(conf[i])
 
+            display_name = get_bone_label_for_display(name_en)
+
             detections.append(
                 {
-                    "bone": name_en,
+                    "bone": display_name,
                     "confidence": score,
                     "box": [x1, y1, x2, y2],
                 }
             )
 
     elif results.boxes is not None and len(results.boxes) > 0:
+        # 一般框
         boxes = results.boxes
         for box in boxes:
-            # 某些版本 box.cls / box.conf 是 tensor[1]，保險一點處理
             cls_id = int(box.cls[0]) if getattr(box.cls, "__len__", None) else int(box.cls)
             score = float(box.conf[0]) if getattr(box.conf, "__len__", None) else float(box.conf)
             x1, y1, x2, y2 = box.xyxy[0].tolist()
             name_en = str(model.names[cls_id])
 
+            display_name = get_bone_label_for_display(name_en)
+
             detections.append(
                 {
-                    "bone": name_en,
+                    "bone": display_name,
                     "confidence": score,
                     "box": [float(x1), float(y1), float(x2), float(y2)],
                 }
             )
 
-    # 4) 畫框 + 文字（不再畫文字背景的小紅框）
+    # 4) 畫框 + 文字
     draw = ImageDraw.Draw(img)
-
-    # 先準備字型
     try:
-        font = ImageFont.truetype(str(FONT_PATH), 20)  # 固定 20px，看起來會比較一致
+        font = ImageFont.truetype(str(FONT_PATH), 20)
     except Exception:
         font = ImageFont.load_default()
 
     if detections:
         for det in detections:
             x1, y1, x2, y2 = det["box"]
-            name_en = det["bone"]
+            display_name = det["bone"]
             score = det["confidence"]
 
-            # 外框：純紅色，不透明，固定寬度 3
+            # 紅框
             draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=3)
 
-            # 標籤文字：中文 (English) + 分數
-            label_text = f"{to_zh_en(name_en)} {score:.2f}"
+            # 中文(英文) + 分數
+            label_text = f"{display_name} {score:.2f}"
 
-            # 文字直接畫，不再畫背景小方框
             text_pos = (x1 + 4, max(y1 - 24, 0))
             draw.text(text_pos, label_text, fill=(255, 0, 0), font=font)
     else:
-        # 沒偵測就留個提示文字
+        # 沒偵測到骨頭
         try:
             font_small = ImageFont.truetype(str(FONT_PATH), 20)
         except Exception:
             font_small = ImageFont.load_default()
-        draw.text((10, 10), "GalaBone：這張影像未偵測到特定骨頭。", fill=(255, 0, 0), font=font_small)
+        draw.text(
+            (10, 10),
+            "Dr.Bone：這張影像未偵測到特定骨頭。",
+            fill=(255, 0, 0),
+            font=font_small,
+        )
 
     # 5) 存成新的加框圖片
     new_name = f"{uuid.uuid4().hex}_boxed.png"
@@ -178,8 +205,6 @@ def analyze_image(image_url: str) -> Dict[str, Any]:
     }
 
 
-# 測試用：直接執行這個檔案可以快速驗證（跑 uvicorn 的時候不會執行）
 if __name__ == "__main__":
-    # 這裡記得改成 data/uploads 中實際存在的檔名再測
     test_name = "test_image.png"
     print(analyze_image(f"/uploads/{test_name}"))
