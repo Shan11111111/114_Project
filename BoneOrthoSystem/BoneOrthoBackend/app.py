@@ -5,6 +5,7 @@ from s0_annotation.router import router as s0_router
 from s1_detection.router import router as s1_router
 from s2_agent.router import router as s2_router
 from s3_viewer.router import router as s3_router
+from shared.router import router as shared_router
 
 app = FastAPI(title="BoneOrtho Backend")
 
@@ -18,6 +19,8 @@ app.add_middleware(
 )
 
 # 四個子系統掛進來
+
+app.include_router(shared_router, prefix="/shared")
 app.include_router(s0_router, prefix="/api/s0", tags=["S0 Annotation"])
 app.include_router(s1_router, prefix="/api/s1", tags=["S1 Detection"])
 app.include_router(s2_router, prefix="/api/s2", tags=["S2 Agent"])
