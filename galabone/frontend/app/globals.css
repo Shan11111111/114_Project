@@ -235,8 +235,7 @@ html:not(.dark) .text-slate-900 {
 /* 基本膠囊泡泡形狀 */
 .chat-bubble {
   position: relative;
-  border-radius: 9999px;
-  padding: 0.45rem 0.75rem;
+  padding: 0.45rem 0.8rem;
 }
 
 /* 左右只是身份區分用，形狀維持膠囊 */
