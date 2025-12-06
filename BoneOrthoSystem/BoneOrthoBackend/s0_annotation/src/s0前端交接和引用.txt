@@ -1,0 +1,174 @@
+// //使用 React + TS 專案
+
+// //把我給你的檔案放進去：
+// src/api/s0.ts
+// src/pages/S0AnnotationPage.tsx
+
+// //在 src/App.tsx 裡這樣用：
+// import S0AnnotationPage from "./pages/S0AnnotationPage";
+
+// function App() {
+//   return (
+//     <S0AnnotationPage
+//       imageCaseId={1}                      // 測試用，之後改成真的 case id
+//       imageUrl="http://localhost:5173/test-xray.png" // 一張測試圖片
+//     />
+//   );
+// }
+
+// export default App;
+
+// // 後端記得開著：
+// //cd BoneOrthoSystem/BoneOrthoBackend
+// //uvicorn app:app --reload --port 8000
+
+// //然後啟動前端專案：
+
+
+// // -------------------------------------------------------
+// // [S0 標註工具] 前端交接說明
+// // 後端 S0（標註工具）已經架好，目前提供 4 個主要 API，都在同一個 FastAPI 服務上：
+// // Base URL（開發機）：http://localhost:8000
+// // 之後如果部屬到伺服器，再把 domain / IP 換掉就好。
+// // -------------------------------------------------------
+
+// // 0. API 總覽
+// 1-1. 取得「大骨」清單（41 類）
+
+// Method：GET
+
+// Path：/s0/big-bones
+
+// 用途：標註時的 第一層下拉選單（股骨、肱骨…）
+
+// Response 範例
+// [
+//   {
+//     "boneId": 3,
+//     "nameZh": "股骨",
+//     "nameEn": "Femur",
+//     "region": "下肢"
+//   },
+//   {
+//     "boneId": 4,
+//     "nameZh": "脛骨",
+//     "nameEn": "Tibia",
+//     "region": "下肢"
+//   }
+// ]
+
+
+// 1-2. 取得「小骨」清單（某一大骨底下的細項）
+
+// Method：GET
+
+// Path：/s0/small-bones
+
+// Query：boneId（必填，對應上面的大骨 boneId）
+
+// 用途：標註時 第二層下拉選單（例如股骨近端、股骨遠端…）
+
+// Example
+
+// GET /s0/small-bones?boneId=3
+
+// Response 範例
+// [
+//   {
+//     "smallBoneId": 301,
+//     "boneId": 3,
+//     "nameZh": "股骨近端",
+//     "nameEn": "Proximal Femur",
+//     "serialNumber": "1",
+//     "place": null,
+//     "note": null
+//   },
+//   {
+//     "smallBoneId": 302,
+//     "boneId": 3,
+//     "nameZh": "股骨幹",
+//     "nameEn": "Shaft of Femur",
+//     "serialNumber": "2",
+//     "place": null,
+//     "note": null
+//   }
+// ]
+
+// 2. 標註框 API
+// 2-1. 儲存一張影像的所有標註框
+
+// Method：POST
+
+// Path：/s0/annotations/save
+
+// 用途：在標註頁面按「儲存」時呼叫。一次覆蓋整張圖的所有 bbox。
+
+// Request Body
+
+// {
+//   "imageCaseId": 1,
+//   "boxes": [
+//     {
+//       "boneId": 3,
+//       "smallBoneId": 301,
+//       "x_min": 0.1,
+//       "y_min": 0.2,
+//       "x_max": 0.4,
+//       "y_max": 0.5
+//     },
+//     {
+//       "boneId": 3,
+//       "smallBoneId": null,
+//       "x_min": 0.3,
+//       "y_min": 0.3,
+//       "x_max": 0.6,
+//       "y_max": 0.7
+//     }
+//   ]
+// }
+
+// 座標一律用 0~1 的相對值（相對於顯示的圖片寬高）。
+
+// boneId / smallBoneId 規則：
+
+// 使用者只標大類 → boneId 有值、smallBoneId 可以是 null
+
+// 使用者標大+小 → 兩個都有值
+
+// 兩個都 null 不允許，後端會回 400
+
+// 2-2. 讀出某張影像已存的標註框
+
+// Method：GET
+
+// Path：/s0/annotations/{imageCaseId}
+
+// 用途：進入標註頁時，把舊框畫回去。
+
+// Example
+
+// GET /s0/annotations/1
+
+// Response 範例
+// [
+//   {
+//     "annotationId": 10,
+//     "imageCaseId": 1,
+//     "boneId": 3,
+//     "smallBoneId": 301,
+//     "x_min": 0.1,
+//     "y_min": 0.2,
+//     "x_max": 0.4,
+//     "y_max": 0.5
+//   },
+//   {
+//     "annotationId": 11,
+//     "imageCaseId": 1,
+//     "boneId": 3,
+//     "smallBoneId": null,
+//     "x_min": 0.3,
+//     "y_min": 0.3,
+//     "x_max": 0.6,
+//     "y_max": 0.7
+//   }
+// ]
