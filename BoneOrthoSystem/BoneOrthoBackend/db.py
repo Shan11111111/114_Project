@@ -16,11 +16,11 @@ CONN_STR = (
     "TrustServerCertificate=yes;"
 )
 
-def get_conn():
+def get_connection():
     return pyodbc.connect(CONN_STR)
 
 def query_all(sql, params=None):
-    with get_conn() as conn:
+    with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql, params or [])
         cols = [c[0] for c in cur.description]
@@ -28,7 +28,7 @@ def query_all(sql, params=None):
     return rows
 
 def execute(sql, params=None):
-    with get_conn() as conn:
+    with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql, params or [])
         conn.commit()
