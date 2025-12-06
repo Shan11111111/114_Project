@@ -20,29 +20,132 @@
       justify-content: space-between;
     }
     header h1 { margin: 0; font-size: 20px; }
+
     .session-box {
       display: flex;
       align-items: center;
       gap: 8px;
       font-size: 14px;
     }
+    .session-box span {
+      white-space: nowrap;
+    }
     .session-box input {
       padding: 4px 8px;
       border-radius: 4px;
       border: 1px solid #ccc;
-      min-width: 120px;
+      min-width: 140px;
+    }
+    .session-box button {
+      border: 1px solid #fff;
+      background: transparent;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
     }
 
     main { padding: 16px; }
     .container {
-      max-width: 1100px;
+      max-width: 1200px;
       margin: 0 auto;
       background: #fff;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
       display: flex;
+      min-height: 520px;
+      overflow: hidden;
+    }
+
+    /* 左側對話列表 */
+    .sidebar {
+      width: 260px;
+      border-right: 1px solid #e0e0e0;
+      display: flex;
       flex-direction: column;
-      min-height: 500px;
+      background: #fafafa;
+    }
+
+    .sidebar-header {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #e0e0e0;
+      background: #ffffff;
+    }
+    .sidebar-header h2 {
+      margin: 0;
+      font-size: 15px;
+      color: #333;
+    }
+    #new-conversation-btn {
+      background: #1976d2;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .conversation-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    .conversation-item {
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .conversation-item-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+    }
+    .conversation-item .title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 3px;
+    }
+    .conversation-item .time {
+      font-size: 12px;
+      color: #777;
+    }
+    .conversation-item.active {
+      background: #e0f2f1;
+      box-shadow: 0 0 0 2px #26a69a inset;
+    }
+    .conversation-empty {
+      padding: 16px 8px;
+      font-size: 13px;
+      color: #888;
+    }
+    .delete-btn {
+      background: transparent;
+      border: none;
+      color: #999;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0 0 0 6px;
+    }
+    .delete-btn:hover {
+      color: #e53935;
+    }
+
+    /* 右側聊天區 */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
     }
 
     #messages {
@@ -78,6 +181,7 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+      background: #fff;
     }
 
     .input-row {
@@ -120,54 +224,81 @@
     #export-pdf-btn { background: #e53935; }
     #export-pptx-btn { background: #3949ab; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* 讓 system 訊息醒目一點 */
+    .msg.system strong {
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>Bone Assistant</h1>
     <div class="session-box">
-      <span>Session ID：</span>
-      <input id="session-id" type="text" value="test-1" />
+      <span>Session / User ID：</span>
+      <input id="user-id-input" type="text" placeholder="請先輸入 User ID" />
+      <button id="load-user-btn">載入對話</button>
     </div>
   </header>
 
   <main>
     <div class="container">
-      <div id="messages"></div>
-
-      <div id="files-panel">
-        <h3>已上傳檔案：</h3>
-        <div id="files-list">(尚未上傳任何檔案)</div>
-      </div>
-
-      <div class="bottom-bar">
-        <div class="input-row">
-          <input
-            id="question-input"
-            type="text"
-            placeholder="輸入想問的問題，例如：『股骨的功能是什麼？』"
-          />
-          <button id="send-btn">送出</button>
+      <!-- 左側：對話列表 -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h2>對話列表</h2>
+          <button id="new-conversation-btn">+ 新對話</button>
         </div>
-
-        <div class="action-row">
-          <div>
-            <input type="file" id="file-input" multiple />
-            <button id="upload-btn">上傳檔案</button>
-          </div>
-          <div>
-            <button id="export-pdf-btn">匯出 PDF</button>
-            <button id="export-pptx-btn">匯出 PPT</button>
+        <div id="conversation-list" class="conversation-list">
+          <div class="conversation-empty">
+            （尚無對話，請先在右上輸入 User ID 並按「載入對話」。）
           </div>
         </div>
-      </div>
+      </aside>
+
+      <!-- 右側：聊天區 -->
+      <section class="chat-area">
+        <div id="messages"></div>
+
+        <div id="files-panel">
+          <h3>已上傳檔案：</h3>
+          <div id="files-list">(尚未上傳任何檔案)</div>
+        </div>
+
+        <div class="bottom-bar">
+          <div class="input-row">
+            <input
+              id="question-input"
+              type="text"
+              placeholder="輸入想問的問題，例如：『股骨的功能是什麼？』"
+            />
+            <button id="send-btn">送出</button>
+          </div>
+
+          <div class="action-row">
+            <div>
+              <input type="file" id="file-input" multiple />
+              <button id="upload-btn">上傳檔案</button>
+            </div>
+            <div>
+              <button id="export-pdf-btn">匯出 PDF</button>
+              <button id="export-pptx-btn">匯出 PPT</button>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   </main>
 
   <script>
     const BASE_URL = "http://127.0.0.1:8000";
 
-    const sessionInput = document.getElementById("session-id");
+    const userIdInput = document.getElementById("user-id-input");
+    const loadUserBtn = document.getElementById("load-user-btn");
+
+    const convoListDiv = document.getElementById("conversation-list");
+    const newConvoBtn = document.getElementById("new-conversation-btn");
+
     const messagesDiv = document.getElementById("messages");
     const filesPanel = document.getElementById("files-list");
     const questionInput = document.getElementById("question-input");
@@ -177,10 +308,15 @@
     const exportPdfBtn = document.getElementById("export-pdf-btn");
     const exportPptxBtn = document.getElementById("export-pptx-btn");
 
-    const localMessages = [];
-    let serverMessageCount = 0;
-    const uploadedFilesState = [];
+    // 狀態
+    let currentUserId = null;
+    let currentConversationId = null;
+    let conversations = [];                  // 對話列表
+    let uploadedFilesState = [];             // 檔案列表（簡單先共用）
+    let localMessagesMap = {};               // convId -> messages[]
+    let serverMessageCountMap = {};          // convId -> 已知訊息數
 
+    // ========= UI 工具 =========
     function appendMessage(role, content, type = "text") {
       const div = document.createElement("div");
       div.classList.add("msg");
@@ -189,8 +325,10 @@
       if (role === "assistant") div.classList.add("assistant");
 
       if (type === "text") {
-        const label = role === "user" ? "我" :
-                      role === "assistant" ? "GalaBone" : "系統";
+        const label =
+          role === "user" ? "我" :
+          role === "assistant" ? "Dr.Bone" :
+          "系統";
         div.innerHTML = `<span class="label">${label}：</span>${content}`;
       } else if (type === "image") {
         div.innerHTML =
@@ -200,19 +338,143 @@
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
+    function clearMessages() {
+      messagesDiv.innerHTML = "";
+    }
+
     function renderFilesList(filesState) {
       if (!filesState.length) {
         filesPanel.textContent = "(尚未上傳任何檔案)";
         return;
       }
       filesPanel.innerHTML = "";
-      filesState.forEach(f => {
+      filesState.forEach((f) => {
         const div = document.createElement("div");
         div.classList.add("file-item");
         div.innerHTML =
           `• <span class="name">${f.filename}</span>` +
           ` <span class="type">(${f.filetype || "unknown"})</span>`;
         filesPanel.appendChild(div);
+      });
+    }
+
+    function renderConversationList() {
+      convoListDiv.innerHTML = "";
+
+      if (!conversations.length) {
+        const empty = document.createElement("div");
+        empty.className = "conversation-empty";
+        empty.textContent = "（尚無對話，請點右上「載入對話」或「+ 新對話」。）";
+        convoListDiv.appendChild(empty);
+        return;
+      }
+
+      conversations.forEach((conv) => {
+        const div = document.createElement("div");
+        div.className = "conversation-item";
+        if (conv.conversation_id === currentConversationId) {
+          div.classList.add("active");
+        }
+
+        const title = conv.title || "(未命名對話)";
+        const dateStr = conv.updated_at || conv.created_at;
+        let timeText = "";
+
+        if (dateStr) {
+          try {
+            const dt = new Date(
+              dateStr.endsWith("Z") ? dateStr : dateStr + "Z"
+            );
+            timeText = dt.toLocaleString("zh-TW", {
+              timeZone: "Asia/Taipei",
+              hour12: false,
+            });
+          } catch {
+            timeText = dateStr;
+          }
+        }
+
+
+        div.innerHTML = `
+          <div class="conversation-item-header">
+            <div class="title">${title}</div>
+            <button class="delete-btn" title="刪除此對話">✕</button>
+          </div>
+          <div class="time">${timeText}</div>
+        `;
+
+        // 點整塊 = 切換對話
+        div.addEventListener("click", () => {
+          selectConversation(conv.conversation_id);
+        });
+
+        // 刪除按鈕
+        const delBtn = div.querySelector(".delete-btn");
+        delBtn.addEventListener("click", (e) => {
+          e.stopPropagation(); // 不要觸發上面的 click (避免切換)
+          handleDeleteConversation(conv.conversation_id);
+        });
+
+        convoListDiv.appendChild(div);
+      });
+    }
+
+    function setSystemIntro() {
+      clearMessages();
+      appendMessage(
+        "system",
+        "請先在右上輸入 User ID，並按「載入對話」。\n" +
+          "・載入後可在左側選擇既有對話，或按「+ 新對話」開新聊天室。\n" +
+          "・文字問題 → /agent/chat 進行 RAG 回答。\n" +
+          "・上傳圖片 → 觸發 YOLO 示範辨識。\n" +
+          "・上傳 PDF/PPTX/Word/Excel/TXT → /upload 解析並產生摘要，寫入對話。\n" +
+          "・匯出 PDF / PPTX → 依目前對話內容產生學習報告。"
+      );
+    }
+
+    // ========= 後端呼叫 =========
+
+    async function loadConversationsForUser(userId) {
+      const res = await fetch(
+        `${BASE_URL}/agent/conversations?user_id=${encodeURIComponent(userId)}`
+      );
+      if (!res.ok) {
+        const txt = await res.text();
+        appendMessage("system", `載入對話列表失敗：${res.status} ${txt}`);
+        return;
+      }
+      const data = await res.json();
+      // 兼容兩種格式：{items: [...]} 或 {conversations: [...]}
+      conversations = data.conversations || data.items || [];
+      renderConversationList();
+    }
+
+    async function selectConversation(conversationId) {
+      if (!conversationId) return;
+      currentConversationId = conversationId;
+      renderConversationList();
+      clearMessages();
+
+      const res = await fetch(
+        `${BASE_URL}/agent/conversations/${conversationId}/messages`
+      );
+      if (!res.ok) {
+        const txt = await res.text();
+        appendMessage("system", `載入歷史訊息失敗：${res.status} ${txt}`);
+        return;
+      }
+      const data = await res.json();
+      const msgs = data.messages || [];
+
+      localMessagesMap[conversationId] = msgs;
+      serverMessageCountMap[conversationId] = msgs.length;
+
+      msgs.forEach((m) => {
+        if (m.type === "text" && m.content) {
+          appendMessage(m.role, m.content, "text");
+        } else if (m.type === "image" && m.url) {
+          appendMessage(m.role, BASE_URL + m.url, "image");
+        }
       });
     }
 
@@ -229,11 +491,16 @@
       }
       const data = await res.json();
       const all = data.messages || [];
-      const newOnes = all.slice(serverMessageCount);
-      serverMessageCount = all.length;
+      const cid = payload.session_id;
 
-      newOnes.forEach(m => {
-        localMessages.push(m);
+      const prevCount = serverMessageCountMap[cid] || 0;
+      const newOnes = all.slice(prevCount);
+      serverMessageCountMap[cid] = all.length;
+
+      if (!localMessagesMap[cid]) localMessagesMap[cid] = [];
+      newOnes.forEach((m) => {
+        localMessagesMap[cid].push(m);
+        // user 的訊息已經在前端畫過，這裡只畫 AI / 圖片
         if (m.role === "user") return;
         if (m.type === "text" && m.content) {
           appendMessage(m.role, m.content, "text");
@@ -243,37 +510,199 @@
       });
     }
 
-    async function handleSendText() {
-      const text = questionInput.value.trim();
-      if (!text) return;
-      const sessionId = sessionInput.value.trim() || "web-session";
-      questionInput.value = "";
+    // ========= 刪除對話 =========
+    async function handleDeleteConversation(conversationId) {
+      const conv = conversations.find(c => c.conversation_id === conversationId);
+      const title = conv ? (conv.title || conversationId) : conversationId;
 
-      const userMsg = {
-        role: "user",
-        type: "text",
-        content: text,
-        url: null,
-        filetype: null,
-      };
-      // 前端先畫一次自己的訊息
-      appendMessage("user", text);
+      const ok = window.confirm(`確定要刪除這個對話嗎？\n\n${title}`);
+      if (!ok) return;
 
-      await callAgentChat({
-        session_id: sessionId,
-        messages: [userMsg],
-      });
+      try {
+        const res = await fetch(
+          `${BASE_URL}/agent/conversations/${conversationId}`,
+          { method: "DELETE" }
+        );
+        if (!res.ok) {
+          const txt = await res.text();
+          appendMessage("system", `刪除對話失敗：${res.status} ${txt}`);
+          return;
+        }
+
+        // 從前端列表移除
+        conversations = conversations.filter(
+          c => c.conversation_id !== conversationId
+        );
+        delete localMessagesMap[conversationId];
+        delete serverMessageCountMap[conversationId];
+
+        // 如果正在看的就是這個聊天室 → 清掉右邊
+        if (currentConversationId === conversationId) {
+          currentConversationId = null;
+          clearMessages();
+          setSystemIntro();
+        }
+
+        renderConversationList();
+      } catch (e) {
+        console.error(e);
+        appendMessage("system", "刪除對話時發生錯誤。");
+      }
     }
+
+    // ========= 事件處理 =========
+
+    async function handleLoadUser() {
+      const uid = userIdInput.value.trim();
+      if (!uid) {
+        alert("請先輸入 User ID！");
+        return;
+      }
+
+      currentUserId = uid;
+      currentConversationId = null;
+      conversations = [];
+      localMessagesMap = {};
+      serverMessageCountMap = {};
+      uploadedFilesState = [];
+      renderFilesList(uploadedFilesState);
+      setSystemIntro();
+
+      await loadConversationsForUser(uid);
+      appendMessage(
+        "system",
+        `已載入使用者「${uid}」。請在左側選擇一個對話，或點上方「+ 新對話」。`
+      );
+    }
+
+    async function handleNewConversation() {
+      if (!currentUserId) {
+        alert("請先在右上輸入 User ID，並按「載入對話」。");
+        return;
+      }
+
+      try {
+        const res = await fetch(BASE_URL + "/agent/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: currentUserId,
+            title: null,
+          }),
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          appendMessage("system", `建立新對話失敗：${res.status} ${txt}`);
+          return;
+        }
+        const data = await res.json();
+        const convId = data.conversation_id || data.id;
+        const nowIso = new Date().toISOString();
+
+        const conv = {
+          conversation_id: convId,
+          user_id: currentUserId,
+          title: data.title || null,
+          source: data.source || "S2",
+          created_at: data.created_at || nowIso,
+          updated_at: data.updated_at || nowIso,
+        };
+        conversations.unshift(conv);
+        currentConversationId = convId;
+        localMessagesMap[convId] = [];
+        serverMessageCountMap[convId] = 0;
+
+        renderConversationList();
+        clearMessages();
+        appendMessage(
+          "system",
+          "已建立新的對話。請輸入第一句話，系統會自動把這句話當作標題。"
+        );
+      } catch (err) {
+        console.error(err);
+        appendMessage("system", "建立新對話時發生錯誤。");
+      }
+    }
+
+async function handleSendText() {
+  const text = questionInput.value.trim();
+  if (!text) return;
+
+  if (!currentUserId) {
+    alert("請先在右上輸入 User ID，並按「載入對話」。");
+    return;
+  }
+  if (!currentConversationId) {
+    alert("請先在左側建立或選擇一個對話。");
+    return;
+  }
+
+  questionInput.value = "";
+
+  const userMsg = {
+    role: "user",
+    type: "text",
+    content: text,
+    url: null,
+    filetype: null,
+  };
+
+  // 前端先畫出自己的訊息
+  appendMessage("user", text);
+
+  // 呼叫後端，讓 Dr.Bone 回覆
+  await callAgentChat({
+    session_id: currentConversationId,
+    messages: [userMsg],
+  });
+
+  // ====== 自動命名：第一句當標題 ======
+  const conv = conversations.find(
+    (c) => c.conversation_id === currentConversationId
+  );
+  if (conv && (!conv.title || conv.title === "(未命名對話)")) {
+    const newTitle = text.length > 30 ? text.slice(0, 30) + "..." : text;
+
+    try {
+      const res = await fetch(
+        `${BASE_URL}/agent/conversations/${currentConversationId}/title`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        }
+      );
+      if (res.ok) {
+        conv.title = newTitle;
+        conv.updated_at = new Date().toISOString();
+      } else {
+        console.warn("更新標題失敗", await res.text());
+      }
+    } catch (e) {
+      console.error("更新標題失敗", e);
+    }
+  }
+
+  // ★ 重新載入一次對話列表，讓左邊標題 / 時間即時更新
+    await loadConversationsForUser(currentUserId);
+  }
 
     async function handleUploadFiles() {
       const files = Array.from(fileInput.files || []);
       if (!files.length) return;
-      const sessionId = sessionInput.value.trim() || "web-session";
+
+      if (!currentUserId) {
+        alert("請先在右上輸入 User ID，並按「載入對話」。");
+        return;
+      }
+      if (!currentConversationId) {
+        alert("請先在左側建立或選擇一個對話，才能上傳檔案。");
+        return;
+      }
 
       for (const file of files) {
         const form = new FormData();
         form.append("file", file);
-        form.append("session_id", sessionId); // ★ 傳 session_id 給後端，讓後端把摘要寫進 session
 
         uploadBtn.disabled = true;
         try {
@@ -306,11 +735,10 @@
               url: data.url,
               filetype: data.filetype,
             };
-            localMessages.push(imgMsg);
             appendMessage("user", BASE_URL + data.url, "image");
 
             await callAgentChat({
-              session_id: sessionId,
+              session_id: currentConversationId,
               messages: [imgMsg],
             });
           } else {
@@ -320,12 +748,17 @@
                 "assistant",
                 `已讀取檔案「${data.filename || file.name}」，摘要如下：\n${data.summary}`
               );
-              localMessages.push({
+              // 也丟一則「摘要訊息」給後端，讓 RAG 有記憶
+              const summaryMsg = {
                 role: "assistant",
                 type: "text",
                 content: `【檔案摘要】${data.summary}`,
                 url: null,
                 filetype: null,
+              };
+              await callAgentChat({
+                session_id: currentConversationId,
+                messages: [summaryMsg],
               });
             } else {
               appendMessage(
@@ -345,28 +778,29 @@
       fileInput.value = "";
     }
 
-      async function exportReport(kind) {
-        const sessionId = sessionInput.value.trim() || "web-session";
+    async function exportReport(kind) {
+      if (!currentConversationId) {
+        alert("請先選擇一個對話，再匯出報告。");
+        return;
+      }
 
-        // 只挑文字訊息，但保留整個物件結構（role / type / content / url / filetype）
-        const exportMessages = localMessages.filter(
-          (m) => m.type === "text" && m.content
-        );
+      const exportMessages = (localMessagesMap[currentConversationId] || [])
+        .filter((m) => m.type === "text" && m.content);
 
-        const url =
-          kind === "pdf" ? BASE_URL + "/export/pdf" : BASE_URL + "/export/pptx";
+      const url =
+        kind === "pdf" ? BASE_URL + "/export/pdf" : BASE_URL + "/export/pptx";
 
-        const btn = kind === "pdf" ? exportPdfBtn : exportPptxBtn;
-        btn.disabled = true;
-        try {
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              session_id: sessionId,
-              messages: exportMessages, // 直接送出
-            }),
-          });
+      const btn = kind === "pdf" ? exportPdfBtn : exportPptxBtn;
+      btn.disabled = true;
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: currentUserId || currentConversationId,
+            messages: exportMessages,
+          }),
+        });
         if (!res.ok) {
           const txt = await res.text();
           appendMessage("system", `匯出失敗：${res.status} ${txt}`);
@@ -387,22 +821,22 @@
       }
     }
 
+    // ========= 綁定事件 =========
+    loadUserBtn.addEventListener("click", handleLoadUser);
+
+    newConvoBtn.addEventListener("click", handleNewConversation);
+
     sendBtn.addEventListener("click", handleSendText);
     questionInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") handleSendText();
     });
+
     uploadBtn.addEventListener("click", handleUploadFiles);
     exportPdfBtn.addEventListener("click", () => exportReport("pdf"));
     exportPptxBtn.addEventListener("click", () => exportReport("pptx"));
 
-    appendMessage(
-      "system",
-      "連線狀態：請確認後端已在 http://127.0.0.1:8000 執行中。\n" +
-      "・文字問題 → /agent/chat 進行 RAG 回答。\n" +
-      "・上傳圖片 → 觸發 YOLO 示範辨識。\n" +
-      "・上傳 PDF/PPTX/Word/Excel/TXT → /upload 解析並產生摘要，寫入對話。\n" +
-      "・匯出 PDF / PPTX → 依目前對話內容產生學習報告。"
-    );
+    // 初始畫面提示
+    setSystemIntro();
   </script>
 </body>
 </html>

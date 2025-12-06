@@ -1,40 +1,49 @@
+# s0_annotation/backend/main.py
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
-from pathlib import Path
-from datetime import datetime
-import sys
+from dotenv import load_dotenv
+
+import os
 import uuid
-import shutil
+from datetime import datetime
+from pathlib import Path
+import sys
 
-# ========= 讓後端可以 import 專案根目錄的 db.py =========
-BACKEND_DIR = Path(__file__).resolve().parent
-S0_DIR = BACKEND_DIR.parent
-BASE_DIR = S0_DIR.parent  # C:\BoneOrthoSystem
-if str(BASE_DIR) not in sys.path:
-    sys.path.append(str(BASE_DIR))
+# ---------- 讓 Python 找到專案根目錄的 db.py ----------
+# main.py 在: BoneOrthoSystem/s0_annotation/backend/main.py
+BACKEND_DIR = Path(__file__).resolve().parent              # .../s0_annotation/backend
+S0_DIR = BACKEND_DIR.parent                                # .../s0_annotation
+PROJECT_ROOT = S0_DIR.parent                               # .../BoneOrthoSystem
+sys.path.append(str(PROJECT_ROOT))
 
-from db import get_connection  # 共用 DB 連線
-# =====================================================
+from db import get_connection  # 共用的 DB 連線
+
+# 如果你 main.py 下面有原本的 load_dotenv() 可留著
+load_dotenv()
+
+# 靜態檔案與圖片路徑
+STATIC_ROOT = BACKEND_DIR / "static"
+IMAGE_DIR = STATIC_ROOT / "images"
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+# 圖片 URL 前綴（前端會拿這個）
+IMAGE_URL_PREFIX = os.getenv(
+    "IMAGE_URL_PREFIX",
+    "http://127.0.0.1:8001/static/images"
+)
 
 app = FastAPI(title="S0 Annotation API")
 
-# ========= 靜態檔設定 (圖片) =========
-STATIC_DIR = BACKEND_DIR / "static"
-IMAGE_DIR = STATIC_DIR / "images"
-STATIC_DIR.mkdir(exist_ok=True)
-IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+# 掛靜態檔案
+app.mount("/static", StaticFiles(directory=str(STATIC_ROOT)), name="static")
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-# ========= CORS =========
+# CORS 設定
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    # 共用主機 IP，例如：
-    # "http://10.20.30.40:3000",
 ]
 
 app.add_middleware(
@@ -45,9 +54,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# **這裡改成呼叫共用 db.py 的 get_connection()**
 def get_conn():
-    # 統一用這個，就會走 C:\BoneOrthoSystem\db.py 的設定
     return get_connection()
 
 

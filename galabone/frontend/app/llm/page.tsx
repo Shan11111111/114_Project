@@ -26,8 +26,8 @@ function fakeLLMReply(prompt: string): string {
   return `（Demo 回覆）你剛剛說：「${prompt}」。正式版本會把這段文字送到後端的大語言模型，產生真正的解釋。`;
 }
 
-const MIN_HEIGHT = 28; // textarea 最小高度
-const MAX_HEIGHT = 120; // textarea 最大高度，超過就捲動
+const MIN_HEIGHT = 28;
+const MAX_HEIGHT = 120;
 
 export default function LLMPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -42,27 +42,20 @@ export default function LLMPage() {
   const [sessionId, setSessionId] = useState("test-1");
   const [loading, setLoading] = useState(false);
   const [showToolMenu, setShowToolMenu] = useState(false);
-  const [showExportMenu, setShowExportMenu] = useState(false); // 匯出選單開關
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // 記錄「單行」狀態下 scrollHeight 的基準值
   const baseHeightRef = useRef<number | null>(null);
-
-  // false = 一行（超圓），true = 多行（長方形）
   const [isMultiLine, setIsMultiLine] = useState(false);
-  // 聊天區底部 padding 用
   const [inputBoxHeight, setInputBoxHeight] = useState(MIN_HEIGHT);
 
-  // --- 自動調整 textarea 高度（像 GPT 那樣） ---
   function autoResizeTextarea() {
     const el = inputRef.current;
     if (!el) return;
 
     const text = el.value;
 
-    // 沒文字時：回到單行小膠囊
     if (text.trim().length === 0) {
       baseHeightRef.current = null;
       el.style.height = `${MIN_HEIGHT}px`;
@@ -71,31 +64,25 @@ export default function LLMPage() {
       return;
     }
 
-    // 先讓瀏覽器照內容算實際高度
     el.style.height = "auto";
     const contentHeight = el.scrollHeight;
 
-    // 如果目前還是「單行模式」
     if (!isMultiLine) {
-      // 第一次有字：記錄當下 scrollHeight 當作單行基準
       if (baseHeightRef.current === null) {
         baseHeightRef.current = contentHeight;
       }
 
       const singleLineHeight = baseHeightRef.current;
 
-      // 如果已經超過單行高度一點點，就切換成多行
       if (contentHeight > singleLineHeight + 2) {
-        setIsMultiLine(true); // 只會從 false -> true
+        setIsMultiLine(true);
       }
 
-      // 單行模式下，高度永遠固定為膠囊高度，不跟著 contentHeight 跳
       el.style.height = `${MIN_HEIGHT}px`;
       setInputBoxHeight(MIN_HEIGHT);
       return;
     }
 
-    // 多行模式：高度直接跟內容一樣高（最多到 MAX_HEIGHT）
     const newHeight = Math.min(contentHeight, MAX_HEIGHT);
 
     el.style.height = `${newHeight}px`;
@@ -106,7 +93,6 @@ export default function LLMPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // 首次載入也跑一次，讓 placeholder 就是正確高度
   useEffect(() => {
     autoResizeTextarea();
   }, []);
@@ -131,7 +117,7 @@ export default function LLMPage() {
       el.style.height = `${MIN_HEIGHT}px`;
       el.scrollTop = 0;
     }
-    // 重置成單行膠囊狀態
+
     baseHeightRef.current = null;
     setIsMultiLine(false);
     setInputBoxHeight(MIN_HEIGHT);
@@ -162,11 +148,13 @@ export default function LLMPage() {
     autoResizeTextarea();
   }
 
-  // 匯出動作（之後在這邊接真正匯出邏輯）
+  function handleUploadClick() {
+    console.log("upload file…");
+  }
+
   function handleExport(type: "pdf" | "ppt") {
-    setShowExportMenu(false);
+    setShowToolMenu(false);
     console.log("export:", type);
-    // TODO: 接後端匯出功能
   }
 
   return (
@@ -181,7 +169,7 @@ export default function LLMPage() {
         color: "var(--foreground)",
       }}
     >
-      {/* 左側導覽列（ChatGPT 風格） */}
+      {/* 左側導覽列） */}
       <aside
         className="
           w-64 border-r flex flex-col
@@ -193,7 +181,6 @@ export default function LLMPage() {
           color: "var(--navbar-text)",
         }}
       >
-        {/* Logo 區 + Session ID */}
         <div
           className="px-4 pt-4 pb-3 border-b flex flex-col gap-3 transition-colors duration-500"
           style={{ borderColor: "var(--navbar-border)" }}
@@ -218,9 +205,7 @@ export default function LLMPage() {
           </label>
         </div>
 
-        {/* Nav 區 */}
         <nav className="flex-1 px-2 pt-4 pb-2 space-y-4 text-sm">
-          {/* 工作區（目前頁面） */}
           <div>
             <p className="px-3 mb-1 text-[11px] tracking-wide opacity-60">
               工作區
@@ -236,7 +221,6 @@ export default function LLMPage() {
             </button>
           </div>
 
-          {/* 工具與管理 */}
           <div>
             <p className="px-3 mb-1 text-[11px] tracking-wide opacity-60">
               工具與管理
@@ -256,7 +240,6 @@ export default function LLMPage() {
           </div>
         </nav>
 
-        {/* 底部設定列（只留齒輪文字） */}
         <div
           className="px-4 py-3 flex items-center gap-2 text-[11px] opacity-70 border-t transition-colors duration-500"
           style={{ borderColor: "var(--navbar-border)" }}
@@ -268,73 +251,81 @@ export default function LLMPage() {
 
       {/* 右側主畫面 */}
       <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden llm-main-shell">
-        {/* 聊天區 + 浮動輸入列 */}
         <section className="flex-1 min-h-0 flex flex-col relative">
-          {/* 上方小標題 */}
           <div className="flex items-center justify-between mb-2 text-xs opacity-70 px-1">
             <span>Demo 1.0 ver.（尚未接後端）</span>
           </div>
 
-          {/* 聊天訊息列表 */}
           <div
-            className="chat-scroll flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 text-sm break-words"
+            className="chat-scroll flex-1 min-h-0 overflow-y-auto text-sm break-words"
             style={{ paddingBottom: inputBoxHeight + 40 }}
           >
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${
-                  msg.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
-                <div
-                  className={`
-                    max-w-[80%]
-                    chat-bubble
-                    ${
-                      msg.role === "user"
-                        ? "chat-bubble-user"
-                        : "chat-bubble-assistant"
-                    }
-                    whitespace-pre-wrap break-words leading-relaxed
-                  `}
-                  style={{
-                    backgroundColor:
-                      msg.role === "user"
-                        ? "var(--chat-user-bg)"
-                        : "var(--chat-assistant-bg)",
-                    color:
-                      msg.role === "user"
-                        ? "var(--chat-user-text)"
-                        : "var(--chat-assistant-text)",
-                  }}
-                >
-                  {msg.content}
-                </div>
-              </div>
-            ))}
+            <div className="w-full flex justify-center">
+              <div className="w-full max-w-3xl pr-1">
+                {messages.map((msg) => {
+                  const isUser = msg.role === "user";
 
-            {loading && (
-              <div className="flex justify-start">
-                <div
-                  className={`
-                    chat-bubble chat-bubble-assistant
-                    text-xs
-                  `}
-                  style={{
-                    backgroundColor: "var(--chat-assistant-bg)",
-                    color: "var(--chat-assistant-text)",
-                  }}
-                >
-                  正在思考中…
-                </div>
-              </div>
-            )}
+                  return (
+                    <div key={msg.id} className="mb-4">
+                      <div
+                        className={`flex ${
+                          isUser ? "justify-end" : "justify-start"
+                        }`}
+                      >
+                        <div
+                          className={`
+                            chat-bubble
+                            ${
+                              isUser
+                                ? "chat-bubble-user"
+                                : "chat-bubble-assistant"
+                            }
+                            whitespace-pre-wrap break-words leading-relaxed
+                            px-4 py-3
+                            max-w-[min(70%,60ch)]
+                            rounded-2xl
+                          `}
+                          style={{
+                            backgroundColor: isUser
+                              ? "var(--chat-user-bg)"
+                              : "var(--chat-assistant-bg)",
+                            color: isUser
+                              ? "var(--chat-user-text)"
+                              : "var(--chat-assistant-text)",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {msg.content}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
 
-            <div ref={chatEndRef} />
+                {loading && (
+                  <div className="flex justify-start mb-4">
+                    <div
+                      className={`
+                        chat-bubble chat-bubble-assistant
+                        text-xs px-4 py-2 max-w-[min(70%,60ch)] rounded-2xl
+                      `}
+                      style={{
+                        backgroundColor: "var(--chat-assistant-bg)",
+                        color: "var(--chat-assistant-text)",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      正在思考中…
+                    </div>
+                  </div>
+                )}
+
+                <div ref={chatEndRef} />
+              </div>
+            </div>
           </div>
 
-          {/* 底部輸入列（GPT 風格） */}
+          {/* 底部輸入列 */}
           <div
             className="sticky bottom-0 left-0 right-0 pt-3 pb-4 transition-colors duration-500"
             style={{ backgroundColor: "var(--background)" }}
@@ -342,7 +333,6 @@ export default function LLMPage() {
             <form onSubmit={sendMessage}>
               <div className="w-full flex justify-center">
                 <div className="flex items-end gap-3 w-full max-w-3xl">
-                  {/* 膠囊輸入框 */}
                   <div className="flex-1 relative">
                     <div
                       className={`
@@ -358,20 +348,89 @@ export default function LLMPage() {
                       }}
                     >
                       <div className="flex flex-col gap-2">
-                        {/* 上半：單行 = 一排 + textarea + 送出；多行 = 只剩 textarea 撐滿 */}
                         <div
-                          className={isMultiLine ? "" : "flex items-end gap-3"}
+                          className={
+                            isMultiLine ? "" : "flex items-center gap-3"
+                          }
                         >
-                          {/* 單行模式時的左側 + */}
+                          {/* 左側：+（上傳） + 工具 */}
                           {!isMultiLine && (
-                            <button
-                              type="button"
-                              onClick={() => setShowToolMenu((v) => !v)}
-                              className="self-end text-2xl pb-[2px]"
-                              style={{ color: "var(--foreground)" }}
-                            >
-                              +
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleUploadClick}
+                                className="text-2xl"
+                                style={{ color: "var(--foreground)" }}
+                              >
+                                +
+                              </button>
+
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setShowToolMenu((v) => !v)
+                                  }
+                                  className="flex items-center gap-1 text-xs"
+                                  style={{
+                                    backgroundColor: "transparent",
+                                    color: "var(--foreground)",
+                                  }}
+                                >
+                                  <i className="fa-solid fa-sliders text-[11px]" />
+                                  <span>工具</span>
+                                  <span className="text-[10px]">
+                                    {showToolMenu ? "▴" : "▾"}
+                                  </span>
+                                </button>
+
+                                {showToolMenu && (
+                                  <div
+                                    className="absolute left-0 bottom-full mb-2 w-36 rounded-xl shadow-xl text-xs overflow-hidden z-20 border transition-colors duration-500"
+                                    style={{
+                                      backgroundColor: "var(--background)",
+                                      borderColor: "var(--navbar-border)",
+                                      color: "var(--foreground)",
+                                      boxShadow:
+                                        "0 18px 40px rgba(15,23,42,0.25)",
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExport("pdf")}
+                                      className="w-full text-left px-3 py-2"
+                                      style={{ cursor: "pointer" }}
+                                      onMouseEnter={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "rgba(148,163,184,0.18)")
+                                      }
+                                      onMouseLeave={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "transparent")
+                                      }
+                                    >
+                                      匯出 PDF
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExport("ppt")}
+                                      className="w-full text-left px-3 py-2"
+                                      style={{ cursor: "pointer" }}
+                                      onMouseEnter={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "rgba(148,163,184,0.18)")
+                                      }
+                                      onMouseLeave={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "transparent")
+                                      }
+                                    >
+                                      匯出 PPT
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           )}
 
                           {/* textarea */}
@@ -392,7 +451,7 @@ export default function LLMPage() {
                               leading-relaxed
                               overflow-hidden
                               placeholder:text-slate-500
-                              ${isMultiLine ? "w-full" : "flex-1 self-end"}
+                              ${isMultiLine ? "w-full" : "flex-1"}
                             `}
                             style={{
                               color: "var(--foreground)",
@@ -400,10 +459,9 @@ export default function LLMPage() {
                             }}
                           />
 
-                          {/* 單行模式時的右側 綠點 + 箭頭 */}
                           {!isMultiLine && (
-                            <div className="flex items-end gap-3 self-end">
-                              <span className="text-[10px] text-emerald-400 pb-[3px]">
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] text-emerald-400">
                                 ●
                               </span>
                               <button
@@ -427,17 +485,85 @@ export default function LLMPage() {
                           )}
                         </div>
 
-                        {/* 多行模式時的下半：左 + 右 綠點 + 箭頭 */}
+                        {/* 多行模式時的下半：左 + 工具 + 右送出 */}
                         {isMultiLine && (
                           <div className="flex items-center justify-between">
-                            <button
-                              type="button"
-                              onClick={() => setShowToolMenu((v) => !v)}
-                              className="text-2xl"
-                              style={{ color: "var(--foreground)" }}
-                            >
-                              +
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleUploadClick}
+                                className="text-2xl"
+                                style={{ color: "var(--foreground)" }}
+                              >
+                                +
+                              </button>
+
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setShowToolMenu((v) => !v)
+                                  }
+                                  className="flex items-center gap-1 text-xs"
+                                  style={{
+                                    backgroundColor: "transparent",
+                                    color: "var(--foreground)",
+                                  }}
+                                >
+                                  <i className="fa-solid fa-sliders text-[11px]" />
+                                  <span>工具</span>
+                                  <span className="text-[10px]">
+                                    {showToolMenu ? "▴" : "▾"}
+                                  </span>
+                                </button>
+
+                                {showToolMenu && (
+                                  <div
+                                    className="absolute left-0 bottom-full mb-2 w-36 rounded-xl shadow-xl text-xs overflow-hidden z-20 border transition-colors duration-500"
+                                    style={{
+                                      backgroundColor: "var(--background)",
+                                      borderColor: "var(--navbar-border)",
+                                      color: "var(--foreground)",
+                                      boxShadow:
+                                        "0 18px 40px rgba(15,23,42,0.25)",
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExport("pdf")}
+                                      className="w-full text-left px-3 py-2"
+                                      style={{ cursor: "pointer" }}
+                                      onMouseEnter={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "rgba(148,163,184,0.18)")
+                                      }
+                                      onMouseLeave={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "transparent")
+                                      }
+                                    >
+                                      匯出 PDF
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExport("ppt")}
+                                      className="w-full text-left px-3 py-2"
+                                      style={{ cursor: "pointer" }}
+                                      onMouseEnter={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "rgba(148,163,184,0.18)")
+                                      }
+                                      onMouseLeave={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "transparent")
+                                      }
+                                    >
+                                      匯出 PPT
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
 
                             <div className="flex items-center gap-3">
                               <span className="text-[10px] text-emerald-400">
@@ -467,71 +593,7 @@ export default function LLMPage() {
                     </div>
                   </div>
 
-                  {/* 匯出按鈕 +「往上」展開選單 */}
-                  <div className="relative self-end">
-                    {/* 紫色 pill + 黑邊 */}
-                    <button
-                      type="button"
-                      onClick={() => setShowExportMenu((v) => !v)}
-                      className="px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1"
-                      style={{
-                        backgroundColor: "#6366f1",
-                        color: "#ffffff",
-                        border: "2px solid #0f172a",
-                        boxShadow: "0 18px 40px rgba(15,23,42,0.35)",
-                      }}
-                    >
-                      匯出
-                      <span className="text-[10px]">
-                        {showExportMenu ? "▴" : "▾"}
-                      </span>
-                    </button>
-
-                    {showExportMenu && (
-                      <div
-                        className="absolute right-0 bottom-full mb-2 w-32 rounded-xl shadow-xl text-xs overflow-hidden z-20 border transition-colors duration-500"
-                        style={{
-                          backgroundColor: "var(--background)",
-                          borderColor: "var(--navbar-border)",
-                          color: "var(--foreground)",
-                          boxShadow: "0 18px 40px rgba(15,23,42,0.2)",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => handleExport("pdf")}
-                          className="w-full text-left px-3 py-2"
-                          style={{ cursor: "pointer" }}
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.backgroundColor =
-                              "rgba(148,163,184,0.18)")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.backgroundColor =
-                              "transparent")
-                          }
-                        >
-                          匯出 PDF
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleExport("ppt")}
-                          className="w-full text-left px-3 py-2"
-                          style={{ cursor: "pointer" }}
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.backgroundColor =
-                              "rgba(148,163,184,0.18)")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.backgroundColor =
-                              "transparent")
-                          }
-                        >
-                          匯出 PPT
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  {/* 右側只保留送出箭頭 */}
                 </div>
               </div>
             </form>
