@@ -1,5 +1,5 @@
 # BoneOrthoBackend/s0_annotation/bones.py
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from db import query_all
 
 router = APIRouter(prefix="/s0", tags=["s0_bones"])
@@ -18,9 +18,13 @@ def list_bones():
         b.bone_id        AS boneId,
         b.bone_zh        AS boneZh,
         b.bone_en        AS boneEn
-    FROM bone.Bone_small s
-    JOIN dbo.Bone_Info b ON s.bone_id = b.bone_id
+    FROM [dbo].[bone.Bone_small] AS s
+    JOIN [dbo].[Bone_Info]      AS b ON s.bone_id = b.bone_id
     ORDER BY b.bone_region, b.bone_zh, s.serial_number;
     """
-    rows = query_all(sql)
-    return {"items": rows}
+    try:
+        rows = query_all(sql)
+        return {"items": rows}
+    except Exception as e:
+        print("❌ Error in /s0/bones:", repr(e))
+        raise HTTPException(status_code=500, detail=f"/s0/bones failed: {e}")

@@ -1,0 +1,7 @@
+GET /s0/big-bones → 41 個大骨
+
+GET /s0/small-bones?boneId=... → 大骨底下的小骨
+
+POST /s0/annotations/save → 存一張圖全部 bbox（支援只標大類 / 大+小）
+
+GET /s0/annotations/{case_id} → 把一張圖的 bbox 全部抓出來
