@@ -9,10 +9,19 @@ import {
   useState,
 } from "react";
 
+type UploadedFile = {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  url: string; // 用於預覽或下載
+};
+
 type ChatMessage = {
   id: number;
   role: "user" | "assistant";
   content: string;
+  files?: UploadedFile[];
 };
 
 // 假 LLM 回覆
@@ -43,12 +52,19 @@ export default function LLMPage() {
   const [loading, setLoading] = useState(false);
   const [showToolMenu, setShowToolMenu] = useState(false);
 
+  // 尚未送出的檔案（像 ChatGPT 上方小卡片）
+  const [pendingFiles, setPendingFiles] = useState<UploadedFile[]>([]);
+
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const baseHeightRef = useRef<number | null>(null);
   const [isMultiLine, setIsMultiLine] = useState(false);
   const [inputBoxHeight, setInputBoxHeight] = useState(MIN_HEIGHT);
+
+  // 文字多行 or 有檔案 → 展開長方形框
+  const isExpanded = isMultiLine || pendingFiles.length > 0;
 
   function autoResizeTextarea() {
     const el = inputRef.current;
@@ -97,15 +113,54 @@ export default function LLMPage() {
     autoResizeTextarea();
   }, []);
 
+  // ===== 檔案處理 =====
+  function handleUploadClick() {
+    fileInputRef.current?.click();
+  }
+
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newFiles: UploadedFile[] = Array.from(files).map((file) => ({
+      id: `${Date.now()}-${file.name}-${Math.random()
+        .toString(36)
+        .slice(2)}`,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      url: URL.createObjectURL(file),
+    }));
+
+    setPendingFiles((prev) => [...prev, ...newFiles]);
+
+    // 讓同一個檔案可以再次被選取
+    e.target.value = "";
+  }
+
+  function removePendingFile(id: string) {
+    setPendingFiles((prev) => {
+      const target = prev.find((f) => f.id === id);
+      if (target) {
+        URL.revokeObjectURL(target.url);
+      }
+      return prev.filter((f) => f.id !== id);
+    });
+  }
+
+  // ===== 送出訊息 =====
   async function sendMessage(e?: FormEvent) {
     if (e) e.preventDefault();
     const text = input.trim();
-    if (!text || loading) return;
+
+    // 文字+檔案都沒有就不送
+    if ((!text && pendingFiles.length === 0) || loading) return;
 
     const userMessage: ChatMessage = {
       id: Date.now(),
       role: "user",
       content: text,
+      files: pendingFiles.length ? pendingFiles : undefined,
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -118,6 +173,12 @@ export default function LLMPage() {
       el.scrollTop = 0;
     }
 
+    // 清空 pending 檔案
+    setPendingFiles((prev) => {
+      prev.forEach((f) => URL.revokeObjectURL(f.url));
+      return [];
+    });
+
     baseHeightRef.current = null;
     setIsMultiLine(false);
     setInputBoxHeight(MIN_HEIGHT);
@@ -125,7 +186,7 @@ export default function LLMPage() {
     setLoading(true);
 
     setTimeout(() => {
-      const answerText = fakeLLMReply(text);
+      const answerText = fakeLLMReply(text || "（已上傳檔案）");
       const botMessage: ChatMessage = {
         id: Date.now() + 1,
         role: "assistant",
@@ -148,13 +209,62 @@ export default function LLMPage() {
     autoResizeTextarea();
   }
 
-  function handleUploadClick() {
-    console.log("upload file…");
-  }
-
   function handleExport(type: "pdf" | "ppt") {
     setShowToolMenu(false);
     console.log("export:", type);
+  }
+
+  // ===== 呈現訊息底下的檔案區塊（不在泡泡裡） =====
+  function renderMessageFiles(files?: UploadedFile[]) {
+    if (!files || files.length === 0) return null;
+
+    return (
+      <div
+        className="
+          mt-2
+          max-h-40              /* 高度上限，太多檔案就出現捲軸 */
+          overflow-y-auto
+          grid
+          grid-cols-1
+          sm:grid-cols-2        /* 螢幕寬一點變兩欄 */
+          gap-2
+          text-xs
+        "
+      >
+        {files.map((file) => {
+          const isImage = file.type.startsWith("image/");
+          return (
+            <div
+              key={file.id}
+              className="
+                border rounded-xl px-2 py-2
+                flex items-center gap-2
+                bg-black/5
+              "
+              style={{ borderColor: "rgba(148,163,184,0.25)" }}
+            >
+              {isImage ? (
+                <img
+                  src={file.url}
+                  alt={file.name}
+                  className="w-8 h-8 object-cover rounded-lg"
+                />
+              ) : (
+                <div className="w-8 h-8 flex items-center justify-center rounded-lg border">
+                  <i className="fa-regular fa-file text-[11px]" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="truncate text-[11px]">{file.name}</div>
+                <div className="opacity-60 text-[10px]">
+                  {(file.size / 1024).toFixed(1)} KB
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -169,7 +279,7 @@ export default function LLMPage() {
         color: "var(--foreground)",
       }}
     >
-      {/* 左側導覽列） */}
+      {/* 左側導覽列 */}
       <aside
         className="
           w-64 border-r flex flex-col
@@ -272,30 +382,35 @@ export default function LLMPage() {
                           isUser ? "justify-end" : "justify-start"
                         }`}
                       >
-                        <div
-                          className={`
-                            chat-bubble
-                            ${
-                              isUser
-                                ? "chat-bubble-user"
-                                : "chat-bubble-assistant"
-                            }
-                            whitespace-pre-wrap break-words leading-relaxed
-                            px-4 py-3
-                            max-w-[min(70%,60ch)]
-                            rounded-2xl
-                          `}
-                          style={{
-                            backgroundColor: isUser
-                              ? "var(--chat-user-bg)"
-                              : "var(--chat-assistant-bg)",
-                            color: isUser
-                              ? "var(--chat-user-text)"
-                              : "var(--chat-assistant-text)",
-                            wordBreak: "break-word",
-                          }}
-                        >
-                          {msg.content}
+                        {/* 讓泡泡 + 檔案卡片一起對齊 */}
+                        <div className="flex flex-col items-stretch max-w-[min(70%,60ch)]">
+                          <div
+                            className={`
+                              chat-bubble
+                              ${
+                                isUser
+                                  ? "chat-bubble-user"
+                                  : "chat-bubble-assistant"
+                              }
+                              whitespace-pre-wrap break-words leading-relaxed
+                              px-4 py-3
+                              rounded-2xl
+                            `}
+                            style={{
+                              backgroundColor: isUser
+                                ? "var(--chat-user-bg)"
+                                : "var(--chat-assistant-bg)",
+                              color: isUser
+                                ? "var(--chat-user-text)"
+                                : "var(--chat-assistant-text)",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {msg.content}
+                          </div>
+
+                          {/* 檔案區塊在泡泡下方 */}
+                          {renderMessageFiles(msg.files)}
                         </div>
                       </div>
                     </div>
@@ -337,7 +452,7 @@ export default function LLMPage() {
                     <div
                       className={`
                         border px-4 py-2 shadow-lg backdrop-blur-sm
-                        ${isMultiLine ? "rounded-2xl" : "rounded-full"}
+                        ${isExpanded ? "rounded-2xl" : "rounded-full"}
                         transition-colors duration-500
                         neon-shell
                       `}
@@ -348,22 +463,49 @@ export default function LLMPage() {
                       }}
                     >
                       <div className="flex flex-col gap-2">
+                        {/* 待上傳檔案（像 ChatGPT 上方的小卡片） */}
+                        {pendingFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-2 text-[11px]">
+                            {pendingFiles.map((file) => (
+                              <div
+                                key={file.id}
+                                className="flex items-center gap-2 px-2 py-1 rounded-full border bg-black/5"
+                                style={{
+                                  borderColor: "rgba(148,163,184,0.35)",
+                                }}
+                              >
+                                <i className="fa-regular fa-file text-[10px]" />
+                                <span className="max-w-[160px] truncate">
+                                  {file.name}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removePendingFile(file.id)}
+                                  className="text-[10px] opacity-70 hover:opacity-100"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
                         <div
                           className={
-                            isMultiLine ? "" : "flex items-center gap-3"
+                            isExpanded ? "" : "flex items-center gap-3"
                           }
                         >
-                          {/* 左側：+（上傳） + 工具 */}
-                          {!isMultiLine && (
+                          {/* 左側只剩 工具（上傳藏在工具內） */}
+                          {!isExpanded && (
                             <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={handleUploadClick}
-                                className="text-2xl"
-                                style={{ color: "var(--foreground)" }}
-                              >
-                                +
-                              </button>
+                              {/* 隱藏 file input（由工具選單觸發） */}
+                              <input
+                                ref={fileInputRef}
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={handleFileChange}
+                              />
 
                               <div className="relative">
                                 <button
@@ -386,7 +528,7 @@ export default function LLMPage() {
 
                                 {showToolMenu && (
                                   <div
-                                    className="absolute left-0 bottom-full mb-2 w-36 rounded-xl shadow-xl text-xs overflow-hidden z-20 border transition-colors duration-500"
+                                    className="absolute left-0 bottom-full mb-2 w-40 rounded-xl shadow-xl text-xs overflow-hidden z-20 border transition-colors duration-500"
                                     style={{
                                       backgroundColor: "var(--background)",
                                       borderColor: "var(--navbar-border)",
@@ -395,6 +537,25 @@ export default function LLMPage() {
                                         "0 18px 40px rgba(15,23,42,0.25)",
                                     }}
                                   >
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setShowToolMenu(false);
+                                        handleUploadClick();
+                                      }}
+                                      className="w-full text-left px-3 py-2"
+                                      style={{ cursor: "pointer" }}
+                                      onMouseEnter={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "rgba(148,163,184,0.18)")
+                                      }
+                                      onMouseLeave={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "transparent")
+                                      }
+                                    >
+                                      上傳檔案
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => handleExport("pdf")}
@@ -451,7 +612,7 @@ export default function LLMPage() {
                               leading-relaxed
                               overflow-hidden
                               placeholder:text-slate-500
-                              ${isMultiLine ? "w-full" : "flex-1"}
+                              ${isExpanded ? "w-full" : "flex-1"}
                             `}
                             style={{
                               color: "var(--foreground)",
@@ -459,14 +620,18 @@ export default function LLMPage() {
                             }}
                           />
 
-                          {!isMultiLine && (
+                          {!isExpanded && (
                             <div className="flex items-center gap-3">
                               <span className="text-[10px] text-emerald-400">
                                 ●
                               </span>
                               <button
                                 type="submit"
-                                disabled={!input.trim() || loading}
+                                disabled={
+                                  (!input.trim() &&
+                                    pendingFiles.length === 0) ||
+                                  loading
+                                }
                                 className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
                                 style={{
                                   background:
@@ -485,18 +650,18 @@ export default function LLMPage() {
                           )}
                         </div>
 
-                        {/* 多行模式時的下半：左 + 工具 + 右送出 */}
-                        {isMultiLine && (
+                        {/* 展開模式（文字多行或有檔案）下半：左側 工具 + 右側送出 */}
+                        {isExpanded && (
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={handleUploadClick}
-                                className="text-2xl"
-                                style={{ color: "var(--foreground)" }}
-                              >
-                                +
-                              </button>
+                              {/* 多行/展開模式也需要 file input */}
+                              <input
+                                ref={fileInputRef}
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={handleFileChange}
+                              />
 
                               <div className="relative">
                                 <button
@@ -519,7 +684,7 @@ export default function LLMPage() {
 
                                 {showToolMenu && (
                                   <div
-                                    className="absolute left-0 bottom-full mb-2 w-36 rounded-xl shadow-xl text-xs overflow-hidden z-20 border transition-colors duration-500"
+                                    className="absolute left-0 bottom-full mb-2 w-40 rounded-xl shadow-xl text-xs overflow-hidden z-20 border transition-colors duration-500"
                                     style={{
                                       backgroundColor: "var(--background)",
                                       borderColor: "var(--navbar-border)",
@@ -530,8 +695,27 @@ export default function LLMPage() {
                                   >
                                     <button
                                       type="button"
-                                      onClick={() => handleExport("pdf")}
+                                      onClick={() => {
+                                        setShowToolMenu(false);
+                                        handleUploadClick();
+                                      }}
                                       className="w-full text-left px-3 py-2"
+                                      style={{ cursor: "pointer" }}
+                                      onMouseEnter={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "rgba(148,163,184,0.18)")
+                                      }
+                                      onMouseLeave={(e) =>
+                                        (e.currentTarget.style.backgroundColor =
+                                          "transparent")
+                                      }
+                                    >
+                                      上傳檔案
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExport("pdf")}
+                                      className="w-full text左 px-3 py-2"
                                       style={{ cursor: "pointer" }}
                                       onMouseEnter={(e) =>
                                         (e.currentTarget.style.backgroundColor =
@@ -571,7 +755,11 @@ export default function LLMPage() {
                               </span>
                               <button
                                 type="submit"
-                                disabled={!input.trim() || loading}
+                                disabled={
+                                  (!input.trim() &&
+                                    pendingFiles.length === 0) ||
+                                  loading
+                                }
                                 className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
                                 style={{
                                   background:
@@ -593,7 +781,7 @@ export default function LLMPage() {
                     </div>
                   </div>
 
-                  {/* 右側只保留送出箭頭 */}
+                  {/* 右側不再額外放按鈕，已整合在輸入框內 */}
                 </div>
               </div>
             </form>
