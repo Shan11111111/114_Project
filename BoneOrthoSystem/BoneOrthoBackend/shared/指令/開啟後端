@@ -10,6 +10,9 @@ py -m pip install -U pip wheel
 py -m pip install ultralytics
 py -m pip install -U pip
 py -m pip install "uvicorn[standard]" fastapi
+pip install python-multipart
+python -m pip install pyodbc
+
 
 
 # 啟動後端服務
