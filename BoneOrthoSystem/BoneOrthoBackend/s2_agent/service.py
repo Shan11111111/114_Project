@@ -32,7 +32,7 @@ def embed_text(text: str) -> List[float]:
 def rag_search(
     question: str,
     bone_id: Optional[int] = None,
-    bone_detail_id: Optional[int] = None,
+    bone_small_id: Optional[int] = None,
     top_k: int = 5,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     emb = embed_text(question)
@@ -40,7 +40,7 @@ def rag_search(
         embedding=emb,
         top_k=top_k,
         bone_id=bone_id,
-        bone_detail_id=bone_detail_id,
+        bone_small_id=bone_small_id,
     )
 
     contexts = []

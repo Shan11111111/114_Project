@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from s0_annotation import router as s0_router
 from s1_detection.router import router as s1_router
-from s2_agent.router import router as s2_router
+from s2_agent import router as s2_router
 from s3_viewer.router import router as s3_router
 from shared.router import router as shared_router
 

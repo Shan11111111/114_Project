@@ -13,6 +13,8 @@ py -m pip install "uvicorn[standard]" fastapi
 pip install python-multipart
 py -m pip install pyodbc
 py -m pip install qdrant-client
+py -m pip install langchain-community pypdf
+
 
 
 # 啟動後端服務
