@@ -1,0 +1,5 @@
+清空collection
+python -c "from shared.vector_client import VectorStore; vs=VectorStore(); vs.client.recreate_collection(collection_name='bone_edu_docs', vectors_config=vs.client.get_collection('bone_edu_docs').config.params.vectors)"
+
+重建向量資料庫
+python -m s2_agent.vectordb.ingest_materials
