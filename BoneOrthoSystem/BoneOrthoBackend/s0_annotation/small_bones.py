@@ -1,59 +1,48 @@
 # BoneOrthoBackend/s0_annotation/small_bones.py
-from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional
-from pydantic import BaseModel
-
+from fastapi import APIRouter, Query
 from db import query_all
 
 router = APIRouter(prefix="/s0", tags=["s0_small_bones"])
 
 
-class SmallBoneOut(BaseModel):
-    smallBoneId: int
-    boneId: int
-    nameZh: str
-    nameEn: str
-    serialNumber: Optional[str] = None   # ★ 改成 str
-    place: Optional[str] = None
-    note: Optional[str] = None
-
-
-
-@router.get("/small-bones", response_model=List[SmallBoneOut])
-def list_small_bones(
-    boneId: int = Query(..., description="對應的大骨 bone_id")
-):
+@router.get("/small-bones")
+def get_small_bones(boneId: int = Query(..., alias="boneId")):
     """
-    依指定的大骨 boneId，列出底下所有小骨 (206 細項的一部分)：
-    - 給前端第二層下拉選單用
+    取得某個大骨底下的小骨清單（206 細項之一）。
+    表： [dbo].[bone.Bone_small]
+    欄位：
+      - small_bone_id
+      - small_bone_zh
+      - small_bone_en
+      - serial_number  (代號)
+      - place          (左右 / 中央…)
+      - note           (備註)
+      - bone_id        (對應 Bone_Info.bone_id)
     """
-    sql = """
-    SELECT 
-        s.small_bone_id  AS smallBoneId,
-        s.bone_id        AS boneId,
-        s.small_bone_zh  AS nameZh,
-        s.small_bone_en  AS nameEn,
-        s.serial_number  AS serialNumber,
-        s.place          AS place,
-        s.note           AS note
+
+    sql = f"""
+    SELECT
+        s.small_bone_id,
+        s.small_bone_zh,
+        s.small_bone_en,
+        s.serial_number,
+        s.place,
+        s.note
     FROM [dbo].[bone.Bone_small] AS s
-    WHERE s.bone_id = ?
-    ORDER BY s.serial_number, s.small_bone_zh;
+    WHERE s.bone_id = {boneId}
+    ORDER BY s.serial_number
     """
-    try:
-        rows = query_all(sql, [boneId])
-        return [
-            SmallBoneOut(
-                smallBoneId=r["smallBoneId"],
-                boneId=r["boneId"],
-                nameZh=r["nameZh"],
-                nameEn=r["nameEn"],
-                serialNumber=r["serialNumber"],
-                place=r["place"],
-                note=r["note"],
-            )
-            for r in rows
-        ]
-    except Exception as e:
-        print("❌ Error in /s0/small-bones:", repr(e))
-        raise HTTPException(status_code=500, detail=f"/s0/small-bones failed: {e}")
+
+    rows = query_all(sql)
+
+    return [
+        {
+            "small_bone_id": row["small_bone_id"],
+            "small_bone_zh": row["small_bone_zh"],
+            "small_bone_en": row["small_bone_en"],
+            "serial_number": row["serial_number"],
+            "place": row["place"],
+            "note": row["note"],
+        }
+        for row in rows
+    ]

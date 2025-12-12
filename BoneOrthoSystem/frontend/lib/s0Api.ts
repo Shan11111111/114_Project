@@ -6,7 +6,9 @@ async function getJson(path: string) {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`API ${path} failed: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -16,7 +18,9 @@ async function postJson(path: string, body: any) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`API ${path} failed: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -31,6 +35,9 @@ export type SmallBone = {
   smallBoneId: number;
   smallBoneZh: string;
   smallBoneEn: string;
+  serialNumber: number | null;
+  place: string | null;
+  note: string | null;
 };
 
 export type ImageCase = {
@@ -40,7 +47,7 @@ export type ImageCase = {
   createdAt: string;
 };
 
-// --- API 介面 ---
+// --- S0 API 介面 ---
 export const s0Api = {
   async getBigBones(): Promise<BigBone[]> {
     const raw = await getJson("/s0/big-bones");
@@ -57,6 +64,9 @@ export const s0Api = {
       smallBoneId: s.small_bone_id ?? s.smallBoneId,
       smallBoneZh: s.small_bone_zh ?? s.smallBoneZh,
       smallBoneEn: s.small_bone_en ?? s.smallBoneEn,
+      serialNumber: s.serial_number ?? s.serialNumber ?? null,
+      place: s.place ?? s.Place ?? null,
+      note: s.note ?? s.Note ?? null,
     }));
   },
 
@@ -82,3 +92,22 @@ export const s0Api = {
     return postJson("/s0/annotations/save", payload);
   },
 };
+
+// --- S2：給 S0 用的詢問 Dr.Bone ---
+export async function askAgentFromS0(payload: {
+  imageCaseId: number;
+  boneId: number | null;
+  smallBoneId: number | null;
+  question: string;
+}): Promise<string> {
+  const res = await fetch(`${API_BASE}/s2/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`S2 ask failed: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.answer as string;
+}

@@ -1,12 +1,12 @@
 "use client";
 
-
 import { useEffect, useMemo, useState } from "react";
 import {
   s0Api,
   BigBone,
   SmallBone,
   ImageCase,
+  askAgentFromS0,
 } from "../../lib/s0Api";
 
 export default function S0Page() {
@@ -23,14 +23,20 @@ export default function S0Page() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // ⭐ S2 問答用
+  const [qaLoading, setQaLoading] = useState(false);
+  const [qaAnswer, setQaAnswer] = useState("");
+
   const currentCase: ImageCase | null = useMemo(() => {
     if (!imageCases.length) return null;
     return imageCases[currentIndex] ?? imageCases[0];
   }, [imageCases, currentIndex]);
 
+  const canSubmit =
+    !!currentCase && selectedBoneId !== null && selectedSmallBoneId !== null;
+
   // 初始化：抓待標註影像 + 大骨
   useEffect(() => {
-    console.log("pending cases from API:", imageCases);
     async function init() {
       try {
         setLoading(true);
@@ -59,10 +65,12 @@ export default function S0Page() {
     setSelectedBoneId(boneId);
     setSelectedSmallBoneId(null);
     setSmallBones([]);
+    setQaAnswer("");
 
     try {
       const data = await s0Api.getSmallBones(boneId);
       setSmallBones(data);
+      setStatus("");
     } catch (err: any) {
       setStatus(`取得小骨失敗：${err.message}`);
     }
@@ -74,6 +82,7 @@ export default function S0Page() {
     setCurrentIndex((prev) =>
       prev === 0 ? imageCases.length - 1 : prev - 1
     );
+    setQaAnswer("");
   };
 
   const gotoNext = () => {
@@ -81,20 +90,13 @@ export default function S0Page() {
     setCurrentIndex((prev) =>
       prev === imageCases.length - 1 ? 0 : prev + 1
     );
+    setQaAnswer("");
   };
 
-  // 送標註
+  // 送標註（目前先用整張圖當框：0~1 normalized）
   const handleSave = async () => {
-    if (!currentCase) {
-      setStatus("沒有選到影像案例。");
-      return;
-    }
-    if (!selectedBoneId) {
-      setStatus("請先選擇大骨。");
-      return;
-    }
-    if (!selectedSmallBoneId) {
-      setStatus("請先選擇小骨。");
+    if (!canSubmit || !currentCase || !selectedBoneId || !selectedSmallBoneId) {
+      setStatus("請先選好影像、大骨與小骨。");
       return;
     }
 
@@ -108,17 +110,18 @@ export default function S0Page() {
           {
             boneId: selectedBoneId,
             smallBoneId: selectedSmallBoneId,
-            // TODO: 之後改成前端真的畫出來的座標
-            x_min: 100,
-            y_min: 120,
-            x_max: 360,
-            y_max: 420,
+            // ⭐ 目前先用整張圖當 ROI（normalized 0~1）
+            // 之後有畫框模式，再改成實際框的座標即可
+            x_min: 0.0,
+            y_min: 0.0,
+            x_max: 1.0,
+            y_max: 1.0,
           },
         ],
       });
 
       setStatus(
-        `✅ 已為 Case #${currentCase.imageCaseId} 建立一筆標註。`
+        `✅ 已為 Case #${currentCase.imageCaseId} 建立一筆標註（暫時以整張影像為框）。`
       );
     } catch (err: any) {
       setStatus(`❌ 儲存失敗：${err.message}`);
@@ -127,11 +130,49 @@ export default function S0Page() {
     }
   };
 
+  // ⭐ 問 S2 Dr.Bone
+  const handleAskAi = async () => {
+    if (!canSubmit || !currentCase || !selectedBoneId || !selectedSmallBoneId) {
+      setStatus("請先選好影像、大骨與小骨，再詢問 AI。");
+      return;
+    }
+
+    setQaLoading(true);
+    setQaAnswer("");
+    setStatus("");
+
+    try {
+      const big = bigBones.find((b) => b.boneId === selectedBoneId);
+      const small = smallBones.find(
+        (s) => s.smallBoneId === selectedSmallBoneId
+      );
+
+      const defaultQuestion =
+        small?.smallBoneZh && big?.boneZh
+          ? `請用淺顯的方式介紹「${small.smallBoneZh}」這塊骨頭（隸屬於 ${big.boneZh}），包含位置、功能與常見骨折。`
+          : "請介紹這個骨頭的名稱、位置與常見病變。";
+
+      const answer = await askAgentFromS0({
+        imageCaseId: currentCase.imageCaseId,
+        boneId: selectedBoneId,
+        smallBoneId: selectedSmallBoneId,
+        question: defaultQuestion,
+      });
+
+      setQaAnswer(answer);
+    } catch (err: any) {
+      setStatus(`詢問 AI 失敗：${err.message}`);
+    } finally {
+      setQaLoading(false);
+    }
+  };
+
   return (
     <main className="s0-page">
       <h1 className="s0-title">影像標註站（S0）</h1>
       <p className="s0-subtitle">
-        選擇最新的待標註 X 光影像，指定骨頭名稱，送出標註結果提供 S1 / S2 模型訓練與驗證。
+        STEP 1：選影像 → STEP 2：選大骨 → STEP 3：選小骨 → STEP 4：送出標註或請
+        Dr.Bone 解說。
       </p>
 
       <section className="s0-top">
@@ -250,10 +291,19 @@ export default function S0Page() {
                   >
                     <div className="s0-smallbone-name">
                       {s.smallBoneZh}
+                      {s.place ? `（${s.place}）` : ""}
                     </div>
                     <div className="s0-smallbone-en">
                       {s.smallBoneEn}
+                      {s.serialNumber != null
+                        ? ` · #${s.serialNumber}`
+                        : ""}
                     </div>
+                    {s.note && (
+                      <div className="s0-smallbone-note">
+                        {s.note}
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -266,13 +316,52 @@ export default function S0Page() {
             <p className="s0-hint">請先在上方選擇一個大骨。</p>
           )}
 
-          <button
-            className="s0-btn-primary"
-            onClick={handleSave}
-            disabled={saving || !currentCase}
-          >
-            {saving ? "送出中…" : "送出標註到後端"}
-          </button>
+          {/* 選擇摘要 */}
+          {currentCase && selectedBoneId && selectedSmallBoneId && (
+            <p className="s0-hint mt-3">
+              將為{" "}
+              <span className="font-semibold">
+                Case #{currentCase.imageCaseId}
+              </span>{" "}
+              標註：{" "}
+              <span className="font-semibold">
+                {bigBones.find((b) => b.boneId === selectedBoneId)?.boneZh}
+              </span>{" "}
+              →
+              <span className="font-semibold">
+                {
+                  smallBones.find(
+                    (s) => s.smallBoneId === selectedSmallBoneId
+                  )?.smallBoneZh
+                }
+              </span>
+            </p>
+          )}
+
+          <div className="flex gap-3 mt-4">
+            <button
+              className="s0-btn-secondary"
+              onClick={handleAskAi}
+              disabled={qaLoading || !canSubmit}
+            >
+              {qaLoading ? "AI 解說中…" : "請 Dr.Bone 解說這顆骨頭"}
+            </button>
+
+            <button
+              className="s0-btn-primary"
+              onClick={handleSave}
+              disabled={saving || !canSubmit}
+            >
+              {saving ? "送出中…" : "送出標註到後端"}
+            </button>
+          </div>
+
+          {qaAnswer && (
+            <div className="s0-ai-answer">
+              <h3 className="s0-ai-title">Dr.Bone 解說</h3>
+              <p className="s0-ai-text whitespace-pre-wrap">{qaAnswer}</p>
+            </div>
+          )}
         </div>
       </section>
 

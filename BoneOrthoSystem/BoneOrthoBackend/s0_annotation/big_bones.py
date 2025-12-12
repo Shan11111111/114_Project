@@ -1,46 +1,33 @@
 # BoneOrthoBackend/s0_annotation/big_bones.py
-from fastapi import APIRouter, HTTPException
-from typing import List
-from pydantic import BaseModel
-
+from fastapi import APIRouter
 from db import query_all
 
-router = APIRouter(prefix="/s0", tags=["s0_big_bones"])
+router = APIRouter(prefix="/s0", tags=["s0_bones"])
 
 
-class BigBoneOut(BaseModel):
-    boneId: int
-    nameZh: str
-    nameEn: str
-    region: str | None = None
-
-
-@router.get("/big-bones", response_model=List[BigBoneOut])
-def list_big_bones():
+@router.get("/big-bones")
+def get_big_bones():
     """
-    列出全部大骨 (41 類)：
-    - 給前端第一層下拉選單用
+    取得 41 類大骨列表，給 S0 前端右邊 chip 用。
+    對應資料表：dbo.Bone_Info（bone_id / bone_zh / bone_en）
     """
+
     sql = """
-    SELECT 
-        b.bone_id      AS boneId,
-        b.bone_zh      AS nameZh,
-        b.bone_en      AS nameEn,
-        b.bone_region  AS region
-    FROM [dbo].[Bone_Info] AS b
-    ORDER BY b.bone_region, b.bone_zh;
+    SELECT
+        b.bone_id,
+        b.bone_zh,
+        b.bone_en
+    FROM dbo.Bone_Info AS b
+    ORDER BY b.bone_id
     """
-    try:
-        rows = query_all(sql)
-        return [
-            BigBoneOut(
-                boneId=r["boneId"],
-                nameZh=r["nameZh"],
-                nameEn=r["nameEn"],
-                region=r["region"],
-            )
-            for r in rows
-        ]
-    except Exception as e:
-        print("❌ Error in /s0/big-bones:", repr(e))
-        raise HTTPException(status_code=500, detail=f"/s0/big-bones failed: {e}")
+    rows = query_all(sql)
+
+    # 確保回去的欄位名是前端在用的 bone_id / bone_zh / bone_en
+    return [
+        {
+            "bone_id": row["bone_id"],
+            "bone_zh": row["bone_zh"] or "",
+            "bone_en": row["bone_en"] or "",
+        }
+        for row in rows
+    ]

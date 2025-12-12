@@ -1,0 +1,35 @@
+cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend
+#指令
+py -m s0_annotation.export_yolo
+
+#看到類似這樣的輸出就對了：
+
+專案根目錄：C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend
+輸出資料夾：...\BoneOrthoBackend\datasets\s0_yolo
+✅ 找到 5 筆有標註的影像案例。
+  [OK] Case 6 -> a779cf00b3614f82afc75eb6c0c6bd44.png, 3 個標註
+  ...
+=== 匯出完成 ===
+輸出影像數量：5
+輸出標註框數量：20
+影像路徑：...\datasets\s0_yolo\images
+標註路徑：...\datasets\s0_yolo\labels
+
+
+
+接到 YOLO 訓練
+假設你用 Ultralytics YOLO，data.yaml 可以像這樣簡單寫（自己建在 YOLO 專案那邊）：
+path: C:/Users/IM43LLM/Desktop/114_Project/BoneOrthoSystem/BoneOrthoBackend/datasets/s0_yolo
+train: images
+val: images   # 先偷懶全部當 train，之後再分
+
+nc: 300       # 要 >= 最大 SmallBoneId（你可以先 SELECT MAX(SmallBoneId) 看看）
+names: [bone0, bone1, bone2]  # 先隨便填，之後可以改成真的骨頭名稱
+
+然後在 YOLO 專案裡跑：
+yolo detect train data=your_data.yaml model=yolov8n.pt
+
+之後你慢慢可以：
+
+把 nc 和 names 換成真的 206 類骨頭名稱（可以從 bone.Bone_small 產一個小工具）。
+把 val 換成你想要的驗證集資料夾。
