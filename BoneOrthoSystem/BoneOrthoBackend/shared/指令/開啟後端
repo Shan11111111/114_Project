@@ -8,6 +8,9 @@ py -3.11 -m venv .venv
 # 安裝必要套件(如果還沒安裝過的話)
 py -m pip install -U pip wheel
 py -m pip install ultralytics
+py -m pip install -U pip
+py -m pip install "uvicorn[standard]" fastapi
+
 
 # 啟動後端服務
 py -m uvicorn app:app --reload --port 8000
