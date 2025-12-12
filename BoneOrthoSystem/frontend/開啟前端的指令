@@ -1,0 +1,3 @@
+cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\frontend
+npm install          # 第一次才需要
+npm run dev
