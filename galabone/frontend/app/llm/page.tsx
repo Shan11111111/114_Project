@@ -68,6 +68,10 @@ export default function LLMPage() {
   // ✅ History overlay（像 GPT）
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
+  const [isComposingHistory, setIsComposingHistory] = useState(false);
+
+  // ✅ 非受控 input 用 ref（避免 IME 被受控 value 打斷）
+  const historyInputRef = useRef<HTMLInputElement | null>(null);
 
   // ===== chat 狀態 =====
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -221,7 +225,10 @@ export default function LLMPage() {
     return threadMsgs;
   }
 
-  function loadThreadToMain(threadId: string, opts?: { closeOverlay?: boolean }) {
+  function loadThreadToMain(
+    threadId: string,
+    opts?: { closeOverlay?: boolean }
+  ) {
     setActiveThreadId(threadId);
     setActiveView("llm");
     setMessages(buildChatMessagesFromThread(threadId));
@@ -248,12 +255,12 @@ export default function LLMPage() {
     setTimeout(() => inputRef.current?.focus(), 60);
   }
 
-  // ✅ NEW: 只在 overlay 內切換 thread（不關 overlay、不載入主畫面）
+  // ✅ overlay 內切換 thread（不關 overlay、不載入主畫面）
   function selectThreadInOverlay(threadId: string) {
     setActiveThreadId(threadId);
   }
 
-  // ✅ NEW: 新對話（真正清空 + 新 thread）
+  // ✅ 新對話（真正清空 + 新 thread）
   function newThread() {
     const newId = `t-${Date.now()}`;
 
@@ -658,10 +665,14 @@ export default function LLMPage() {
     );
   }
 
-  // ===== History overlay (GPT-like) =====
+  // ===== History overlay =====
   const filteredThreads = useMemo(() => {
+    // ✅ 組字中先不做篩選，避免中文輸入被 re-render 打斷
+    if (isComposingHistory) return historyThreads;
+
     const q = historyQuery.trim().toLowerCase();
     if (!q) return historyThreads;
+
     return historyThreads.filter((t) => {
       return (
         t.title.toLowerCase().includes(q) ||
@@ -669,7 +680,7 @@ export default function LLMPage() {
         t.updatedAt.toLowerCase().includes(q)
       );
     });
-  }, [historyQuery, historyThreads]);
+  }, [historyQuery, historyThreads, isComposingHistory]);
 
   function HistoryOverlay() {
     const currentThread = historyThreads.find((t) => t.id === activeThreadId);
@@ -756,9 +767,10 @@ export default function LLMPage() {
                   className="p-3 border-b"
                   style={{ borderColor: "rgba(148,163,184,0.20)" }}
                 >
+                  {/* ✅ 改為非受控 input：避免 IME（中文注音/拼音）組字被打斷 */}
                   <input
-                    value={historyQuery}
-                    onChange={(e) => setHistoryQuery(e.target.value)}
+                    ref={historyInputRef}
+                    defaultValue=""
                     placeholder="搜尋對話…"
                     className="w-full rounded-lg px-3 py-2 text-sm outline-none border bg-transparent"
                     style={{
@@ -766,6 +778,21 @@ export default function LLMPage() {
                       color: "var(--foreground)",
                     }}
                     autoFocus
+                    onCompositionStart={() => {
+                      setIsComposingHistory(true);
+                    }}
+                    onCompositionEnd={(e) => {
+                      setIsComposingHistory(false);
+                      setHistoryQuery(
+                        (e.currentTarget as HTMLInputElement).value
+                      );
+                    }}
+                    onInput={(e) => {
+                      if (isComposingHistory) return;
+                      setHistoryQuery(
+                        (e.currentTarget as HTMLInputElement).value
+                      );
+                    }}
                   />
                 </div>
 
@@ -924,6 +951,15 @@ export default function LLMPage() {
   function openHistory() {
     setIsHistoryOpen(true);
     setHistoryQuery("");
+    setIsComposingHistory(false);
+
+    // ✅ 非受控 input 要手動清空
+    setTimeout(() => {
+      if (historyInputRef.current) {
+        historyInputRef.current.value = "";
+        historyInputRef.current.focus();
+      }
+    }, 0);
   }
 
   // ===== Desktop sidebar =====
@@ -1003,7 +1039,6 @@ export default function LLMPage() {
         }`}
       >
         {!isNavCollapsed ? (
-          // ✅ 修正：gap-5 → gap-2（移除新對話下面那坨空白）
           <div className="h-full min-h-0 flex flex-col gap-2 text-sm">
             <div className="space-y-1">
               <SideRow
@@ -1175,7 +1210,6 @@ export default function LLMPage() {
               </label>
             </div>
 
-            {/* ✅ 修正：space-y-5 → space-y-2（移除手機版新對話下方空白） */}
             <nav className="flex-1 min-h-0 px-3 pt-4 text-sm space-y-2 overflow-y-auto">
               <div className="space-y-1">
                 <SideRow
@@ -1492,16 +1526,14 @@ export default function LLMPage() {
                                 <button
                                   type="submit"
                                   disabled={
-                                    (!input.trim() &&
-                                      pendingFiles.length === 0) ||
+                                    (!input.trim() && pendingFiles.length === 0) ||
                                     loading
                                   }
                                   className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
                                   style={{
                                     background:
                                       "linear-gradient(135deg,#0ea5e9,#22c55e)",
-                                    boxShadow:
-                                      "0 10px 25px rgba(56,189,248,0.45)",
+                                    boxShadow: "0 10px 25px rgba(56,189,248,0.45)",
                                   }}
                                 >
                                   {loading ? (
@@ -1541,16 +1573,14 @@ export default function LLMPage() {
                                 <button
                                   type="submit"
                                   disabled={
-                                    (!input.trim() &&
-                                      pendingFiles.length === 0) ||
+                                    (!input.trim() && pendingFiles.length === 0) ||
                                     loading
                                   }
                                   className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
                                   style={{
                                     background:
                                       "linear-gradient(135deg,#0ea5e9,#22c55e)",
-                                    boxShadow:
-                                      "0 10px 25px rgba(56,189,248,0.45)",
+                                    boxShadow: "0 10px 25px rgba(56,189,248,0.45)",
                                   }}
                                 >
                                   {loading ? (
