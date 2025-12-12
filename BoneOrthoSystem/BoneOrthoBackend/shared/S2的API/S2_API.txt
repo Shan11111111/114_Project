@@ -1,0 +1,66 @@
+S2 AI Agent Backend API 一覽（簡表版）
+
+# 對話 / 聊天室管理
+
+GET  /health
+  → 健康檢查，確認 S2 服務是否啟動正常。
+
+GET  /conversations?user_id=...
+  → 取得某使用者所有聊天室列表（左側對話清單）。
+
+POST /conversations
+  → 建立新的聊天室，回傳 conversation_id。
+
+GET  /conversations/{conversation_id}/messages
+  → 取得某聊天室的歷史訊息（進房間時載入）。
+
+POST /chat
+  → 傳入 user 訊息（可帶 bone_id / small_bone_id / 檔案 context），
+    由 LLM + RAG 產生回答，並把 user / assistant 訊息寫入資料庫。
+
+PATCH /conversations/{conversation_id}/title
+  → 修改聊天室標題。
+
+DELETE /conversations/{conversation_id}
+  → 刪除整個聊天室及底下所有訊息。
+
+
+# 教材檔案與 RAG
+
+POST /files/upload
+  → 上傳教材檔案（PDF/Word/圖片），儲存到 backend/data/uploads/，
+    並建立文字內容與向量索引。
+
+GET  /files
+  → 列出目前已上傳且完成索引的教材檔案清單。
+
+GET  /files/{file_id}
+  → 取得單一教材的詳細資訊／摘要（檔名、頁數、簡介、標籤等）。
+
+POST /rag/query
+  → 對上傳教材 + BoneDB 做 RAG 查詢，
+    回傳整理後答案 + 來源清單（哪個檔案、哪一頁）。
+
+
+# 骨頭資料與 YOLO 結合
+
+GET  /bones/{bone_id}
+  → 從 BoneDB 取得單一骨頭（大骨）的中英文名稱、區域、說明。
+
+GET  /bones/{bone_id}/images/thumbnail
+  → 從 Bone_Images 取出該骨頭一張示意圖（給前端顯示）。
+
+POST /yolo/explain-bone
+  → 傳入 YOLO 類別英文名稱（例如 "Femur"），
+    先轉成資料庫 bone_en，查 BoneDB + 教材，再用 LLM 生成民眾版解說。
+
+
+# 匯出報告（PDF / PPT）
+
+POST /export/pdf
+  → 以某個 conversation_id 為主，整理對話與 RAG 重點，
+    匯出成 PDF（衛教單 / 學習單）。
+
+POST /export/ppt
+  → 以某個 conversation_id 為主，整理重點成 PPT 簡報，
+    給老師上課或報告使用。
