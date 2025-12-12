@@ -19,7 +19,7 @@ from .tools.doc_tool import extract_text_and_summary
 from .routers.export import router as export_router
 
 # ---------------------------------------------------------
-# 路徑設定：把專案根目錄（Bone）加進 sys.path，才能 import shared.db
+# 路徑設定：把專案根目錄（Bone）加進 sys.path，才能 import db
 # ---------------------------------------------------------
 APP_DIR = Path(__file__).resolve().parent        # ...\Bone\ai_agent_backend\app
 BACKEND_DIR = APP_DIR.parent                     # ...\Bone\ai_agent_backend
@@ -28,8 +28,8 @@ PROJECT_ROOT = BACKEND_DIR.parent                # ...\Bone
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-# 從 Bone/shared/db.py 匯入 DB 函式
-from shared.db import (
+# 從 Bone/db.py 匯入 DB 函式
+from db import (
     get_connection,
     create_conversation,
     add_message,

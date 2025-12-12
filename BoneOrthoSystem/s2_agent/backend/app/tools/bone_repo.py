@@ -1,4 +1,4 @@
-from shared.db import get_connection
+from db import get_connection
 
 def get_bone_zh_en_by_en(bone_en: str):
     """

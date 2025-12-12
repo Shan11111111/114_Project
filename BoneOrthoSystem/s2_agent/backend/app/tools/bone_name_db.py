@@ -1,6 +1,6 @@
 # app/tools/bone_name_db.py
 from typing import Dict, Iterable
-from shared.db import get_connection
+from db import get_bone_zh_en_by_en, get_connection
 
 
 def _fetch_name_for_label(label: str) -> str | None:

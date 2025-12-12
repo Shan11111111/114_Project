@@ -8,7 +8,7 @@ import numpy as np
 from ultralytics import YOLO
 from PIL import Image, ImageDraw, ImageFont
 
-from shared.db import get_bone_zh_en_by_en
+from db import get_bone_zh_en_by_en
 
 # ======================================
 # 路徑設定

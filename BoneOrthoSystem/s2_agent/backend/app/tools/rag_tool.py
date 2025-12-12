@@ -8,7 +8,7 @@ from openai import OpenAI
 from ..models import ChatMessage
 
 # ---------------------------------------------------------
-# 把 Bone 根目錄加進 sys.path，才能 import shared.db
+# 把 Bone 根目錄加進 sys.path，才能 import db
 # ---------------------------------------------------------
 TOOLS_DIR = Path(__file__).resolve().parent      # ...\app\tools
 APP_DIR = TOOLS_DIR.parent                       # ...\app
@@ -18,7 +18,7 @@ PROJECT_ROOT = BACKEND_DIR.parent                # ...\Bone
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from shared.db import get_connection
+from db import get_connection
 
 
 # =========================================================
@@ -58,7 +58,7 @@ def _build_history_text(history: List[ChatMessage]) -> str:
 
 # =========================================================
 # 針對 Bone_Info / Bone_Images 做查詢的小工具
-# （只寫在 rag_tool.py，不去改 shared/db.py）
+# （只寫在 rag_tool.py，不去改 db.py）
 # =========================================================
 
 def _find_bone_from_question(question: str) -> Dict[str, Any] | None:
