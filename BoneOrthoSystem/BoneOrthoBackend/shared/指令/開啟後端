@@ -11,8 +11,8 @@ py -m pip install ultralytics
 py -m pip install -U pip
 py -m pip install "uvicorn[standard]" fastapi
 pip install python-multipart
-python -m pip install pyodbc
-
+py -m pip install pyodbc
+py -m pip install qdrant-client
 
 
 # 啟動後端服務

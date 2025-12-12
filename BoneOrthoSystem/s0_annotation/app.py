@@ -27,5 +27,5 @@ def root():
 app.include_router(shared_router, prefix="/shared")
 app.include_router(s0_router)
 app.include_router(s1_router)
-#app.include_router(s2_router)
-app.include_router(s3_router)
+app.include_router(s2_router)
+# app.include_router(s3_router)
