@@ -7,7 +7,7 @@ from openai import OpenAI  # 需要 pip install openai
 
 router = APIRouter(
     prefix="/from-s0",  # 搭配 s2_agent/router.py 的 /s2 → 最後是 /s2/from-s0/ask
-    tags=["s2_from_s0"],
+    tags=["S2 Bridge"],
 )
 
 # ---------- I/O schema ----------

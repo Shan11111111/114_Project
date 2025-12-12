@@ -19,6 +19,7 @@ from s1_detection.router import router as s1_router
 from s2_agent import router as s2_router
 from s3_viewer.router import router as s3_router
 from shared.router import router as shared_router
+from s2_agent.s0_bridge import router as s0_bridge_router
 
 
 app = FastAPI(
@@ -49,3 +50,6 @@ app.include_router(s0_router)
 app.include_router(s1_router)
 app.include_router(s2_router)
 app.include_router(s3_router)
+app.include_router(s0_bridge_router, prefix="/s2")
+
+

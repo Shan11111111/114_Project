@@ -10,7 +10,7 @@ CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4.1-mini")
 if OPENAI_API_KEY:
     from openai import OpenAI
     _client = OpenAI(api_key=OPENAI_API_KEY)
-    print("DEBUG OPENAI_API_KEY:", repr(OPENAI_API_KEY))
+    # print("DEBUG OPENAI_API_KEY:", repr(OPENAI_API_KEY))
 
 else:
     _client = None
