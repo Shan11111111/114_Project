@@ -1,0 +1,249 @@
+/* ===== S0 標註頁 ===== */
+
+.s0-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 16px 48px;
+}
+
+.s0-title {
+  font-size: 1.9rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.s0-subtitle {
+  font-size: 0.95rem;
+  color: #6b7280;
+  margin-bottom: 22px;
+}
+
+.s0-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 18px;
+}
+
+@media (max-width: 1000px) {
+  .s0-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.s0-card {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 18px 20px 20px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e5e7eb;
+}
+
+.s0-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.s0-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.s0-card-sub {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.s0-badge {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #7dd3fc;
+}
+
+/* 影像輪播 */
+
+.s0-carousel-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.s0-image-frame {
+  flex: 1;
+  border-radius: 14px;
+  background: #020617;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.s0-main-image {
+  max-width: 100%;
+  max-height: 380px;
+  object-fit: contain;
+}
+
+.s0-nav-btn {
+  border: none;
+  background: #e0f2fe;
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.s0-nav-btn:hover {
+  background: #bae6fd;
+}
+
+.s0-thumb-strip {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.s0-thumb-wrap {
+  border-radius: 10px;
+  border: 2px solid transparent;
+  padding: 1px;
+  cursor: pointer;
+}
+
+.s0-thumb-wrap--active {
+  border-color: #0ea5e9;
+}
+
+.s0-thumb-image {
+  width: 80px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.s0-label {
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin: 8px 0 4px;
+}
+
+.s0-hint {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-top: 6px;
+}
+
+/* 大骨 chip */
+
+.s0-bone-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 150px;
+  overflow: auto;
+}
+
+.s0-bone-chip {
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  padding: 4px 10px;
+  background: #f9fafb;
+  cursor: pointer;
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.s0-bone-chip--active {
+  border-color: #0ea5e9;
+  background: #e0f2fe;
+}
+
+.s0-bone-chip-main {
+  font-weight: 600;
+}
+
+.s0-bone-chip-sub {
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+
+/* 小骨清單 */
+
+.s0-smallbone-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 6px;
+  margin-bottom: 10px;
+}
+
+.s0-smallbone-item {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.s0-smallbone-item--active {
+  border-color: #0ea5e9;
+  background: #e0f2fe;
+}
+
+.s0-smallbone-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.s0-smallbone-en {
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+/* 主按鈕 */
+
+.s0-btn-primary {
+  margin-top: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: none;
+  background: #0ea5e9;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+
+.s0-btn-primary:hover {
+  background: #0284c7;
+}
+
+.s0-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 狀態訊息 */
+
+.s0-status {
+  margin-top: 16px;
+  font-size: 0.86rem;
+  white-space: pre-wrap;
+  color: #111827;
+}
