@@ -247,3 +247,91 @@
   white-space: pre-wrap;
   color: #111827;
 }
+
+/* === S0 畫框模式相關 === */
+
+.s0-image-frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #020617;
+  border-radius: 24px;
+  overflow: hidden;
+  min-height: 320px;
+}
+
+.s0-main-image {
+  max-width: 100%;
+  max-height: 520px;
+  display: block;
+}
+
+.s0-annot-box {
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.7);
+}
+
+/* 底下是框列表的小樣式，照你原本的風格去微調都可以 */
+
+.s0-annot-summary {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s0-annot-count {
+  font-weight: 600;
+  color: #0ea5e9;
+}
+
+.s0-link-btn {
+  border: none;
+  background: none;
+  color: #0ea5e9;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.s0-annot-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.s0-annot-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #020617;
+  border: 1px solid #1e293b;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.s0-annot-item--active {
+  border-color: #0ea5e9;
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.s0-annot-label {
+  color: #e2e8f0;
+}
+
+.s0-annot-delete {
+  border: none;
+  background: #ef4444;
+  color: white;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}

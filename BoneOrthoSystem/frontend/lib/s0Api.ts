@@ -1,14 +1,13 @@
 // frontend/lib/s0Api.ts
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
 // --- 共用 fetch ---
 async function getJson(path: string) {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
   });
-  if (!res.ok) {
-    throw new Error(`API ${path} failed: ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
   return res.json();
 }
 
@@ -18,9 +17,7 @@ async function postJson(path: string, body: any) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    throw new Error(`API ${path} failed: ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
   return res.json();
 }
 
@@ -47,7 +44,7 @@ export type ImageCase = {
   createdAt: string;
 };
 
-// --- S0 API 介面 ---
+// --- API 介面 ---
 export const s0Api = {
   async getBigBones(): Promise<BigBone[]> {
     const raw = await getJson("/s0/big-bones");
@@ -84,8 +81,14 @@ export const s0Api = {
     });
   },
 
-  getAnnotations(caseId: number) {
-    return getJson(`/s0/annotations/${caseId}`);
+  // ⭐ 這裡包 try/catch，後端炸掉就回 []，不要讓整頁爆紅
+  async getAnnotations(caseId: number): Promise<any[]> {
+    try {
+      return await getJson(`/s0/annotations/${caseId}`);
+    } catch (err) {
+      console.error("[S0] getAnnotations error:", err);
+      return [];
+    }
   },
 
   saveAnnotations(payload: any) {
@@ -93,21 +96,23 @@ export const s0Api = {
   },
 };
 
-// --- S2：給 S0 用的詢問 Dr.Bone ---
 export async function askAgentFromS0(payload: {
   imageCaseId: number;
   boneId: number | null;
   smallBoneId: number | null;
   question: string;
 }): Promise<string> {
-  const res = await fetch(`${API_BASE}/s2/ask`, {
+  const res = await fetch(`${API_BASE}/s2/from-s0/ask`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+
   if (!res.ok) {
+    // 讓錯誤訊息可以看到真正的 status code
     throw new Error(`S2 ask failed: ${res.status}`);
   }
+
   const data = await res.json();
   return data.answer as string;
 }

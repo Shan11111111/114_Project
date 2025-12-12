@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   s0Api,
   BigBone,
@@ -8,6 +8,19 @@ import {
   ImageCase,
   askAgentFromS0,
 } from "../../lib/s0Api";
+
+// 一個標註框的型別（0~1 normalized）
+type AnnotationBox = {
+  id: number;
+  boneId: number | null;
+  smallBoneId: number | null;
+  boneZh: string;
+  smallBoneZh: string;
+  xMin: number;
+  yMin: number;
+  xMax: number;
+  yMax: number;
+};
 
 export default function S0Page() {
   const [imageCases, setImageCases] = useState<ImageCase[]>([]);
@@ -19,23 +32,44 @@ export default function S0Page() {
   const [selectedSmallBoneId, setSelectedSmallBoneId] =
     useState<number | null>(null);
 
+  const [boxes, setBoxes] = useState<AnnotationBox[]>([]);
+  const [activeBoxId, setActiveBoxId] = useState<number | null>(null);
+
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // 畫框相關狀態
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(
+    null
+  );
+  const [imgRect, setImgRect] = useState<DOMRect | null>(null);
+  // 正在拖曳中的「預覽框」
+  const [draftBox, setDraftBox] = useState<{
+    xMin: number;
+    yMin: number;
+    xMax: number;
+    yMax: number;
+  } | null>(null);
+
   // ⭐ S2 問答用
   const [qaLoading, setQaLoading] = useState(false);
   const [qaAnswer, setQaAnswer] = useState("");
+
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   const currentCase: ImageCase | null = useMemo(() => {
     if (!imageCases.length) return null;
     return imageCases[currentIndex] ?? imageCases[0];
   }, [imageCases, currentIndex]);
 
-  const canSubmit =
-    !!currentCase && selectedBoneId !== null && selectedSmallBoneId !== null;
+  const canSubmit = !!currentCase && boxes.length > 0;
 
+  // ======================
   // 初始化：抓待標註影像 + 大骨
+  // ======================
   useEffect(() => {
     async function init() {
       try {
@@ -60,7 +94,102 @@ export default function S0Page() {
     init();
   }, []);
 
-  // 選大骨時抓小骨
+  // ======================
+  // 影像尺寸量測（畫框要用）
+  // ======================
+  const measureImageRect = () => {
+    if (!wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    setImgRect(rect);
+  };
+
+  const handleImageLoad = () => {
+    measureImageRect();
+  };
+
+  useEffect(() => {
+    window.addEventListener("resize", measureImageRect);
+    return () => window.removeEventListener("resize", measureImageRect);
+  }, []);
+
+  // ======================
+  // 切換 Case 時，載入舊的標註框（如果有）
+  // ======================
+  useEffect(() => {
+    if (!currentCase) return;
+
+    async function loadExisting() {
+      if (!currentCase) return;
+      const caseId = currentCase.imageCaseId;
+      try {
+        const raw = await s0Api.getAnnotations(caseId);
+        console.log("[S0] annotations from API:", raw);
+
+        const list: AnnotationBox[] = (raw || []).map(
+          (a: any, idx: number): AnnotationBox => {
+            // 後端主要欄位：BoneId / SmallBoneId
+            const boneId =
+              typeof a.boneId === "number"
+                ? a.boneId
+                : typeof a.BoneId === "number"
+                ? a.BoneId
+                : null;
+
+            const smallBoneId =
+              typeof a.smallBoneId === "number"
+                ? a.smallBoneId
+                : typeof a.SmallBoneId === "number"
+                ? a.SmallBoneId
+                : null;
+
+            const big = boneId
+              ? bigBones.find((b) => b.boneId === boneId)
+              : undefined;
+
+            const boneZh = big?.boneZh ?? (boneId ? `Bone ${boneId}` : "Bone ?");
+            const smallZh =
+              smallBoneId != null ? `SmallBone #${smallBoneId}` : "SmallBone ?";
+
+            return {
+              id:
+                a.annotationId ??
+                a.AnnotationId ??
+                a.imageAnnotationId ??
+                idx,
+              boneId,
+              smallBoneId,
+              boneZh,
+              smallBoneZh: smallZh,
+              xMin: Number(a.x_min ?? a.X_min ?? a.XMin ?? 0),
+              yMin: Number(a.y_min ?? a.Y_min ?? a.YMin ?? 0),
+              xMax: Number(a.x_max ?? a.X_max ?? a.XMax ?? 1),
+              yMax: Number(a.y_max ?? a.Y_max ?? a.YMax ?? 1),
+            };
+          }
+        );
+
+        setBoxes(list);
+        setActiveBoxId(null);
+        setDraftBox(null);
+
+        if (list.length) {
+          setStatus(
+            `這張影像已經有 ${list.length} 筆標註，你可以點選下方其中一個框 → 再在圖片上重新拉框，就會覆蓋原本的位置。`
+          );
+        } else {
+          setStatus("");
+        }
+      } catch (err) {
+        console.error("[S0] loadExisting error:", err);
+      }
+    }
+
+    loadExisting();
+  }, [currentCase?.imageCaseId, bigBones.length]);
+
+  // ======================
+  // 選大骨時抓該大骨的小骨（不會清除既有框）
+  // ======================
   const handleSelectBigBone = async (boneId: number) => {
     setSelectedBoneId(boneId);
     setSelectedSmallBoneId(null);
@@ -76,7 +205,9 @@ export default function S0Page() {
     }
   };
 
+  // ======================
   // 影像輪播切換
+  // ======================
   const gotoPrev = () => {
     if (!imageCases.length) return;
     setCurrentIndex((prev) =>
@@ -93,10 +224,182 @@ export default function S0Page() {
     setQaAnswer("");
   };
 
-  // 送標註（目前先用整張圖當框：0~1 normalized）
+  // ======================
+  // 畫框：滑鼠事件 + 同步預覽
+  // ======================
+  const pointFromEvent = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!imgRect) return null;
+    const x = e.clientX - imgRect.left;
+    const y = e.clientY - imgRect.top;
+    if (x < 0 || y < 0 || x > imgRect.width || y > imgRect.height) {
+      return null;
+    }
+    return {
+      x: x / imgRect.width,
+      y: y / imgRect.height,
+    };
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!imgRect) return;
+    if (selectedBoneId == null || selectedSmallBoneId == null) {
+      setStatus("請先在右側選擇大骨與小骨，再開始畫框。");
+      return;
+    }
+    const p = pointFromEvent(e);
+    if (!p) return;
+
+    setIsDrawing(true);
+    setDrawStart(p);
+
+    // 一開始就先產生一個很小的暫時框，讓使用者有視覺回饋
+    setDraftBox({
+      xMin: p.x,
+      yMin: p.y,
+      xMax: p.x,
+      yMax: p.y,
+    });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawing || !drawStart || !imgRect) return;
+    const p = pointFromEvent(e);
+    if (!p) return;
+
+    const xMin = Math.min(drawStart.x, p.x);
+    const yMin = Math.min(drawStart.y, p.y);
+    const xMax = Math.max(drawStart.x, p.x);
+    const yMax = Math.max(drawStart.y, p.y);
+
+    setDraftBox({ xMin, yMin, xMax, yMax });
+  };
+
+  const finishDrawing = (box: {
+    xMin: number;
+    yMin: number;
+    xMax: number;
+    yMax: number;
+  }) => {
+    setIsDrawing(false);
+    setDrawStart(null);
+    setDraftBox(null);
+
+    // 太小的框就當誤觸
+    if (box.xMax - box.xMin < 0.01 || box.yMax - box.yMin < 0.01) {
+      return;
+    }
+    if (selectedBoneId == null || selectedSmallBoneId == null) return;
+
+    const big = bigBones.find((b) => b.boneId === selectedBoneId);
+    const small = smallBones.find((s) => s.smallBoneId === selectedSmallBoneId);
+
+    if (activeBoxId != null) {
+      // 編輯模式：更新目前選取的那一框位置
+      setBoxes((prev) =>
+        prev.map((b) =>
+          b.id === activeBoxId
+            ? {
+                ...b,
+                xMin: box.xMin,
+                yMin: box.yMin,
+                xMax: box.xMax,
+                yMax: box.yMax,
+                boneId: selectedBoneId,
+                smallBoneId: selectedSmallBoneId,
+                boneZh: big?.boneZh ?? b.boneZh,
+                smallBoneZh: small?.smallBoneZh ?? b.smallBoneZh,
+              }
+            : b
+        )
+      );
+      setStatus("已更新目前選取的標註框位置。");
+      // 自動問一次 Dr.Bone（如果之前沒回答過）
+      if (!qaAnswer) {
+        void askDrBone(selectedBoneId, selectedSmallBoneId);
+      }
+      return;
+    }
+
+    // 新增模式：新增一個框
+    const newBox: AnnotationBox = {
+      id: Date.now(),
+      boneId: selectedBoneId,
+      smallBoneId: selectedSmallBoneId,
+      boneZh: big?.boneZh ?? "",
+      smallBoneZh: small?.smallBoneZh ?? "",
+      xMin: box.xMin,
+      yMin: box.yMin,
+      xMax: box.xMax,
+      yMax: box.yMax,
+    };
+
+    setBoxes((prev) => [...prev, newBox]);
+    setActiveBoxId(newBox.id);
+    setStatus(`已新增一個框：${newBox.boneZh} / ${newBox.smallBoneZh}`);
+
+    // 第一次畫框就自動呼叫 Dr.Bone 解說
+    if (!qaAnswer) {
+      void askDrBone(newBox.boneId!, newBox.smallBoneId!);
+    }
+  };
+
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawing || !drawStart || !imgRect) {
+      setIsDrawing(false);
+      setDrawStart(null);
+      setDraftBox(null);
+      return;
+    }
+    const end = pointFromEvent(e);
+    if (!end) {
+      setIsDrawing(false);
+      setDrawStart(null);
+      setDraftBox(null);
+      return;
+    }
+
+    const xMin = Math.min(drawStart.x, end.x);
+    const yMin = Math.min(drawStart.y, end.y);
+    const xMax = Math.max(drawStart.x, end.x);
+    const yMax = Math.max(drawStart.y, end.y);
+
+    finishDrawing({ xMin, yMin, xMax, yMax });
+  };
+
+  const handleMouseLeave = () => {
+    if (isDrawing) {
+      setIsDrawing(false);
+      setDrawStart(null);
+      setDraftBox(null);
+    }
+  };
+
+  // ======================
+  // 編輯 / 刪除 / 清空
+  // ======================
+  const handleDeleteBox = (id: number) => {
+    setBoxes((prev) => prev.filter((b) => b.id !== id));
+    if (activeBoxId === id) setActiveBoxId(null);
+  };
+
+  const handleClearBoxes = () => {
+    setBoxes([]);
+    setActiveBoxId(null);
+  };
+
+  // ======================
+  // 送標註：把目前畫面上的「全部框」丟給後端 → 後端覆蓋舊資料
+  // ======================
   const handleSave = async () => {
-    if (!canSubmit || !currentCase || !selectedBoneId || !selectedSmallBoneId) {
-      setStatus("請先選好影像、大骨與小骨。");
+    if (!currentCase) {
+      setStatus("沒有選到影像案例。");
+      return;
+    }
+    const valid = boxes.filter(
+      (b) => b.boneId != null && b.smallBoneId != null
+    );
+    if (!valid.length) {
+      setStatus("請先畫至少一個有大骨 / 小骨的框。");
       return;
     }
 
@@ -104,24 +407,22 @@ export default function S0Page() {
     setStatus("送出標註中...");
 
     try {
-      await s0Api.saveAnnotations({
+      const payload = {
         imageCaseId: currentCase.imageCaseId,
-        boxes: [
-          {
-            boneId: selectedBoneId,
-            smallBoneId: selectedSmallBoneId,
-            // ⭐ 目前先用整張圖當 ROI（normalized 0~1）
-            // 之後有畫框模式，再改成實際框的座標即可
-            x_min: 0.0,
-            y_min: 0.0,
-            x_max: 1.0,
-            y_max: 1.0,
-          },
-        ],
-      });
+        boxes: valid.map((b) => ({
+          boneId: b.boneId,
+          smallBoneId: b.smallBoneId,
+          x_min: b.xMin,
+          y_min: b.yMin,
+          x_max: b.xMax,
+          y_max: b.yMax,
+        })),
+      };
+
+      await s0Api.saveAnnotations(payload);
 
       setStatus(
-        `✅ 已為 Case #${currentCase.imageCaseId} 建立一筆標註（暫時以整張影像為框）。`
+        `✅ 已為 Case #${currentCase.imageCaseId} 建立 / 覆蓋 ${valid.length} 筆標註。`
       );
     } catch (err: any) {
       setStatus(`❌ 儲存失敗：${err.message}`);
@@ -130,22 +431,20 @@ export default function S0Page() {
     }
   };
 
-  // ⭐ 問 S2 Dr.Bone
-  const handleAskAi = async () => {
-    if (!canSubmit || !currentCase || !selectedBoneId || !selectedSmallBoneId) {
-      setStatus("請先選好影像、大骨與小骨，再詢問 AI。");
-      return;
-    }
+  // ======================
+  // Dr.Bone 問答（共用邏輯）
+  // ======================
+  const askDrBone = async (boneId: number, smallBoneId: number) => {
+    if (!currentCase) return;
 
     setQaLoading(true);
-    setQaAnswer("");
     setStatus("");
 
     try {
-      const big = bigBones.find((b) => b.boneId === selectedBoneId);
-      const small = smallBones.find(
-        (s) => s.smallBoneId === selectedSmallBoneId
-      );
+      const big = bigBones.find((b) => b.boneId === boneId);
+      // 小骨列表只抓目前選中的大骨，如果找不到就算了，文字照樣產
+      const small =
+        smallBones.find((s) => s.smallBoneId === smallBoneId) ?? null;
 
       const defaultQuestion =
         small?.smallBoneZh && big?.boneZh
@@ -154,8 +453,8 @@ export default function S0Page() {
 
       const answer = await askAgentFromS0({
         imageCaseId: currentCase.imageCaseId,
-        boneId: selectedBoneId,
-        smallBoneId: selectedSmallBoneId,
+        boneId,
+        smallBoneId,
         question: defaultQuestion,
       });
 
@@ -167,22 +466,71 @@ export default function S0Page() {
     }
   };
 
+  const handleAskAi = async () => {
+    if (
+      !currentCase ||
+      selectedBoneId == null ||
+      selectedSmallBoneId == null
+    ) {
+      setStatus("請先選好大骨與小骨，再詢問 Dr.Bone。");
+      return;
+    }
+    await askDrBone(selectedBoneId, selectedSmallBoneId);
+  };
+
+  // ======================
+  // 把 normalized box 轉成 CSS style
+  // ======================
+  const renderBoxStyle = (b: {
+    xMin: number;
+    yMin: number;
+    xMax: number;
+    yMax: number;
+    isActive?: boolean;
+    isDraft?: boolean;
+  }): React.CSSProperties => {
+    if (!imgRect) return { display: "none" };
+    const left = b.xMin * imgRect.width;
+    const top = b.yMin * imgRect.height;
+    const width = (b.xMax - b.xMin) * imgRect.width;
+    const height = (b.yMax - b.yMin) * imgRect.height;
+
+    let borderColor = "#22c55e";
+    if (b.isDraft) borderColor = "#60a5fa";
+    else if (b.isActive) borderColor = "#0ea5e9";
+
+    return {
+      position: "absolute",
+      left,
+      top,
+      width,
+      height,
+      border: `2px solid ${borderColor}`,
+      boxSizing: "border-box",
+      pointerEvents: "none",
+    };
+  };
+
+  // ======================
+  // JSX
+  // ======================
   return (
     <main className="s0-page">
       <h1 className="s0-title">影像標註站（S0）</h1>
       <p className="s0-subtitle">
-        STEP 1：選影像 → STEP 2：選大骨 → STEP 3：選小骨 → STEP 4：送出標註或請
+        STEP 1：選影像 → STEP 2：選大骨 → STEP 3：選小骨 → STEP 4：在影像上框出骨頭，按「送出」即可建立或覆蓋標註；也可以請
         Dr.Bone 解說。
       </p>
 
       <section className="s0-top">
-        {/* 左：待標註影像卡 */}
+        {/* 左：待標註影像卡 + 畫框區 */}
         <div className="s0-card s0-card-left">
           <div className="s0-card-header">
             <div>
               <h2 className="s0-card-title">待標註影像</h2>
               <p className="s0-card-sub">
-                從左下方縮圖或左右箭頭切換影像，會自動帶入對應的 CaseId。
+                從下方縮圖或左右箭頭切換影像，會自動帶入 CaseId。先在右側選好骨頭，再回來在圖片上拖曳滑鼠畫框；
+                若要調整大小，先點選底下某一個框 → 再在圖片上重新拉框。
               </p>
             </div>
             {currentCase && (
@@ -208,13 +556,50 @@ export default function S0Page() {
                 >
                   ◀
                 </button>
-                <div className="s0-image-frame">
+
+                <div
+                  className="s0-image-frame"
+                  ref={wrapperRef}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseLeave}
+                >
                   <img
+                    ref={imgRef}
                     src={currentCase.imageUrl}
                     alt={`case-${currentCase.imageCaseId}`}
                     className="s0-main-image"
+                    onLoad={handleImageLoad}
                   />
+
+                  {/* 已標註的框 */}
+                  {boxes.map((b) => (
+                    <div
+                      key={b.id}
+                      style={renderBoxStyle({
+                        xMin: b.xMin,
+                        yMin: b.yMin,
+                        xMax: b.xMax,
+                        yMax: b.yMax,
+                        isActive: activeBoxId === b.id,
+                      })}
+                      className="s0-annot-box"
+                    />
+                  ))}
+
+                  {/* 正在拖曳中的預覽框 */}
+                  {draftBox && (
+                    <div
+                      style={renderBoxStyle({
+                        ...draftBox,
+                        isDraft: true,
+                      })}
+                      className="s0-annot-box s0-annot-box--draft"
+                    />
+                  )}
                 </div>
+
                 <button
                   type="button"
                   className="s0-nav-btn"
@@ -232,7 +617,10 @@ export default function S0Page() {
                     className={`s0-thumb-wrap ${
                       idx === currentIndex ? "s0-thumb-wrap--active" : ""
                     }`}
-                    onClick={() => setCurrentIndex(idx)}
+                    onClick={() => {
+                      setCurrentIndex(idx);
+                      setQaAnswer("");
+                    }}
                   >
                     <img
                       src={c.thumbnailUrl}
@@ -242,6 +630,51 @@ export default function S0Page() {
                   </button>
                 ))}
               </div>
+
+              <div className="s0-annot-summary">
+                <span>目前此影像共有 </span>
+                <span className="s0-annot-count">{boxes.length}</span>
+                <span> 個標註框。</span>
+                {boxes.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      className="s0-link-btn"
+                      onClick={handleClearBoxes}
+                    >
+                      清除本圖全部框
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {boxes.length > 0 && (
+                <div className="s0-annot-list">
+                  {boxes.map((b, idx) => (
+                    <div
+                      key={b.id}
+                      className={`s0-annot-item ${
+                        activeBoxId === b.id ? "s0-annot-item--active" : ""
+                      }`}
+                      onClick={() => setActiveBoxId(b.id)}
+                    >
+                      <div className="s0-annot-label">
+                        #{idx + 1} — {b.boneZh} / {b.smallBoneZh}
+                      </div>
+                      <button
+                        type="button"
+                        className="s0-annot-delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteBox(b.id);
+                        }}
+                      >
+                        刪除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -250,7 +683,7 @@ export default function S0Page() {
         <div className="s0-card s0-card-right">
           <h2 className="s0-card-title">骨頭標註</h2>
           <p className="s0-card-sub">
-            先選擇大骨，再從下方清單中選擇對應的小骨名稱。
+            STEP 2：先選擇大骨 → STEP 3：選小骨 → 然後在左邊影像上拖曳滑鼠畫出框。已標過的也可以重新調整後再送出。
           </p>
 
           <p className="s0-label">大骨（41 類）：</p>
@@ -275,7 +708,7 @@ export default function S0Page() {
           </p>
           {selectedBoneId ? (
             smallBones.length ? (
-              <div className="s0-smallbone-list">
+              <div className="s0-smallbone-list" id="s0-smallbone-list">
                 {smallBones.map((s) => (
                   <button
                     key={s.smallBoneId}
@@ -342,9 +775,9 @@ export default function S0Page() {
             <button
               className="s0-btn-secondary"
               onClick={handleAskAi}
-              disabled={qaLoading || !canSubmit}
+              disabled={qaLoading || !selectedBoneId || !selectedSmallBoneId}
             >
-              {qaLoading ? "AI 解說中…" : "請 Dr.Bone 解說這顆骨頭"}
+              {qaLoading ? "Dr.Bone 解說中…" : "請 Dr.Bone 解說這顆骨頭"}
             </button>
 
             <button
