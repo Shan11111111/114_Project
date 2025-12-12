@@ -1,1 +1,17 @@
+# 先切換到專案目錄
+cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend
+# 建虛擬環境(還沒建再建)
+py -3.11 -m venv .venv
+# 啟動虛擬環境
+.venv\Scripts\activate
+
+# 安裝必要套件(如果還沒安裝過的話)
+py -m pip install -U pip wheel
+py -m pip install ultralytics
+
+# 啟動後端服務
 py -m uvicorn app:app --reload --port 8000
+
+
+# 停止後端服務時，按 Ctrl + C 即可
+# 停止後，若要離開虛擬環境，輸入 deactivate 即可

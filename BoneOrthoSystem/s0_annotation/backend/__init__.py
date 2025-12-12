@@ -1,4 +1,4 @@
-# BoneOrthoBackend/s0_annotation/__init__.py
+# s0_annotation/backend__init__.py
 from fastapi import APIRouter
 from .annotations import router as annotations_router
 from .big_bones import router as big_bones_router
