@@ -35,27 +35,43 @@ def _load_chunks(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     full_path = MATERIAL_ROOT / rel
 
     if not full_path.exists():
-        raise FileNotFoundError(f"Material file not found: {full_path}")
+        # 檔案路徑對不上：也要回一個 chunk，讓你查得到錯在哪
+        return [{
+            "text": f"[MISSING FILE] Title={row.get('Title')} FilePath={rel}",
+            "page": None,
+            "chunk_index": 0,
+        }]
 
     if typ == "pdf":
         from langchain_community.document_loaders import PyPDFLoader
-
         loader = PyPDFLoader(str(full_path))
         docs = loader.load_and_split()
 
-        chunks: List[Dict[str, Any]] = []
+        chunks = []
         for i, d in enumerate(docs):
-            chunks.append(
-                {
-                    "text": d.page_content,
-                    "page": d.metadata.get("page", None),
-                    "chunk_index": i,
-                }
-            )
+            txt = (d.page_content or "").strip()
+            if not txt:
+                continue
+            chunks.append({
+                "text": txt,
+                "page": d.metadata.get("page", None),
+                "chunk_index": i,
+            })
+
+        # ✅ 關鍵：如果抽不到任何文字（掃描 PDF），塞 fallback chunk
+        if not chunks:
+            return [{
+                "text": f"[SCANNED/NO-TEXT PDF] {row.get('Title')} (file={rel})",
+                "page": None,
+                "chunk_index": 0,
+            }]
+
         return chunks
 
-    if typ in ("txt", "note"):
-        text = full_path.read_text(encoding="utf-8")
+    elif typ in ("txt", "note"):
+        text = full_path.read_text(encoding="utf-8").strip()
+        if not text:
+            text = f"[EMPTY TEXT FILE] {row.get('Title')} (file={rel})"
         return [{"text": text, "page": None, "chunk_index": 0}]
 
     raise NotImplementedError(f"不支援的 Type: {typ}")
@@ -71,6 +87,10 @@ def index_material(material_id: str) -> None:
     # SQL Server uniqueidentifier：用字串最穩
     row = _fetch_material(material_id)
     chunks = _load_chunks(row)
+    if not chunks:
+        print(f"⚠️ Material {material_id} has 0 chunks, skip upsert")
+        return
+
 
     docs = []
     for ch in chunks:
@@ -103,7 +123,11 @@ def index_all_materials() -> None:
         ids = [str(row[0]) for row in cur.fetchall()]
 
     for mid in ids:
-        index_material(mid)
+        try:
+            index_material(str(mid))
+        except Exception as e:
+            print(f"❌ index failed: MaterialId={mid}, err={e}")
+            continue
 
 
 if __name__ == "__main__":

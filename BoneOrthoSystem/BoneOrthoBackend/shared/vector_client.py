@@ -33,20 +33,49 @@ class VectorStore:
             )
 
     def upsert_docs(self, docs: List[Dict[str, Any]]) -> None:
+        # 0) 防呆：空就不要打 Qdrant（會 400 Empty update request）
+        if not docs:
+            print("⚠️ upsert_docs skipped: docs is empty")
+            return
+
         points: List[PointStruct] = []
+
         for d in docs:
+            # 1) 防呆：embedding 必須存在且非空
+            emb = d.get("embedding")
+            if not emb:
+                continue
+
             pid = d.get("id") or str(uuid4())
+
+            # 2) payload 統一欄位（新舊相容）
             payload = {
                 "text": d.get("text", ""),
+                "material_id": d.get("material_id"),
                 "title": d.get("title"),
-                "source_type": d.get("source_type"),
-                "source_file": d.get("source_file"),
+
+                # ✅ 新欄位（你的 rag/service 會讀）
+                "type": d.get("type") or d.get("source_type"),
+                "language": d.get("language"),
+                "style": d.get("style"),
+                "file_path": d.get("file_path") or d.get("source_file"),
+
                 "page": d.get("page"),
                 "bone_id": d.get("bone_id"),
-                "small_bone_id": d.get("small_bone_id"),
+                "small_bone_id": d.get("small_bone_id") or d.get("bone_small_id"),
                 "tags": d.get("tags") or [],
+
+                # ✅ 舊欄位也保留（相容以前資料）
+                "source_type": d.get("source_type") or d.get("type"),
+                "source_file": d.get("source_file") or d.get("file_path"),
             }
-            points.append(PointStruct(id=pid, vector=d["embedding"], payload=payload))
+
+            points.append(PointStruct(id=pid, vector=emb, payload=payload))
+
+        # 3) 防呆：全部都被 skip 掉就不要 upsert
+        if not points:
+            print("⚠️ upsert_docs skipped: points is empty (all docs invalid/empty)")
+            return
 
         self.client.upsert(collection_name=QDRANT_COLLECTION, points=points)
 
@@ -58,6 +87,7 @@ class VectorStore:
         small_bone_id: Optional[int] = None,
         bone_small_id: Optional[int] = None,  # ✅ alias 防呆
     ):
+        # alias：讓外面丟 bone_small_id 也能用
         if small_bone_id is None and bone_small_id is not None:
             small_bone_id = bone_small_id
 
@@ -89,7 +119,6 @@ class VectorStore:
                 with_payload=True,
                 with_vectors=False,
             )
-            # 新版通常回 resp.points
             return getattr(resp, "points", resp)
 
         raise RuntimeError("Unsupported qdrant-client version: no search/query_points")
