@@ -36,11 +36,13 @@ def rag_search(
     top_k: int = 5,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     emb = embed_text(question)
+    
+
     hits = _vs.search(
         embedding=emb,
         top_k=top_k,
         bone_id=bone_id,
-        bone_small_id=bone_small_id,
+        small_bone_id=bone_small_id,
     )
 
     contexts = []

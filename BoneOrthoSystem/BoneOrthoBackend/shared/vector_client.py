@@ -21,40 +21,18 @@ VECTOR_SIZE = int(os.getenv("EMBEDDING_DIM", "1536"))
 
 class VectorStore:
     def __init__(self) -> None:
-        self.client = QdrantClient(
-            url=QDRANT_URL,
-            api_key=QDRANT_API_KEY,
-        )
+        self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
     def ensure_collection(self) -> None:
-        """如果 collection 不存在就建一個。"""
         collections = self.client.get_collections().collections
         names = [c.name for c in collections]
         if QDRANT_COLLECTION not in names:
             self.client.recreate_collection(
                 collection_name=QDRANT_COLLECTION,
-                vectors_config=VectorParams(
-                    size=VECTOR_SIZE,
-                    distance=Distance.COSINE,
-                ),
+                vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
             )
 
     def upsert_docs(self, docs: List[Dict[str, Any]]) -> None:
-        """
-        docs 需要有：
-        {
-          "embedding": List[float],
-          "text": str,
-          "title": str | None,
-          "source_type": str | None,
-          "source_file": str | None,
-          "page": int | None,
-          "bone_id": int | None,
-          "small_bone_id": int | None,
-          "tags": List[str] | None,
-          "id": str (optional),
-        }
-        """
         points: List[PointStruct] = []
         for d in docs:
             pid = d.get("id") or str(uuid4())
@@ -68,18 +46,9 @@ class VectorStore:
                 "small_bone_id": d.get("small_bone_id"),
                 "tags": d.get("tags") or [],
             }
-            points.append(
-                PointStruct(
-                    id=pid,
-                    vector=d["embedding"],
-                    payload=payload,
-                )
-            )
+            points.append(PointStruct(id=pid, vector=d["embedding"], payload=payload))
 
-        self.client.upsert(
-            collection_name=QDRANT_COLLECTION,
-            points=points,
-        )
+        self.client.upsert(collection_name=QDRANT_COLLECTION, points=points)
 
     def search(
         self,
@@ -87,7 +56,11 @@ class VectorStore:
         top_k: int = 5,
         bone_id: Optional[int] = None,
         small_bone_id: Optional[int] = None,
+        bone_small_id: Optional[int] = None,  # ✅ alias 防呆
     ):
+        if small_bone_id is None and bone_small_id is not None:
+            small_bone_id = bone_small_id
+
         must = []
         if bone_id is not None:
             must.append(FieldCondition(key="bone_id", match=MatchValue(value=bone_id)))
@@ -96,10 +69,27 @@ class VectorStore:
 
         query_filter = Filter(must=must) if must else None
 
-        result = self.client.search(
-            collection_name=QDRANT_COLLECTION,
-            query_vector=embedding,
-            limit=top_k,
-            query_filter=query_filter,
-        )
-        return result
+        # ✅ 相容不同版本 qdrant-client：search 或 query_points
+        if hasattr(self.client, "search"):
+            return self.client.search(
+                collection_name=QDRANT_COLLECTION,
+                query_vector=embedding,
+                limit=top_k,
+                query_filter=query_filter,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+        if hasattr(self.client, "query_points"):
+            resp = self.client.query_points(
+                collection_name=QDRANT_COLLECTION,
+                query=embedding,
+                limit=top_k,
+                query_filter=query_filter,
+                with_payload=True,
+                with_vectors=False,
+            )
+            # 新版通常回 resp.points
+            return getattr(resp, "points", resp)
+
+        raise RuntimeError("Unsupported qdrant-client version: no search/query_points")
