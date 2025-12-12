@@ -56,12 +56,8 @@ Thumbs.db
 # 專題專用：不要追蹤使用者上傳檔
 # ========================
 
-# S2 Agent 上傳圖片（你剛那一坨）
+# S2 Agent 上傳檔，不要推上 Git
 BoneOrthoSystem/s2_agent/backend/data/uploads/
-
-# 如果之後 S1/S0 也有 uploads 類資料夾，可以照樣加：
-# BoneOrthoSystem/s1_detection/backend/data/uploads/
-# BoneOrthoSystem/s0_annotation/backend/data/uploads/
 
 # ========================
 # 模型 / 權重（如果有 YOLO 等等）
@@ -71,3 +67,4 @@ BoneOrthoSystem/s2_agent/backend/data/uploads/
 *.h5
 *.ckpt
 runs/
+

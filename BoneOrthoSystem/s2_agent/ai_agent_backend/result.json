@@ -1,0 +1,127 @@
+﻿{
+    "messages":  [
+                     {
+                         "role":  "user",
+                         "type":  "text",
+                         "content":  "???????????",
+                         "url":  null,
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "text",
+                         "content":  "ï¼ç¤ºç¯åç­ï¼ä½ åçæ¯ï¼ã???????????ããç®åç°¡åç Agent å°æªæ¥ä¸ RAGï¼ä¹å¾æå¾ä½ ä¸å³çéª¨ç§è³æä¸­æª¢ç´¢å\u0085§å®¹ä¾åç­ã",
+                         "url":  null,
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "user",
+                         "type":  "text",
+                         "content":  "???????????",
+                         "url":  null,
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "text",
+                         "content":  "ï¼ç¤ºç¯åç­ï¼ä½ åçæ¯ï¼ã???????????ããç®åç°¡åç Agent å°æªæ¥ä¸ RAGï¼ä¹å¾æå¾ä½ ä¸å³çéª¨ç§è³æä¸­æª¢ç´¢å\u0085§å®¹ä¾åç­ã",
+                         "url":  null,
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "user",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png",
+                         "filetype":  "png"
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png",
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "text",
+                         "content":  "ï¼ç¤ºç¯ YOLOï¼åµæ¸¬å°çéª¨é ­ï¼Femur_L, Tibia_Lãä¹å¾ææ¹æçæ­£çæ¨¡åçµæã",
+                         "url":  null,
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "user",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png",
+                         "filetype":  "png"
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png",
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "text",
+                         "content":  "ï¼ç¤ºç¯ YOLOï¼åµæ¸¬å°çéª¨é ­ï¼Femur_L, Tibia_Lãä¹å¾ææ¹æçæ­£çæ¨¡åçµæã",
+                         "url":  null,
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "user",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png",
+                         "filetype":  "png"
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png",
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "text",
+                         "content":  "ï¼ç¤ºç¯ YOLOï¼åµæ¸¬å°çéª¨é ­ï¼Femur_L, Tibia_Lãä¹å¾ææ¹æçæ­£çæ¨¡åçµæã",
+                         "url":  null,
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "user",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png",
+                         "filetype":  "png"
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png",
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "text",
+                         "content":  "ï¼ç¤ºç¯ YOLOï¼åµæ¸¬å°çéª¨é ­ï¼Femur_L, Tibia_Lãä¹å¾ææ¹æçæ­£çæ¨¡åçµæã",
+                         "url":  null,
+                         "filetype":  null
+                     }
+                 ],
+    "actions":  [
+                    {
+                        "type":  "highlight_bones",
+                        "target_model":  "default_model",
+                        "bones":  [
+                                      "Femur_L",
+                                      "Tibia_L"
+                                  ],
+                        "image_url":  "/uploads/d750bc5cb9d242daafe636d1a19e56cc.png"
+                    }
+                ]
+}
