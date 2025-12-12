@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI 
 from fastapi.middleware.cors import CORSMiddleware
 
 from s0_annotation import router as s0_router
@@ -20,12 +20,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")  # ★ 新增這個
+@app.get("/")
 def root():
-    return {"status": "ok", "message": "BoneOrtho Backend running", "modules": ["s0", "s1", "s2", "s3"]}
+    return {
+        "status": "ok",
+        "message": "BoneOrtho Backend running",
+        "modules": ["s0", "s1", "s2", "s3"],
+    }
 
 app.include_router(shared_router, prefix="/shared")
 app.include_router(s0_router)
-app.include_router(s1_router)
+app.include_router(s1_router)   
 app.include_router(s2_router)
 app.include_router(s3_router)

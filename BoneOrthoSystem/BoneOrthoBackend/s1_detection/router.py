@@ -8,7 +8,9 @@ from typing import Dict, Any, List
 from .bone_service import get_bone_info, assign_spine_levels
 from .image_service import save_case_and_detections
 
-router = APIRouter()
+router = APIRouter(
+    tags=["s1_detection"]
+)
 
 # 用相對於本檔案的位置找 best.pt
 BASE_DIR = Path(__file__).resolve().parent
