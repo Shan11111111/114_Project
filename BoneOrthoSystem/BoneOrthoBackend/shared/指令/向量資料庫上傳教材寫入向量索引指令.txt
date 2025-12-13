@@ -3,3 +3,9 @@ python -m s2_agent.vectordb.ingest_materials
 
 最後驗證:
 curl http://127.0.0.1:6333/collections/bone_edu_docs
+
+
+乾淨點的話，跑:
+python -m s2_agent.vectordb.init_collections
+python -m s2_agent.vectordb.ingest_materials
+python -m s2_agent.vectordb.query_test

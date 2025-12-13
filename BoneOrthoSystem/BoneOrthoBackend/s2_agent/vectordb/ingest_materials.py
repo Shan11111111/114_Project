@@ -1,6 +1,19 @@
 from dotenv import load_dotenv
 from pathlib import Path
-load_dotenv(Path(__file__).resolve().parents[2] / ".env") 
+
+# ----------------------------
+# Load .env (BoneOrthoBackend/.env)
+# ----------------------------
+# 你原本寫 parents[2]，我保留；同時加 fallback，避免路徑變動就噴掉
+ENV_CANDIDATES = [
+    Path(__file__).resolve().parents[2] / ".env",  # BoneOrthoBackend/.env (照你要求)
+    Path(__file__).resolve().parents[1] / ".env",
+    Path(__file__).resolve().parents[3] / ".env",
+]
+for p in ENV_CANDIDATES:
+    if p.exists():
+        load_dotenv(p)
+        break
 
 from typing import Dict, Any, List, Union
 
@@ -46,18 +59,32 @@ def _load_chunks(row: Dict[str, Any]) -> List[Dict[str, Any]]:
         }]
 
     if typ == "pdf":
-        from langchain_community.document_loaders import PyPDFLoader
-        loader = PyPDFLoader(str(full_path))
-        docs = loader.load_and_split()
+        docs = []
 
-        chunks = []
+        # ✅ 優先用 PyMuPDF（對中文通常更穩）
+        try:
+            from langchain_community.document_loaders import PyMuPDFLoader
+            loader = PyMuPDFLoader(str(full_path))
+            docs = loader.load()
+        except Exception as e:
+            print(f"⚠️ PyMuPDFLoader failed, fallback PyPDFLoader: {e}")
+
+        # fallback：PyPDFLoader
+        if not docs:
+            from langchain_community.document_loaders import PyPDFLoader
+            loader = PyPDFLoader(str(full_path))
+            # PyPDFLoader 多半需要 split 才會有 page meta
+            docs = loader.load_and_split()
+
+        chunks: List[Dict[str, Any]] = []
         for i, d in enumerate(docs):
-            txt = (d.page_content or "").strip()
+            txt = (getattr(d, "page_content", None) or "").strip()
             if not txt:
                 continue
+            meta = getattr(d, "metadata", {}) or {}
             chunks.append({
                 "text": txt,
-                "page": d.metadata.get("page", None),
+                "page": meta.get("page", None),
                 "chunk_index": i,
             })
 
@@ -71,7 +98,7 @@ def _load_chunks(row: Dict[str, Any]) -> List[Dict[str, Any]]:
 
         return chunks
 
-    elif typ in ("txt", "note"):
+    if typ in ("txt", "note"):
         text = full_path.read_text(encoding="utf-8").strip()
         if not text:
             text = f"[EMPTY TEXT FILE] {row.get('Title')} (file={rel})"
@@ -87,33 +114,29 @@ def index_material(material_id: str) -> None:
     vs = VectorStore()
     vs.ensure_collection()
 
-    # SQL Server uniqueidentifier：用字串最穩
     row = _fetch_material(material_id)
     chunks = _load_chunks(row)
     if not chunks:
         print(f"⚠️ Material {material_id} has 0 chunks, skip upsert")
         return
 
-
     docs = []
     for ch in chunks:
         emb = embed_text(ch["text"])
-        docs.append(
-            {
-                "embedding": emb,
-                "text": ch["text"],
-                "material_id": str(row["MaterialId"]),  # ✅ 保證序列化成字串
-                "title": row.get("Title"),
-                "type": row.get("Type"),
-                "language": row.get("Language"),
-                "style": row.get("Style"),
-                "file_path": row.get("FilePath"),
-                "bone_id": row.get("BoneId"),
-                "bone_small_id": row.get("BoneSmallId"),
-                "page": ch.get("page"),
-                "chunk_index": ch.get("chunk_index"),
-            }
-        )
+        docs.append({
+            "embedding": emb,
+            "text": ch["text"],
+            "material_id": str(row["MaterialId"]),  # ✅ 保證序列化成字串
+            "title": row.get("Title"),
+            "type": row.get("Type"),
+            "language": row.get("Language"),
+            "style": row.get("Style"),
+            "file_path": row.get("FilePath"),
+            "bone_id": row.get("BoneId"),
+            "bone_small_id": row.get("BoneSmallId"),
+            "page": ch.get("page"),
+            "chunk_index": ch.get("chunk_index"),
+        })
 
     vs.upsert_docs(docs)
     print(f"✅ 材料 {material_id} 已寫入向量庫")

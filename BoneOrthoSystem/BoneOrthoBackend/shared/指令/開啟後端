@@ -16,6 +16,19 @@ py -m pip install qdrant-client
 py -m pip install langchain-community pypdf
 python -m pip install openai python-dotenv
 pip install pymupdf
+pip install PyPDF2
+pip install pdfplumber
+pip install docx
+pip install exceptions
+
+pip uninstall -y docx
+pip install -U python-docx
+
+pip install openpyxl
+pip install reportlab
+
+pip install python-docx python-pptx pymupdf
+
 
 
 

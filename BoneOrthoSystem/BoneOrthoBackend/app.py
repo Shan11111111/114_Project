@@ -21,6 +21,10 @@ from s2_agent import router as s2_router
 from shared.router import router as shared_router
 from s2_agent.s0_bridge import router as s0_bridge_router
 
+from s2_agent.legacy_agent.backend.app.main import app as s2_legacy_app
+
+
+
 
 app = FastAPI(
     title="BoneOrtho Backend",
@@ -49,7 +53,8 @@ app.include_router(shared_router, prefix="/shared")
 app.include_router(s0_router)
 app.include_router(s1_router)
 app.include_router(s2_router)
-app.include_router(s3_router)
+# app.include_router(s3_router)
 app.include_router(s0_bridge_router, prefix="/s2")
 
+app.mount("/s2x", s2_legacy_app)
 
