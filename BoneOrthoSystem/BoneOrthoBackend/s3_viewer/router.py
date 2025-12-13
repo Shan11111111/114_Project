@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List
 
-router = APIRouter()
+router = APIRouter(prefix="/s3", tags=["S3 Viewer"])
 
 class MeshState(BaseModel):
     meshName: str
