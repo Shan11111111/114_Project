@@ -1,0 +1,3 @@
+curl -X DELETE http://127.0.0.1:6333/collections/bone_edu_docs
+python -m s2_agent.vectordb.init_collections
+python -m s2_agent.vectordb.ingest_materials

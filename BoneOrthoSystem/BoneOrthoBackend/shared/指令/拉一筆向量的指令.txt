@@ -1,0 +1,41 @@
+curl -s "http://127.0.0.1:6333/collections/bone_edu_docs/points/scroll" ^
+  -H "Content-Type: application/json" ^
+  -d "{ \"limit\": 1, \"with_payload\": true, \"with_vectors\": false }" | python -m json.tool
+
+
+
+
+//結果:
+
+(.venv) C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend>curl -s "http://127.0.0.1:6333/collections/bone_edu_docs/points/scroll" ^
+More?   -H "Content-Type: application/json" ^
+More?   -d "{ \"limit\": 1, \"with_payload\": true, \"with_vectors\": false }" | python -m json.tool
+{
+    "result": {
+        "points": [
+            {
+                "id": "264efd1a-05db-447e-9ede-d46259425e9a",
+                "payload": {
+                    "text": "\u9111\u8ddan\udcd7\udc8c\udce0\udca0\udc97\n\u773b\nd\u923a\u4e48n\udce1\udc94\u58a6n\u86a8d\udce1\udc97\udc87\u9267\u6a0a\u68f9\udc9c\n\u922e\udc82\u916f\udc95\u910e\u8c79n\u886a\udcc9\udc99\n\u73e8\u5f07d\nd\u923a\u592d\u55e3\u4ec4\n\udce1\udc90\udc95\udce1\udc8d\u810a\udc8a\u779e\n\udce1\udc94\u6f7c\u59a8\u9111\u8ddan\udcdf\udc85\n\u9111\u55e3\udca6\udc91\u9266\udc96\n\u924f\udc90\udce1\udc94\u58a6n\udce1\udc94\u6f84\udc8a\u7f8c\udc95\udccb\udc90\n\u9267\udca0\u9283\udc9f\udcce\udc8d\udcce\udc9d\udcd2\udc81\udccf\udc93f\u9111\u821f\udcbf\udc81 1,280 \udcd0\udc97\n\udcd9\udc99\n\u6d03\nf\udcca\udc8a\udccc\udc8a\u9233\u664c\udcaf 2021 \udccf\udc8b 9\n\udccb\udc99\u9266\udc82\udccc\udc8a\n(European Spine Journal) \udcc2\udc99f\n\u5828\n\udcd7\udc8c\udce0\udca0\udc97\n\u5df9\u6022\udce1\udc9d\udc84\u9248\u7435n\u5cf8\u9116\udc9cf\n\udce1\udc85\u5538\udc8a\u8ce6\udc9c\udc91\n\udcce\udc8c\u916e\u515dn\udcd0\udc91\u9110\u641e\u5df9\u6022\udce1\udc9d\udc84\udccf\udc9e\n\u9111\u7345\u64a9 160 \u926d\u754c\udc9b\u910b\udc83\udccf\udc9e\u9111\u55e4\udc88\u80fd\u70ab\udce1\udc95\u821f\u5143d\n\u50c295f\u9111\u55e4\udc88\u80fd\u70ab\udce1\udc95\u5412n\u9111\u52df\u5eb7\u924a\u55e4\udc9c\u4fdend\udce1\udc98\udc8c\n\u9266\udc96\udce1\udc9c\udc97\udccf\udc93\n\udce8\udc84\udc8a\u748a\udc8e\u61af\udc93\u9908\u6025\udc80\u6298\u7238\udce6\udc8a\udc98\u569a\udc9e\n\u886a\udce1\udc80\udc9e\udce1\udc80\udc8d\u916e\udc9f\n\u910f\udc98\n\udce1\udc89\ufe4fn\udcda\udc97c\u910f\udc91\u9266\udc96\udccb\udc93\u9248\udc94e\u910f\udc91\u9266\udc96\u5745\u925e\udc96\udce1\udc97\udc9d\udccb\udc93\u9248\udc94e\n\udce1\udc90\udc95e\u924a\udc86\u9252\u6bef\u5b5c\u73e3\udccb\udc93\n\u9248\udc94e\u5213\udce1\udc85\u5538\udc8a\u8cde\u566f\udce1\udc97\udc87\udce1\udc94\u6f84\udc8a\u6b7fn14\n45 \udce5\udc8d\udcb72 \udce6\udc9c\udc9f\n\udce7\udc84\u9621\udcbb\udc9e\u95b0\u68a2\udca1\udc8c\n48",
+                    "material_id": "BDD983D4-F810-45DA-BF14-CDCB222D96DC",
+                    "title": "cgmh_\udce8\udc84\udc8a\u748a\udc8e\u61af\udc93\u9908\u6025\udc80\u6298\u7238\udce6\udc8a\udc98_2023_leaflet",
+                    "type": "pdf",
+                    "language": "zh-TW",
+                    "style": "edu",
+                    "file_path": "7f3da78b8d504d0f9882a6200134a4cf_cgmh_\udce8\udc84\udc8a\u748a\udc8e\u61af\udc93\u9908\u6025\udc80\u6298\u7238\udce6\udc8a\udc98_2023_leaflet.pdf",
+                    "page": 0,
+                    "bone_id": null,
+                    "small_bone_id": null,
+                    "tags": [],
+                    "source_type": "pdf",
+                    "source_file": "7f3da78b8d504d0f9882a6200134a4cf_cgmh_\udce8\udc84\udc8a\u748a\udc8e\u61af\udc93\u9908\u6025\udc80\u6298\u7238\udce6\udc8a\udc98_2023_leaflet.pdf"
+                }
+            }
+        ],
+        "next_page_offset": "44c61058-e0e0-4c1b-883a-da804c848f93"
+    },
+    "status": "ok",
+    "time": 0.001718337
+}
+
+(.venv) C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend>
