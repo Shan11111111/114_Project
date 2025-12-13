@@ -38,3 +38,15 @@ py -m uvicorn app:app --reload --port 8000
 
 # 停止後端服務時，按 Ctrl + C 即可
 # 停止後，若要離開虛擬環境，輸入 deactivate 即可
+
+http://127.0.0.1:8000/s2x/docs
+
+curl -X POST http://127.0.0.1:8000/materials/upload ^
+  -F "file=@C:\Users\IM43LLM\Desktop\test.pdf" ^
+  -F "title=測試教材_脊椎壓迫性骨折" ^
+  -F "type=pdf" ^
+  -F "language=zh-TW" ^
+  -F "style=edu" ^
+  -F "user_id=teacher01" ^
+  -F "bone_id=" ^
+  -F "bone_small_id="

@@ -116,3 +116,89 @@ async def upload_material(
         print("⚠️ index_material failed:\n", traceback.format_exc())
 
     return UploadMaterialResponse(material_id=material_id, file_path=rel_path)
+
+from fastapi import Query
+from shared.vector_client import VectorStore
+from fastapi.responses import FileResponse
+from fastapi import Query
+
+@router.get("/list")
+def list_materials(
+    user_id: str = Query("teacher01"),
+    q: str | None = Query(None),
+    top: int = Query(200, ge=1, le=1000),
+):
+    sql = """
+    SELECT TOP (?) 
+        MaterialId, UserId, Type, Language, Style, Title,
+        FilePath, CreatedAt, BoneId, BoneSmallId
+    FROM agent.TeachingMaterial
+    WHERE UserId = ?
+      AND (
+        ? IS NULL
+        OR Title LIKE '%' + ? + '%'
+        OR CONVERT(varchar(36), MaterialId) LIKE '%' + ? + '%'
+      )
+    ORDER BY CreatedAt DESC;
+    """
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, top, user_id, q, q, q)
+        cols = [c[0] for c in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    # 確保 GUID/時間可序列化
+    for r in rows:
+        r["MaterialId"] = str(r.get("MaterialId"))
+        if r.get("CreatedAt") is not None:
+            r["CreatedAt"] = str(r["CreatedAt"])
+
+    return {"materials": rows}
+
+
+@router.post("/{material_id}/reindex")
+def reindex_one(material_id: str):
+    index_material(material_id)
+    return {"material_id": material_id, "reindexed": True}
+
+@router.delete("/{material_id}")
+def delete_one(material_id: str):
+    # 1) 先拿檔名（用來刪檔）
+    sql_sel = "SELECT FilePath FROM agent.TeachingMaterial WHERE MaterialId = ?;"
+    sql_del = "DELETE FROM agent.TeachingMaterial WHERE MaterialId = ?;"
+
+    file_path = None
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_sel, material_id)
+        row = cur.fetchone()
+        if row:
+            file_path = row[0]
+        cur.execute(sql_del, material_id)
+        conn.commit()
+
+    # 2) 刪檔（如果存在）
+    if file_path:
+        p = (MATERIAL_ROOT / str(file_path))
+        if p.exists():
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+    # 3) 向量庫刪掉該 material 的 points（避免殘留）
+    try:
+        vs = VectorStore()
+        # 這段用 qdrant 的 filter delete
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        vs.client.delete(
+            collection_name=os.getenv("QDRANT_COLLECTION", "bone_edu_docs"),
+            points_selector=Filter(
+                must=[FieldCondition(key="material_id", match=MatchValue(value=material_id))]
+            ),
+        )
+    except Exception:
+        pass
+
+    return {"material_id": material_id, "deleted": True}
