@@ -5,6 +5,12 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 
+
+// 讀 .env.local 的後端 URL，沒有就用預設 localhost:8000
+const API_BASE =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
+
+
 type BoneModelProps = {
   url: string;
   onSelectMesh?: (meshName: string) => void;
@@ -75,8 +81,34 @@ function BoneModel({ url, onSelectMesh }: BoneModelProps) {
 }
 
 export default function S3Viewer() {
-  const handleSelectMesh = (meshName: string) => {
+  const handleSelectMesh = async (meshName: string) => {
     console.log('S3 selected mesh:', meshName);
+
+    try {
+      // 1) MeshName → SmallBoneId
+      const meshRes = await fetch(
+        `${API_BASE}/s3/mesh-map/${encodeURIComponent(meshName)}`
+      );
+      if (!meshRes.ok) {
+        console.error('mesh-map error:', await meshRes.text());
+        return;
+      }
+      const meshJson = await meshRes.json();
+      const smallBoneId =
+        meshJson.small_bone_id ?? meshJson.smallBoneId ?? meshJson.SmallBoneId;
+      console.log('→ SmallBoneId =', smallBoneId);
+
+      // 2) SmallBoneId → 骨頭資訊
+      const boneRes = await fetch(`${API_BASE}/s3/bones/${smallBoneId}`);
+      if (!boneRes.ok) {
+        console.error('bones error:', await boneRes.text());
+        return;
+      }
+      const boneJson = await boneRes.json();
+      console.log('→ Bone info:', boneJson);
+    } catch (err) {
+      console.error('fetch failed:', err);
+    }
   };
 
   return (
@@ -85,7 +117,6 @@ export default function S3Viewer() {
         <ambientLight intensity={0.4} />
         <directionalLight position={[3, 5, 2]} intensity={1.0} />
 
-        {/* ★ 這裡整體縮小 + 微調位置 ★ */}
         <group scale={[0.3, 0.3, 0.3]} position={[0, -0.1, 0]}>
           <BoneModel url="/models/bones.glb" onSelectMesh={handleSelectMesh} />
         </group>
