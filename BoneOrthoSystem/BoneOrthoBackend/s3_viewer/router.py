@@ -8,6 +8,26 @@ from db import get_connection
 router = APIRouter(prefix="/s3", tags=["S3 Viewer"])
 
 
+# ---------- 工具函式：把 GLB 的 mesh.name 轉成 DB 用的 MeshName ----------
+
+def normalize_mesh_name(mesh_name: str) -> str:
+    """
+    把 GLB 裡的 mesh.name 正規化成資料庫 model.BoneMeshMap 的 MeshName：
+
+    1. '_' -> ' '（Frontal_bone -> Frontal bone）
+    2. 如果是 ...L / ...R 結尾，而且裡面沒有 .L/.R，就補上一個點：
+       - Fourth_DistalL  -> Fourth_Distal.L
+       - HumeriR         -> Humeri.R
+    """
+    s = mesh_name.replace("_", " ").strip()
+
+    # 補上 .L / .R
+    if len(s) > 1 and s[-1] in ("L", "R") and ".L" not in s and ".R" not in s:
+        s = s[:-1] + "." + s[-1]
+
+    return s
+
+
 # ---------- 1. MeshName → SmallBoneId ----------
 
 @router.get("/mesh-map/{mesh_name}")
@@ -16,25 +36,33 @@ def get_small_bone_id_by_mesh(mesh_name: str):
     前端丟 GLB 裡的 mesh.name 進來 → 回傳 SmallBoneId。
     來源表：model.BoneMeshMap (SmallBoneId, MeshName)
     """
+    normalized = normalize_mesh_name(mesh_name)
+
+    # debug：先看一下正規化前後
+    print(f"[S3] mesh_name='{mesh_name}', normalized='{normalized}'")
+
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT SmallBoneId
+            SELECT SmallBoneId, MeshName
             FROM model.BoneMeshMap
-            WHERE MeshName = ?
+            WHERE LOWER(REPLACE(MeshName, '_', ' ')) = LOWER(?)
             """,
-            mesh_name,
+            normalized,
         )
         row = cur.fetchone()
 
     if not row:
         raise HTTPException(
             status_code=404,
-            detail=f"MeshName '{mesh_name}' not found in model.BoneMeshMap",
+            detail=(
+                f"MeshName '{mesh_name}' not found in model.BoneMeshMap; "
+                f"tried normalized='{normalized}'"
+            ),
         )
 
-    return {"mesh_name": mesh_name, "small_bone_id": row.SmallBoneId}
+    return {"mesh_name": row.MeshName, "small_bone_id": row.SmallBoneId}
 
 
 # ---------- 2. SmallBoneId → 骨頭資訊 ----------
@@ -75,7 +103,10 @@ def get_bone_info(small_bone_id: int):
         row = cur.fetchone()
 
     if not row:
-        raise HTTPException(status_code=404, detail=f"SmallBoneId {small_bone_id} not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"SmallBoneId {small_bone_id} not found",
+        )
 
     return BoneInfo(
         small_bone_id=row.small_bone_id,
@@ -87,22 +118,24 @@ def get_bone_info(small_bone_id: int):
     )
 
 
-# ---------- 3. 保留原本的 state/sync（之後 MR 用） ----------
+# ---------- 3. 先留著 MR 用的 state sync ----------
 
 class MeshState(BaseModel):
     meshName: str
     smallBoneId: int
     highlighted: bool
 
+
 class SyncStateRequest(BaseModel):
     userId: str
     sceneId: str
     meshes: List[MeshState]
 
+
 @router.post("/state/sync")
 async def sync_viewer_state(req: SyncStateRequest):
     """
-    S3：3D Viewer / MR 場景同步。
-    目前只是回傳 mesh 數量，詳細存 DB 之後再做。
+    之後 MR / 多裝置同步場景狀態會用到。
+    現在先回傳 mesh 數量給前端測試。
     """
     return {"status": "ok", "meshCount": len(req.meshes)}
