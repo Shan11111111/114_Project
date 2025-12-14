@@ -14,7 +14,7 @@ type UploadedFile = {
   id: string;
   name: string;
   size: number;
-  type: string;
+  type: number | string;
   url: string;
 };
 
@@ -72,6 +72,9 @@ export default function LLMPage() {
 
   // ✅ 非受控 input 用 ref（避免 IME 被受控 value 打斷）
   const historyInputRef = useRef<HTMLInputElement | null>(null);
+
+  // ✅ 修正 IME：用 ref 當同步旗標，避免 state 非同步造成漏字/跳動
+  const composingHistoryRef = useRef(false);
 
   // ===== chat 狀態 =====
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -351,7 +354,7 @@ export default function LLMPage() {
 
   // ESC 關閉 History overlay
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
+    function onKey(e: globalThis.KeyboardEvent) {
       if (e.key === "Escape") setIsHistoryOpen(false);
     }
     if (isHistoryOpen) window.addEventListener("keydown", onKey);
@@ -531,7 +534,8 @@ export default function LLMPage() {
     return (
       <div className="mt-2 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
         {files.map((file) => {
-          const isImage = file.type.startsWith("image/");
+          const isImage =
+            typeof file.type === "string" && file.type.startsWith("image/");
           return (
             <div
               key={file.id}
@@ -576,6 +580,7 @@ export default function LLMPage() {
   }) {
     return (
       <button
+        type="button"
         onClick={onClick}
         className="w-11 h-11 rounded-xl flex items-center justify-center transition"
         style={{
@@ -609,6 +614,7 @@ export default function LLMPage() {
   }) {
     return (
       <button
+        type="button"
         onClick={onClick}
         className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition"
         style={{
@@ -642,6 +648,7 @@ export default function LLMPage() {
   }) {
     return (
       <button
+        type="button"
         onClick={onClick}
         className="w-full text-left px-3 py-2 rounded-lg transition"
         style={{
@@ -721,6 +728,7 @@ export default function LLMPage() {
 
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   className="text-xs px-3 py-2 rounded-lg transition"
                   style={{ backgroundColor: "transparent" }}
                   onMouseEnter={(e) =>
@@ -767,7 +775,7 @@ export default function LLMPage() {
                   className="p-3 border-b"
                   style={{ borderColor: "rgba(148,163,184,0.20)" }}
                 >
-                  {/* ✅ 改為非受控 input：避免 IME（中文注音/拼音）組字被打斷 */}
+                  {/* ✅ 修正 IME + Enter：非受控 input + composingHistoryRef 控制更新 + 攔截 Enter */}
                   <input
                     ref={historyInputRef}
                     defaultValue=""
@@ -778,20 +786,26 @@ export default function LLMPage() {
                       color: "var(--foreground)",
                     }}
                     autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
+                    }}
                     onCompositionStart={() => {
+                      composingHistoryRef.current = true;
                       setIsComposingHistory(true);
                     }}
                     onCompositionEnd={(e) => {
+                      composingHistoryRef.current = false;
                       setIsComposingHistory(false);
                       setHistoryQuery(
                         (e.currentTarget as HTMLInputElement).value
                       );
                     }}
-                    onInput={(e) => {
-                      if (isComposingHistory) return;
-                      setHistoryQuery(
-                        (e.currentTarget as HTMLInputElement).value
-                      );
+                    onChange={(e) => {
+                      if (composingHistoryRef.current) return;
+                      setHistoryQuery(e.currentTarget.value);
                     }}
                   />
                 </div>
@@ -804,6 +818,7 @@ export default function LLMPage() {
                       const active = t.id === activeThreadId;
                       return (
                         <button
+                          type="button"
                           key={t.id}
                           onClick={() => selectThreadInOverlay(t.id)}
                           className="w-full text-left p-3 rounded-xl transition mb-2"
@@ -863,6 +878,7 @@ export default function LLMPage() {
 
                   <div className="flex items-center gap-2">
                     <button
+                      type="button"
                       className="text-xs px-3 py-2 rounded-lg transition"
                       style={{ backgroundColor: "transparent" }}
                       onMouseEnter={(e) =>
@@ -880,6 +896,7 @@ export default function LLMPage() {
                     </button>
 
                     <button
+                      type="button"
                       className="text-xs px-3 py-2 rounded-lg transition"
                       style={{ backgroundColor: "transparent" }}
                       onMouseEnter={(e) =>
@@ -952,6 +969,7 @@ export default function LLMPage() {
     setIsHistoryOpen(true);
     setHistoryQuery("");
     setIsComposingHistory(false);
+    composingHistoryRef.current = false;
 
     // ✅ 非受控 input 要手動清空
     setTimeout(() => {
@@ -1074,6 +1092,7 @@ export default function LLMPage() {
               <div className="flex items-center justify-between px-1 mb-2">
                 <p className="text-[11px] tracking-wide opacity-60">最近對話</p>
                 <button
+                  type="button"
                   className="text-[11px] opacity-60 hover:opacity-90 transition"
                   onClick={() => openHistory()}
                   title="搜尋與管理對話"
@@ -1134,7 +1153,10 @@ export default function LLMPage() {
             <SideIconButton iconClass="fa-solid fa-gear" label="設定" />
           </div>
         ) : (
-          <button className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition">
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
+          >
             <i className="fa-solid fa-gear text-[12px] opacity-80" />
             <span>設定</span>
           </button>
@@ -1259,6 +1281,7 @@ export default function LLMPage() {
                     最近對話
                   </p>
                   <button
+                    type="button"
                     className="text-[11px] opacity-60 hover:opacity-90 transition"
                     onClick={() => {
                       setIsMobileNavOpen(false);
@@ -1289,7 +1312,10 @@ export default function LLMPage() {
               className="px-4 py-3 border-t"
               style={{ borderColor: "rgba(148,163,184,0.20)" }}
             >
-              <button className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition">
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
+              >
                 <i className="fa-solid fa-gear text-[12px] opacity-80" />
                 <span>設定</span>
               </button>
@@ -1352,6 +1378,7 @@ export default function LLMPage() {
               <span>Demo 1.0 ver.（尚未接後端）</span>
 
               <button
+                type="button"
                 className="text-xs px-3 py-2 rounded-lg transition"
                 style={{ backgroundColor: "transparent" }}
                 onMouseEnter={(e) =>
@@ -1526,14 +1553,16 @@ export default function LLMPage() {
                                 <button
                                   type="submit"
                                   disabled={
-                                    (!input.trim() && pendingFiles.length === 0) ||
+                                    (!input.trim() &&
+                                      pendingFiles.length === 0) ||
                                     loading
                                   }
                                   className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
                                   style={{
                                     background:
                                       "linear-gradient(135deg,#0ea5e9,#22c55e)",
-                                    boxShadow: "0 10px 25px rgba(56,189,248,0.45)",
+                                    boxShadow:
+                                      "0 10px 25px rgba(56,189,248,0.45)",
                                   }}
                                 >
                                   {loading ? (
@@ -1573,14 +1602,16 @@ export default function LLMPage() {
                                 <button
                                   type="submit"
                                   disabled={
-                                    (!input.trim() && pendingFiles.length === 0) ||
+                                    (!input.trim() &&
+                                      pendingFiles.length === 0) ||
                                     loading
                                   }
                                   className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
                                   style={{
                                     background:
                                       "linear-gradient(135deg,#0ea5e9,#22c55e)",
-                                    boxShadow: "0 10px 25px rgba(56,189,248,0.45)",
+                                    boxShadow:
+                                      "0 10px 25px rgba(56,189,248,0.45)",
                                   }}
                                 >
                                   {loading ? (
