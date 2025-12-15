@@ -5,9 +5,11 @@ import {
   KeyboardEvent,
   ChangeEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
-  useMemo,
+  useTransition,
+  memo,
 } from "react";
 
 type UploadedFile = {
@@ -57,6 +59,460 @@ function fakeLLMReply(prompt: string): string {
 const MIN_HEIGHT = 28;
 const MAX_HEIGHT = 120;
 
+// ============================================================
+// ✅ HistoryOverlay 獨立元件：
+// - 搜尋狀態在元件內，不會讓整個 LLMPage 每個字都 rerender
+// - IME 用 composingRef 同步判斷，刪字不會被中斷
+// - 用 startTransition 把 filter 丟到低優先度，輸入更順
+// - query 透過 ref 持久化：關掉再開還在
+// - ✅ inline rename：右側標題可直接編輯（Enter 存、Esc 取消、Blur 存）
+// ============================================================
+const HistoryOverlay = memo(function HistoryOverlay({
+  isOpen,
+  onClose,
+  historyThreads,
+  historyMessages,
+  activeThreadId,
+  onSelectThread,
+  onLoadThreadToMain,
+  onNewThread,
+  onRenameThread,
+  NAV_ACTIVE_BG,
+  NAV_HOVER_BG,
+  persistedQueryRef,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  historyThreads: HistoryThread[];
+  historyMessages: HistoryMessage[];
+  activeThreadId: string;
+  onSelectThread: (threadId: string) => void;
+  onLoadThreadToMain: (threadId: string) => void;
+  onNewThread: () => void;
+  onRenameThread: (threadId: string, nextTitle: string) => void;
+  NAV_ACTIVE_BG: string;
+  NAV_HOVER_BG: string;
+  persistedQueryRef: React.MutableRefObject<string>;
+}) {
+  const historyInputRef = useRef<HTMLInputElement | null>(null);
+  const historyLiveValueRef = useRef<string>(persistedQueryRef.current || "");
+  const composingRef = useRef(false);
+
+  const [query, setQuery] = useState<string>(persistedQueryRef.current || "");
+  const [isPending, startTransition] = useTransition();
+
+  // ✅ inline rename state (最小侵入)
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 建 index（一次）
+  const threadContentIndex = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of historyMessages) {
+      const prev = map.get(m.threadId) ?? "";
+      map.set(m.threadId, prev + "\n" + m.content);
+    }
+    return map;
+  }, [historyMessages]);
+
+  function threadMatches(t: HistoryThread, qLower: string) {
+    if (!qLower) return true;
+    const metaText = `${t.title}\n${t.preview}\n${t.updatedAt}`.toLowerCase();
+    const msgText = (threadContentIndex.get(t.id) ?? "").toLowerCase();
+    return metaText.includes(qLower) || msgText.includes(qLower);
+  }
+
+  const filteredThreads = useMemo(() => {
+    // 組字中不 filter（避免 IME 卡頓）
+    if (composingRef.current) return historyThreads;
+
+    const q = (query || "").trim().toLowerCase();
+    if (!q) return historyThreads;
+
+    return historyThreads.filter((t) => threadMatches(t, q));
+  }, [query, historyThreads, threadContentIndex]);
+
+  function clearAll() {
+    historyLiveValueRef.current = "";
+    persistedQueryRef.current = "";
+    if (historyInputRef.current) historyInputRef.current.value = "";
+    startTransition(() => setQuery(""));
+    requestAnimationFrame(() => historyInputRef.current?.focus());
+  }
+
+  // 打開時：把 ref 值塞回 input（避免視覺「被清空」）
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = requestAnimationFrame(() => {
+      if (historyInputRef.current) {
+        historyInputRef.current.value = historyLiveValueRef.current || "";
+      }
+      historyInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isOpen]);
+
+  // ESC 關閉（你原本邏輯保留；rename 時按 Esc 會被 input 自己吃掉，不影響）
+  useEffect(() => {
+    if (!isOpen) return;
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
+
+  // ===== inline rename helpers（只作用在右側標題）=====
+  function beginRename() {
+    const t = historyThreads.find((x) => x.id === activeThreadId);
+    setRenameValue(t?.title ?? "");
+    setIsRenaming(true);
+  }
+
+  function commitRename() {
+    const next = renameValue.trim();
+    if (next) onRenameThread(activeThreadId, next);
+    setIsRenaming(false);
+  }
+
+  function cancelRename() {
+    setIsRenaming(false);
+  }
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!isRenaming) return;
+    const id = requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isOpen, isRenaming]);
+
+  if (!isOpen) return null;
+
+  const currentThread = historyThreads.find((t) => t.id === activeThreadId);
+  const threadMessages = historyMessages.filter(
+    (m) => m.threadId === activeThreadId
+  );
+  const showClear = (historyLiveValueRef.current || "").trim().length > 0;
+
+  return (
+    <div className="fixed inset-0 z-[60]">
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+        onClick={onClose}
+      />
+
+      <div className="absolute inset-0 flex items-start justify-center p-3 md:p-6">
+        <div
+          className="w-full max-w-5xl h-[88vh] md:h-[82vh] rounded-2xl border overflow-hidden shadow-2xl flex flex-col"
+          style={{
+            backgroundColor: "var(--navbar-bg)",
+            borderColor: "var(--navbar-border)",
+            color: "var(--foreground)",
+            backdropFilter: "blur(12px)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* header */}
+          <div
+            className="px-4 py-3 border-b flex items-center justify-between"
+            style={{ borderColor: "rgba(148,163,184,0.20)" }}
+          >
+            <div>
+              <div className="text-sm font-semibold">對話紀錄</div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition"
+                style={{
+                  border: "1px solid rgba(148,163,184,0.18)",
+                  backgroundColor: "transparent",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.backgroundColor = "transparent")
+                }
+                onClick={onClose}
+                title="關閉"
+                aria-label="Close"
+              >
+                <i className="fa-solid fa-xmark text-[14px] opacity-70" />
+              </button>
+            </div>
+          </div>
+
+          {/* content */}
+          <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 p-4">
+            {/* left */}
+            <div
+              className="col-span-12 md:col-span-4 min-h-0 rounded-2xl border overflow-hidden flex flex-col"
+              style={{ borderColor: "rgba(148,163,184,0.20)" }}
+            >
+              <div
+                className="p-3 border-b"
+                style={{ borderColor: "rgba(148,163,184,0.20)" }}
+              >
+                {/* ✅ 搜尋框：固定 2px 粗，不會 focus 變粗 */}
+                <div
+                  className="flex items-center gap-2 rounded-xl px-3 py-2"
+                  style={{
+                    border: "2px solid rgba(148,163,184,0.25)",
+                    backgroundColor: "rgba(148,163,184,0.10)",
+                  }}
+                >
+                  <input
+                    ref={historyInputRef}
+                    type="text"
+                    placeholder="搜尋對話紀錄"
+                    defaultValue={historyLiveValueRef.current}
+                    className="flex-1 bg-transparent outline-none text-sm"
+                    style={{ color: "var(--foreground)" }}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    onCompositionStart={() => {
+                      composingRef.current = true;
+                    }}
+                    onCompositionEnd={(e) => {
+                      composingRef.current = false;
+                      const v = e.currentTarget.value || "";
+                      historyLiveValueRef.current = v;
+                      persistedQueryRef.current = v;
+
+                      startTransition(() => setQuery(v));
+                    }}
+                    onChange={(e) => {
+                      const v = e.currentTarget.value;
+                      historyLiveValueRef.current = v;
+                      persistedQueryRef.current = v;
+
+                      // ✅ 組字中完全不 setState，避免輸入/刪除被打斷
+                      if (composingRef.current) return;
+
+                      startTransition(() => setQuery(v));
+                    }}
+                  />
+
+                  {showClear && (
+                    <button
+                      type="button"
+                      className="w-8 h-8 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: "transparent" }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={clearAll}
+                      title="清除"
+                      aria-label="Clear"
+                    >
+                      <i className="fa-solid fa-xmark text-[12px] opacity-70" />
+                    </button>
+                  )}
+                </div>
+
+                {/* 小提示：讓你知道目前在做低優先度更新（可刪） */}
+                <div className="mt-2 text-[10px] opacity-50">
+                  {isPending ? "更新中…" : " "}
+                </div>
+              </div>
+
+              {/* ✅ 固定捲軸寬度，避免結果變少左右晃 */}
+              <div
+                className="min-h-0 overflow-y-scroll p-2"
+                style={{ scrollbarGutter: "stable" as any }}
+              >
+                {filteredThreads.length === 0 ? (
+                  <div className="p-4 text-sm opacity-60">沒有符合的對話</div>
+                ) : (
+                  filteredThreads.map((t) => {
+                    const active = t.id === activeThreadId;
+                    return (
+                      <button
+                        type="button"
+                        key={t.id}
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => onSelectThread(t.id)}
+                        className="w-full text-left p-3 rounded-xl transition mb-2"
+                        style={{
+                          backgroundColor: active
+                            ? NAV_ACTIVE_BG
+                            : "transparent",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (active) return;
+                          e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
+                        }}
+                        onMouseLeave={(e) => {
+                          if (active) return;
+                          e.currentTarget.style.backgroundColor = "transparent";
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-medium truncate">
+                            {t.title}
+                          </div>
+                          <div className="text-[11px] opacity-60 shrink-0">
+                            {t.updatedAt}
+                          </div>
+                        </div>
+                        <div className="text-[12px] opacity-70 mt-1 line-clamp-1">
+                          {t.preview}
+                        </div>
+                        <div className="text-[11px] opacity-50 mt-2">
+                          {t.messageCount} 則訊息
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* right */}
+            <div
+              className="col-span-12 md:col-span-8 min-h-0 rounded-2xl border overflow-hidden flex flex-col"
+              style={{ borderColor: "rgba(148,163,184,0.20)" }}
+            >
+              <div
+                className="px-4 py-3 border-b flex items-center justify-between"
+                style={{ borderColor: "rgba(148,163,184,0.20)" }}
+              >
+                <div className="min-w-0">
+                  {/* ✅ 標題 inline rename（不影響其他區塊） */}
+                  {isRenaming ? (
+                    <input
+                      ref={renameInputRef}
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      className="w-full bg-transparent outline-none text-sm font-semibold"
+                      style={{
+                        color: "var(--foreground)",
+                        borderBottom: "1px solid rgba(148,163,184,0.35)",
+                        paddingBottom: 2,
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitRename();
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelRename();
+                        }
+                      }}
+                      onBlur={() => commitRename()}
+                    />
+                  ) : (
+                    <div
+                      className="text-sm font-semibold truncate cursor-text"
+                      title="點一下可重新命名"
+                      onClick={beginRename}
+                      onDoubleClick={beginRename}
+                    >
+                      {currentThread?.title || "未選擇對話"}
+                    </div>
+                  )}
+
+                  <div className="text-[11px] opacity-60">
+                    {currentThread?.updatedAt || ""}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* ✅ 原本 ←返回 改成 重新命名（開啟 inline edit） */}
+                  <button
+                    type="button"
+                    className="text-xs px-3 py-2 rounded-lg transition"
+                    style={{ backgroundColor: "transparent" }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.backgroundColor = "transparent")
+                    }
+                    onClick={beginRename}
+                    title="重新命名此對話"
+                  >
+                    重新命名
+                  </button>
+
+                  {/* ✅ 原本 匯出（假） 改成 繼續聊天（回主畫面） */}
+                  <button
+                    type="button"
+                    className="text-xs px-3 py-2 rounded-lg transition"
+                    style={{ backgroundColor: "transparent" }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.backgroundColor = "transparent")
+                    }
+                    onClick={() => onLoadThreadToMain(activeThreadId)}
+                    title="回到主畫面並繼續聊天"
+                  >
+                    繼續聊天
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+                {threadMessages.length === 0 ? (
+                  <div className="text-sm opacity-60">這個對話目前沒有訊息</div>
+                ) : (
+                  threadMessages.map((m) => {
+                    const isUser = m.role === "user";
+                    return (
+                      <div
+                        key={m.id}
+                        className={`flex ${
+                          isUser ? "justify-end" : "justify-start"
+                        }`}
+                      >
+                        <div
+                          className="max-w-[min(78%,65ch)] rounded-2xl px-4 py-3 text-sm leading-relaxed"
+                          style={{
+                            backgroundColor: isUser
+                              ? "var(--chat-user-bg)"
+                              : "var(--chat-assistant-bg)",
+                            color: isUser
+                              ? "var(--chat-user-text)"
+                              : "var(--chat-assistant-text)",
+                          }}
+                        >
+                          <div className="whitespace-pre-wrap break-words">
+                            {m.content}
+                          </div>
+                          <div className="text-[11px] opacity-60 mt-2 text-right">
+                            {m.createdAt}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="px-4 py-3 border-t text-[11px] opacity-60"
+            style={{ borderColor: "rgba(148,163,184,0.20)" }}
+          >
+            提示：按 ESC 可關閉
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function LLMPage() {
   // ===== navbar 狀態 =====
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
@@ -65,16 +521,11 @@ export default function LLMPage() {
   // ✅ 目前頁面
   const [activeView, setActiveView] = useState<ViewKey>("llm");
 
-  // ✅ History overlay（像 GPT）
+  // ✅ History overlay
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [historyQuery, setHistoryQuery] = useState("");
-  const [isComposingHistory, setIsComposingHistory] = useState(false);
 
-  // ✅ 非受控 input 用 ref（避免 IME 被受控 value 打斷）
-  const historyInputRef = useRef<HTMLInputElement | null>(null);
-
-  // ✅ 修正 IME：用 ref 當同步旗標，避免 state 非同步造成漏字/跳動
-  const composingHistoryRef = useRef(false);
+  // ✅ 搜尋字詞持久化（不觸發 rerender）
+  const historyPersistedQueryRef = useRef<string>("");
 
   // ===== chat 狀態 =====
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -85,8 +536,10 @@ export default function LLMPage() {
         "嗨，我是 GalaBone LLM Demo。在這裡輸入你的問題，我會用骨科知識與多模態概念幫你解釋。",
     },
   ]);
-  const [input, setInput] = useState("");
-  const [sessionId, setSessionId] = useState("test-1");
+
+  // ✅ 主輸入框：受控（中文/英文）
+  const [draftText, setDraftText] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [showToolMenu, setShowToolMenu] = useState(false);
 
@@ -102,8 +555,8 @@ export default function LLMPage() {
 
   const isExpanded = isMultiLine || pendingFiles.length > 0;
 
-  // ✅ 假的 thread 清單（之後換 DB 就換這裡）
-  const [historyThreads] = useState<HistoryThread[]>([
+  // ✅ 假的 thread 清單（改成可更新：只為了 rename，不影響其他行為）
+  const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([
     {
       id: "t-001",
       title: "骨折分類與處置",
@@ -127,7 +580,7 @@ export default function LLMPage() {
     },
   ]);
 
-  // ✅ 假的 messages（之後換 DB 就換這裡）
+  // ✅ 假的 messages
   const [historyMessages] = useState<HistoryMessage[]>([
     // t-001
     {
@@ -202,8 +655,18 @@ export default function LLMPage() {
   const NAV_ACTIVE_BG = "rgba(148,163,184,0.16)";
   const NAV_HOVER_BG = "rgba(148,163,184,0.10)";
 
+  // ✅ rename：只更新 title（最小改動）
+  function renameThread(threadId: string, nextTitle: string) {
+    const title = nextTitle.trim();
+    if (!title) return;
+
+    setHistoryThreads((prev) =>
+      prev.map((t) => (t.id === threadId ? { ...t, title } : t))
+    );
+  }
+
   // =========================
-  // ✅ thread → 主畫面 messages
+  // thread → 主畫面 messages
   // =========================
   function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
     const threadMsgs = historyMessages
@@ -228,45 +691,36 @@ export default function LLMPage() {
     return threadMsgs;
   }
 
-  function loadThreadToMain(
-    threadId: string,
-    opts?: { closeOverlay?: boolean }
-  ) {
-    setActiveThreadId(threadId);
-    setActiveView("llm");
-    setMessages(buildChatMessagesFromThread(threadId));
-
-    // 清理輸入狀態，確保可以繼續聊天
-    setInput("");
-    setPendingFiles((prev) => {
-      prev.forEach((f) => URL.revokeObjectURL(f.url));
-      return [];
-    });
+  function resetMainInputBox() {
+    setDraftText("");
     baseHeightRef.current = null;
     setIsMultiLine(false);
     setInputBoxHeight(MIN_HEIGHT);
 
     if (inputRef.current) {
-      inputRef.current.value = "";
       inputRef.current.style.height = `${MIN_HEIGHT}px`;
       inputRef.current.scrollTop = 0;
     }
+  }
 
-    if (opts?.closeOverlay) setIsHistoryOpen(false);
+  function loadThreadToMain(threadId: string) {
+    setActiveThreadId(threadId);
+    setActiveView("llm");
+    setMessages(buildChatMessagesFromThread(threadId));
 
-    // 回到主畫面後直接可輸入
+    resetMainInputBox();
+
+    setPendingFiles((prev) => {
+      prev.forEach((f) => URL.revokeObjectURL(f.url));
+      return [];
+    });
+
+    setIsHistoryOpen(false);
     setTimeout(() => inputRef.current?.focus(), 60);
   }
 
-  // ✅ overlay 內切換 thread（不關 overlay、不載入主畫面）
-  function selectThreadInOverlay(threadId: string) {
-    setActiveThreadId(threadId);
-  }
-
-  // ✅ 新對話（真正清空 + 新 thread）
   function newThread() {
     const newId = `t-${Date.now()}`;
-
     setActiveThreadId(newId);
     setActiveView("llm");
 
@@ -279,20 +733,12 @@ export default function LLMPage() {
       },
     ]);
 
-    setInput("");
+    resetMainInputBox();
+
     setPendingFiles((prev) => {
       prev.forEach((f) => URL.revokeObjectURL(f.url));
       return [];
     });
-    baseHeightRef.current = null;
-    setIsMultiLine(false);
-    setInputBoxHeight(MIN_HEIGHT);
-
-    if (inputRef.current) {
-      inputRef.current.value = "";
-      inputRef.current.style.height = `${MIN_HEIGHT}px`;
-      inputRef.current.scrollTop = 0;
-    }
 
     setIsHistoryOpen(false);
     setTimeout(() => inputRef.current?.focus(), 60);
@@ -319,7 +765,6 @@ export default function LLMPage() {
       if (baseHeightRef.current === null) baseHeightRef.current = contentHeight;
 
       const singleLineHeight = baseHeightRef.current;
-
       if (contentHeight > singleLineHeight + 2) setIsMultiLine(true);
 
       el.style.height = `${MIN_HEIGHT}px`;
@@ -338,9 +783,9 @@ export default function LLMPage() {
   }, [messages, loading, activeView]);
 
   useEffect(() => {
-    autoResizeTextarea();
+    requestAnimationFrame(() => autoResizeTextarea());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [draftText, isMultiLine]);
 
   // 點外面自動關 tool menu
   useEffect(() => {
@@ -351,15 +796,6 @@ export default function LLMPage() {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
-
-  // ESC 關閉 History overlay
-  useEffect(() => {
-    function onKey(e: globalThis.KeyboardEvent) {
-      if (e.key === "Escape") setIsHistoryOpen(false);
-    }
-    if (isHistoryOpen) window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isHistoryOpen]);
 
   // ===== 檔案處理 =====
   function handleUploadClick() {
@@ -393,7 +829,8 @@ export default function LLMPage() {
   // ===== 送出訊息 =====
   async function sendMessage(e?: FormEvent) {
     if (e) e.preventDefault();
-    const text = input.trim();
+
+    const text = draftText.trim();
     if ((!text && pendingFiles.length === 0) || loading) return;
 
     const userMessage: ChatMessage = {
@@ -404,23 +841,13 @@ export default function LLMPage() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    setInput("");
 
-    if (inputRef.current) {
-      const el = inputRef.current;
-      el.value = "";
-      el.style.height = `${MIN_HEIGHT}px`;
-      el.scrollTop = 0;
-    }
+    resetMainInputBox();
 
     setPendingFiles((prev) => {
       prev.forEach((f) => URL.revokeObjectURL(f.url));
       return [];
     });
-
-    baseHeightRef.current = null;
-    setIsMultiLine(false);
-    setInputBoxHeight(MIN_HEIGHT);
 
     setLoading(true);
 
@@ -437,15 +864,14 @@ export default function LLMPage() {
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // IME 組字中不要送出
+    // @ts-ignore
+    if (e.nativeEvent?.isComposing) return;
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
-  }
-
-  function handleInputChange(e: ChangeEvent<HTMLTextAreaElement>) {
-    setInput(e.target.value);
-    autoResizeTextarea();
   }
 
   function handleExport(type: "pdf" | "ppt") {
@@ -583,9 +1009,7 @@ export default function LLMPage() {
         type="button"
         onClick={onClick}
         className="w-11 h-11 rounded-xl flex items-center justify-center transition"
-        style={{
-          backgroundColor: active ? NAV_ACTIVE_BG : "transparent",
-        }}
+        style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
         onMouseEnter={(e) => {
           if (active) return;
           e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
@@ -617,9 +1041,7 @@ export default function LLMPage() {
         type="button"
         onClick={onClick}
         className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition"
-        style={{
-          backgroundColor: active ? NAV_ACTIVE_BG : "transparent",
-        }}
+        style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
         onMouseEnter={(e) => {
           if (active) return;
           e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
@@ -651,9 +1073,7 @@ export default function LLMPage() {
         type="button"
         onClick={onClick}
         className="w-full text-left px-3 py-2 rounded-lg transition"
-        style={{
-          backgroundColor: active ? NAV_ACTIVE_BG : "transparent",
-        }}
+        style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
         onMouseEnter={(e) => {
           if (active) return;
           e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
@@ -666,664 +1086,17 @@ export default function LLMPage() {
       >
         <div className="flex items-center justify-between gap-2">
           <div className="text-[13px] font-medium truncate">{title}</div>
-          {meta && <div className="text-[11px] opacity-60 shrink-0">{meta}</div>}
+          {meta && (
+            <div className="text-[11px] opacity-60 shrink-0">{meta}</div>
+          )}
         </div>
       </button>
     );
   }
 
-  // ===== History overlay =====
-  const filteredThreads = useMemo(() => {
-    // ✅ 組字中先不做篩選，避免中文輸入被 re-render 打斷
-    if (isComposingHistory) return historyThreads;
-
-    const q = historyQuery.trim().toLowerCase();
-    if (!q) return historyThreads;
-
-    return historyThreads.filter((t) => {
-      return (
-        t.title.toLowerCase().includes(q) ||
-        t.preview.toLowerCase().includes(q) ||
-        t.updatedAt.toLowerCase().includes(q)
-      );
-    });
-  }, [historyQuery, historyThreads, isComposingHistory]);
-
-  function HistoryOverlay() {
-    const currentThread = historyThreads.find((t) => t.id === activeThreadId);
-    const threadMessages = historyMessages.filter(
-      (m) => m.threadId === activeThreadId
-    );
-
-    return (
-      <div className="fixed inset-0 z-[60]">
-        <div
-          className="absolute inset-0"
-          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
-          onClick={() => setIsHistoryOpen(false)}
-        />
-
-        <div className="absolute inset-0 flex items-start justify-center p-3 md:p-6">
-          <div
-            className="w-full max-w-5xl h-[88vh] md:h-[82vh] rounded-2xl border overflow-hidden shadow-2xl flex flex-col"
-            style={{
-              backgroundColor: "var(--navbar-bg)",
-              borderColor: "var(--navbar-border)",
-              color: "var(--foreground)",
-              backdropFilter: "blur(12px)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* header */}
-            <div
-              className="px-4 py-3 border-b flex items-center justify-between"
-              style={{ borderColor: "rgba(148,163,184,0.20)" }}
-            >
-              <div>
-                <div className="text-sm font-semibold">對話紀錄</div>
-                <div className="text-[11px] opacity-60">
-                  目前為假資料（之後可接資料庫）
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="text-xs px-3 py-2 rounded-lg transition"
-                  style={{ backgroundColor: "transparent" }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.backgroundColor = "transparent")
-                  }
-                  onClick={() => newThread()}
-                >
-                  ＋ 新增對話
-                </button>
-
-                <button
-                  type="button"
-                  className="w-9 h-9 rounded-xl flex items-center justify-center transition"
-                  style={{
-                    border: "1px solid rgba(148,163,184,0.18)",
-                    backgroundColor: "transparent",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.backgroundColor = "transparent")
-                  }
-                  onClick={() => setIsHistoryOpen(false)}
-                  title="關閉"
-                  aria-label="Close"
-                >
-                  <i className="fa-solid fa-xmark text-[14px] opacity-70" />
-                </button>
-              </div>
-            </div>
-
-            {/* content */}
-            <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 p-4">
-              {/* left */}
-              <div
-                className="col-span-12 md:col-span-4 min-h-0 rounded-2xl border overflow-hidden flex flex-col"
-                style={{ borderColor: "rgba(148,163,184,0.20)" }}
-              >
-                <div
-                  className="p-3 border-b"
-                  style={{ borderColor: "rgba(148,163,184,0.20)" }}
-                >
-                  {/* ✅ 修正 IME + Enter：非受控 input + composingHistoryRef 控制更新 + 攔截 Enter */}
-                  <input
-                    ref={historyInputRef}
-                    defaultValue=""
-                    placeholder="搜尋對話…"
-                    className="w-full rounded-lg px-3 py-2 text-sm outline-none border bg-transparent"
-                    style={{
-                      borderColor: "rgba(148,163,184,0.25)",
-                      color: "var(--foreground)",
-                    }}
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }
-                    }}
-                    onCompositionStart={() => {
-                      composingHistoryRef.current = true;
-                      setIsComposingHistory(true);
-                    }}
-                    onCompositionEnd={(e) => {
-                      composingHistoryRef.current = false;
-                      setIsComposingHistory(false);
-                      setHistoryQuery(
-                        (e.currentTarget as HTMLInputElement).value
-                      );
-                    }}
-                    onChange={(e) => {
-                      if (composingHistoryRef.current) return;
-                      setHistoryQuery(e.currentTarget.value);
-                    }}
-                  />
-                </div>
-
-                <div className="min-h-0 overflow-y-auto p-2">
-                  {filteredThreads.length === 0 ? (
-                    <div className="p-4 text-sm opacity-60">沒有符合的對話</div>
-                  ) : (
-                    filteredThreads.map((t) => {
-                      const active = t.id === activeThreadId;
-                      return (
-                        <button
-                          type="button"
-                          key={t.id}
-                          onClick={() => selectThreadInOverlay(t.id)}
-                          className="w-full text-left p-3 rounded-xl transition mb-2"
-                          style={{
-                            backgroundColor: active
-                              ? NAV_ACTIVE_BG
-                              : "transparent",
-                          }}
-                          onMouseEnter={(e) => {
-                            if (active) return;
-                            e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
-                          }}
-                          onMouseLeave={(e) => {
-                            if (active) return;
-                            e.currentTarget.style.backgroundColor =
-                              "transparent";
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-medium truncate">
-                              {t.title}
-                            </div>
-                            <div className="text-[11px] opacity-60 shrink-0">
-                              {t.updatedAt}
-                            </div>
-                          </div>
-                          <div className="text-[12px] opacity-70 mt-1 line-clamp-1">
-                            {t.preview}
-                          </div>
-                          <div className="text-[11px] opacity-50 mt-2">
-                            {t.messageCount} 則訊息
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* right */}
-              <div
-                className="col-span-12 md:col-span-8 min-h-0 rounded-2xl border overflow-hidden flex flex-col"
-                style={{ borderColor: "rgba(148,163,184,0.20)" }}
-              >
-                <div
-                  className="px-4 py-3 border-b flex items-center justify-between"
-                  style={{ borderColor: "rgba(148,163,184,0.20)" }}
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate">
-                      {currentThread?.title || "未選擇對話"}
-                    </div>
-                    <div className="text-[11px] opacity-60">
-                      {currentThread?.updatedAt || ""}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="text-xs px-3 py-2 rounded-lg transition"
-                      style={{ backgroundColor: "transparent" }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "transparent")
-                      }
-                      onClick={() =>
-                        loadThreadToMain(activeThreadId, { closeOverlay: true })
-                      }
-                      title="回到主畫面並繼續聊天"
-                    >
-                      ←返回
-                    </button>
-
-                    <button
-                      type="button"
-                      className="text-xs px-3 py-2 rounded-lg transition"
-                      style={{ backgroundColor: "transparent" }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "transparent")
-                      }
-                      onClick={() => console.log("export history (fake)")}
-                    >
-                      匯出（假）
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-                  {threadMessages.length === 0 ? (
-                    <div className="text-sm opacity-60">
-                      這個對話目前沒有訊息
-                    </div>
-                  ) : (
-                    threadMessages.map((m) => {
-                      const isUser = m.role === "user";
-                      return (
-                        <div
-                          key={m.id}
-                          className={`flex ${
-                            isUser ? "justify-end" : "justify-start"
-                          }`}
-                        >
-                          <div
-                            className="max-w-[min(78%,65ch)] rounded-2xl px-4 py-3 text-sm leading-relaxed"
-                            style={{
-                              backgroundColor: isUser
-                                ? "var(--chat-user-bg)"
-                                : "var(--chat-assistant-bg)",
-                              color: isUser
-                                ? "var(--chat-user-text)"
-                                : "var(--chat-assistant-text)",
-                            }}
-                          >
-                            <div className="whitespace-pre-wrap break-words">
-                              {m.content}
-                            </div>
-                            <div className="text-[11px] opacity-60 mt-2 text-right">
-                              {m.createdAt}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div
-              className="px-4 py-3 border-t text-[11px] opacity-60"
-              style={{ borderColor: "rgba(148,163,184,0.20)" }}
-            >
-              提示：按 ESC 可關閉
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   function openHistory() {
     setIsHistoryOpen(true);
-    setHistoryQuery("");
-    setIsComposingHistory(false);
-    composingHistoryRef.current = false;
-
-    // ✅ 非受控 input 要手動清空
-    setTimeout(() => {
-      if (historyInputRef.current) {
-        historyInputRef.current.value = "";
-        historyInputRef.current.focus();
-      }
-    }, 0);
-  }
-
-  // ===== Desktop sidebar =====
-  const DesktopAside = (
-    <aside
-      className={`h-full flex flex-col border-r transition-all duration-300 ease-out ${
-        isNavCollapsed ? "w-[72px]" : "w-64"
-      }`}
-      style={{
-        backgroundColor: "rgba(148,163,184,0.06)",
-        borderColor: "rgba(148,163,184,0.20)",
-        color: "var(--navbar-text)",
-      }}
-    >
-      {/* Header */}
-      <div
-        className="border-b"
-        style={{ borderColor: "rgba(148,163,184,0.20)" }}
-      >
-        <div
-          className={`flex items-start justify-between ${
-            isNavCollapsed ? "px-3 pt-3 pb-3" : "px-4 pt-4 pb-3"
-          }`}
-        >
-          {!isNavCollapsed ? (
-            <div>
-              <h1 className="text-lg font-semibold tracking-wide">GalaBone</h1>
-              <p className="text-[11px] mt-1 opacity-70">Your Bone We Care</p>
-            </div>
-          ) : (
-            <div className="h-9" />
-          )}
-
-          <button
-            type="button"
-            onClick={() => setIsNavCollapsed((v) => !v)}
-            title={isNavCollapsed ? "展開導覽列" : "收合導覽列"}
-            className="w-9 h-9 rounded-xl flex items-center justify-center transition"
-            style={{
-              border: "1px solid rgba(148,163,184,0.18)",
-              backgroundColor: "transparent",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.backgroundColor = "transparent")
-            }
-          >
-            <i className="fa-solid fa-bars text-[14px] opacity-70" />
-          </button>
-        </div>
-
-        {!isNavCollapsed && (
-          <div className="px-4 pb-4">
-            <label className="flex flex-col gap-1 text-[11px] opacity-80">
-              <span>Session ID</span>
-              <input
-                className="rounded-lg px-2 py-[7px] text-[12px] outline-none border"
-                style={{
-                  backgroundColor: "var(--background)",
-                  color: "var(--foreground)",
-                  borderColor: "rgba(148,163,184,0.30)",
-                }}
-                value={sessionId}
-                onChange={(e) => setSessionId(e.target.value)}
-              />
-            </label>
-          </div>
-        )}
-      </div>
-
-      {/* Nav */}
-      <nav
-        className={`flex-1 min-h-0 ${
-          isNavCollapsed ? "px-2 pt-3" : "px-3 pt-4"
-        }`}
-      >
-        {!isNavCollapsed ? (
-          <div className="h-full min-h-0 flex flex-col gap-2 text-sm">
-            <div className="space-y-1">
-              <SideRow
-                iconClass="fa-regular fa-message"
-                label="新對話"
-                active={activeView === "llm"}
-                onClick={() => newThread()}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <SideRow
-                iconClass="fa-solid fa-wand-magic-sparkles"
-                label="EduGen"
-                active={activeView === "edugen"}
-                onClick={() => setActiveView("edugen")}
-              />
-              <SideRow
-                iconClass="fa-solid fa-folder-tree"
-                label="資源管理"
-                active={activeView === "assets"}
-                onClick={() => setActiveView("assets")}
-              />
-              <SideRow
-                iconClass="fa-regular fa-clock"
-                label="對話紀錄"
-                active={isHistoryOpen}
-                onClick={() => openHistory()}
-              />
-            </div>
-
-            <div className="min-h-0 flex-1 flex flex-col">
-              <div className="flex items-center justify-between px-1 mb-2">
-                <p className="text-[11px] tracking-wide opacity-60">最近對話</p>
-                <button
-                  type="button"
-                  className="text-[11px] opacity-60 hover:opacity-90 transition"
-                  onClick={() => openHistory()}
-                  title="搜尋與管理對話"
-                >
-                  搜尋
-                </button>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto space-y-1 pr-1">
-                {historyThreads.slice(0, 8).map((t) => (
-                  <SideThreadItem
-                    key={t.id}
-                    title={t.title}
-                    meta={t.updatedAt}
-                    active={activeThreadId === t.id}
-                    onClick={() => loadThreadToMain(t.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-3 pt-2">
-            <SideIconButton
-              iconClass="fa-regular fa-message"
-              label="新對話"
-              active={activeView === "llm"}
-              onClick={() => newThread()}
-            />
-            <SideIconButton
-              iconClass="fa-solid fa-wand-magic-sparkles"
-              label="EduGen"
-              active={activeView === "edugen"}
-              onClick={() => setActiveView("edugen")}
-            />
-            <SideIconButton
-              iconClass="fa-solid fa-folder-tree"
-              label="資源管理"
-              active={activeView === "assets"}
-              onClick={() => setActiveView("assets")}
-            />
-            <SideIconButton
-              iconClass="fa-regular fa-clock"
-              label="對話紀錄"
-              active={isHistoryOpen}
-              onClick={() => openHistory()}
-            />
-          </div>
-        )}
-      </nav>
-
-      <div
-        className={`border-t ${isNavCollapsed ? "px-2 py-3" : "px-4 py-3"}`}
-        style={{ borderColor: "rgba(148,163,184,0.20)" }}
-      >
-        {isNavCollapsed ? (
-          <div className="flex justify-center">
-            <SideIconButton iconClass="fa-solid fa-gear" label="設定" />
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
-          >
-            <i className="fa-solid fa-gear text-[12px] opacity-80" />
-            <span>設定</span>
-          </button>
-        )}
-      </div>
-    </aside>
-  );
-
-  function MobileDrawer() {
-    return (
-      <div className="md:hidden fixed inset-0 z-50">
-        <div
-          className="absolute inset-0 bg-black/30"
-          onClick={() => setIsMobileNavOpen(false)}
-        />
-        <div
-          className="absolute left-0 top-0 bottom-0 w-[78%] max-w-[320px] shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <aside
-            className="h-full w-full border-r flex flex-col"
-            style={{
-              backgroundColor: "rgba(148,163,184,0.06)",
-              borderColor: "rgba(148,163,184,0.20)",
-              color: "var(--navbar-text)",
-            }}
-          >
-            <div
-              className="px-4 pt-4 pb-3 border-b"
-              style={{ borderColor: "rgba(148,163,184,0.20)" }}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h1 className="text-lg font-semibold tracking-wide">
-                    GalaBone
-                  </h1>
-                  <p className="text-[11px] mt-1 opacity-70">
-                    Your Bone We Care
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="w-9 h-9 rounded-xl flex items-center justify-center transition"
-                  style={{
-                    border: "1px solid rgba(148,163,184,0.18)",
-                    backgroundColor: "transparent",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.backgroundColor = "transparent")
-                  }
-                  onClick={() => setIsMobileNavOpen(false)}
-                  title="關閉導覽列"
-                >
-                  <i className="fa-solid fa-xmark text-[14px] opacity-70" />
-                </button>
-              </div>
-
-              <label className="flex flex-col gap-1 text-[11px] opacity-80 mt-3">
-                <span>Session ID</span>
-                <input
-                  className="rounded-lg px-2 py-[7px] text-[12px] outline-none border"
-                  style={{
-                    backgroundColor: "var(--background)",
-                    color: "var(--foreground)",
-                    borderColor: "rgba(148,163,184,0.30)",
-                  }}
-                  value={sessionId}
-                  onChange={(e) => setSessionId(e.target.value)}
-                />
-              </label>
-            </div>
-
-            <nav className="flex-1 min-h-0 px-3 pt-4 text-sm space-y-2 overflow-y-auto">
-              <div className="space-y-1">
-                <SideRow
-                  iconClass="fa-regular fa-message"
-                  label="新對話"
-                  active={activeView === "llm"}
-                  onClick={() => {
-                    newThread();
-                    setIsMobileNavOpen(false);
-                  }}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <SideRow
-                  iconClass="fa-solid fa-wand-magic-sparkles"
-                  label="EduGen"
-                  active={activeView === "edugen"}
-                  onClick={() => {
-                    setActiveView("edugen");
-                    setIsMobileNavOpen(false);
-                  }}
-                />
-                <SideRow
-                  iconClass="fa-solid fa-folder-tree"
-                  label="資源管理"
-                  active={activeView === "assets"}
-                  onClick={() => {
-                    setActiveView("assets");
-                    setIsMobileNavOpen(false);
-                  }}
-                />
-                <SideRow
-                  iconClass="fa-regular fa-clock"
-                  label="對話紀錄"
-                  active={isHistoryOpen}
-                  onClick={() => {
-                    setIsMobileNavOpen(false);
-                    openHistory();
-                  }}
-                />
-              </div>
-
-              <div className="pt-2">
-                <div className="flex items-center justify-between px-1 mb-2">
-                  <p className="text-[11px] tracking-wide opacity-60">
-                    最近對話
-                  </p>
-                  <button
-                    type="button"
-                    className="text-[11px] opacity-60 hover:opacity-90 transition"
-                    onClick={() => {
-                      setIsMobileNavOpen(false);
-                      openHistory();
-                    }}
-                  >
-                    搜尋
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {historyThreads.slice(0, 8).map((t) => (
-                    <SideThreadItem
-                      key={t.id}
-                      title={t.title}
-                      meta={t.updatedAt}
-                      active={activeThreadId === t.id}
-                      onClick={() => {
-                        loadThreadToMain(t.id);
-                        setIsMobileNavOpen(false);
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </nav>
-
-            <div
-              className="px-4 py-3 border-t"
-              style={{ borderColor: "rgba(148,163,184,0.20)" }}
-            >
-              <button
-                type="button"
-                className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
-              >
-                <i className="fa-solid fa-gear text-[12px] opacity-80" />
-                <span>設定</span>
-              </button>
-            </div>
-          </aside>
-        </div>
-      </div>
-    );
+    // ✅ 不清空：你要字留在搜尋欄
   }
 
   function PlaceholderView({ title }: { title: string }) {
@@ -1351,7 +1124,20 @@ export default function LLMPage() {
         color: "var(--foreground)",
       }}
     >
-      {isHistoryOpen && <HistoryOverlay />}
+      <HistoryOverlay
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        historyThreads={historyThreads}
+        historyMessages={historyMessages}
+        activeThreadId={activeThreadId}
+        onSelectThread={(id) => setActiveThreadId(id)}
+        onLoadThreadToMain={(id) => loadThreadToMain(id)}
+        onNewThread={() => newThread()}
+        onRenameThread={renameThread}
+        NAV_ACTIVE_BG={NAV_ACTIVE_BG}
+        NAV_HOVER_BG={NAV_HOVER_BG}
+        persistedQueryRef={historyPersistedQueryRef}
+      />
 
       <button
         type="button"
@@ -1364,9 +1150,330 @@ export default function LLMPage() {
         <i className="fa-solid fa-bars text-[14px] opacity-70" />
       </button>
 
-      <div className="hidden md:block">{DesktopAside}</div>
-      {isMobileNavOpen && <MobileDrawer />}
+      {/* Desktop sidebar */}
+      <div className="hidden md:block">
+        <aside
+          className={`h-full flex flex-col border-r transition-all duration-300 ease-out ${
+            isNavCollapsed ? "w-[72px]" : "w-64"
+          }`}
+          style={{
+            backgroundColor: "rgba(148,163,184,0.06)",
+            borderColor: "rgba(148,163,184,0.20)",
+            color: "var(--navbar-text)",
+          }}
+        >
+          {/* Header */}
+          <div
+            className="border-b"
+            style={{ borderColor: "rgba(148,163,184,0.20)" }}
+          >
+            <div
+              className={`flex items-start justify-between ${
+                isNavCollapsed ? "px-3 pt-3 pb-3" : "px-4 pt-4 pb-3"
+              }`}
+            >
+              {!isNavCollapsed ? (
+                <div>
+                  <h1 className="text-lg font-semibold tracking-wide">
+                    GalaBone
+                  </h1>
+                  <p className="text-[11px] mt-1 opacity-70">
+                    Your Bone We Care
+                  </p>
+                </div>
+              ) : (
+                <div className="h-9" />
+              )}
 
+              <button
+                type="button"
+                onClick={() => setIsNavCollapsed((v) => !v)}
+                title={isNavCollapsed ? "展開導覽列" : "收合導覽列"}
+                className="w-11 h-11 rounded-xl flex items-center justify-center transition"
+                style={{
+                  border: "1px solid rgba(148,163,184,0.18)",
+                  backgroundColor: "transparent",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.backgroundColor = "transparent")
+                }
+              >
+                <i
+                  className={`fa-solid ${
+                    isNavCollapsed ? "fa-chevron-right" : "fa-chevron-left"
+                  } text-[14px] opacity-70 transition-transform duration-200 ease-out group-hover:rotate-180`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Nav */}
+          <nav
+            className={`flex-1 min-h-0 ${
+              isNavCollapsed ? "px-2 pt-3" : "px-3 pt-4"
+            }`}
+          >
+            {!isNavCollapsed ? (
+              <div className="h-full min-h-0 flex flex-col gap-2 text-sm">
+                <div className="space-y-1">
+                  <SideRow
+                    iconClass="fa-regular fa-message"
+                    label="新對話"
+                    active={activeView === "llm"}
+                    onClick={() => newThread()}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <SideRow
+                    iconClass="fa-solid fa-wand-magic-sparkles"
+                    label="EduGen"
+                    active={activeView === "edugen"}
+                    onClick={() => setActiveView("edugen")}
+                  />
+                  <SideRow
+                    iconClass="fa-solid fa-folder-tree"
+                    label="資源管理"
+                    active={activeView === "assets"}
+                    onClick={() => setActiveView("assets")}
+                  />
+                  <SideRow
+                    iconClass="fa-regular fa-clock"
+                    label="對話紀錄"
+                    active={isHistoryOpen}
+                    onClick={() => openHistory()}
+                  />
+                </div>
+
+                <div className="min-h-0 flex-1 flex flex-col">
+                  <div className="flex items-center justify-between px-1 mb-2">
+                    <p className="text-[11px] tracking-wide opacity-60">
+                      最近對話
+                    </p>
+                    <button
+                      type="button"
+                      className="text-[11px] opacity-60 hover:opacity-90 transition"
+                      onClick={() => openHistory()}
+                      title="搜尋與管理對話"
+                    >
+                      搜尋
+                    </button>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto space-y-1 pr-1">
+                    {historyThreads.slice(0, 8).map((t) => (
+                      <SideThreadItem
+                        key={t.id}
+                        title={t.title}
+                        meta={t.updatedAt}
+                        active={activeThreadId === t.id}
+                        onClick={() => loadThreadToMain(t.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3 pt-2">
+                <SideIconButton
+                  iconClass="fa-regular fa-message"
+                  label="新對話"
+                  active={activeView === "llm"}
+                  onClick={() => newThread()}
+                />
+                <SideIconButton
+                  iconClass="fa-solid fa-wand-magic-sparkles"
+                  label="EduGen"
+                  active={activeView === "edugen"}
+                  onClick={() => setActiveView("edugen")}
+                />
+                <SideIconButton
+                  iconClass="fa-solid fa-folder-tree"
+                  label="資源管理"
+                  active={activeView === "assets"}
+                  onClick={() => setActiveView("assets")}
+                />
+                <SideIconButton
+                  iconClass="fa-regular fa-clock"
+                  label="對話紀錄"
+                  active={isHistoryOpen}
+                  onClick={() => openHistory()}
+                />
+              </div>
+            )}
+          </nav>
+
+          <div
+            className={`border-t ${isNavCollapsed ? "px-2 py-3" : "px-4 py-3"}`}
+            style={{ borderColor: "rgba(148,163,184,0.20)" }}
+          >
+            {isNavCollapsed ? (
+              <div className="flex justify-center">
+                <SideIconButton iconClass="fa-solid fa-gear" label="設定" />
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
+              >
+                <i className="fa-solid fa-gear text-[12px] opacity-80" />
+                <span>設定</span>
+              </button>
+            )}
+          </div>
+        </aside>
+      </div>
+
+      {/* Mobile drawer */}
+      {isMobileNavOpen && (
+        <div className="md:hidden fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setIsMobileNavOpen(false)}
+          />
+          <div
+            className="absolute left-0 top-0 bottom-0 w-[78%] max-w-[320px] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <aside
+              className="h-full w-full border-r flex flex-col"
+              style={{
+                backgroundColor: "rgba(148,163,184,0.06)",
+                borderColor: "rgba(148,163,184,0.20)",
+                color: "var(--navbar-text)",
+              }}
+            >
+              <div
+                className="px-4 pt-4 pb-3 border-b"
+                style={{ borderColor: "rgba(148,163,184,0.20)" }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h1 className="text-lg font-semibold tracking-wide">
+                      GalaBone
+                    </h1>
+                    <p className="text-[11px] mt-1 opacity-70">
+                      Your Bone We Care
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="w-9 h-9 rounded-xl flex items-center justify-center transition"
+                    style={{
+                      border: "1px solid rgba(148,163,184,0.18)",
+                      backgroundColor: "transparent",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.backgroundColor = "transparent")
+                    }
+                    onClick={() => setIsMobileNavOpen(false)}
+                    title="關閉導覽列"
+                  >
+                    <i className="fa-solid fa-xmark text-[14px] opacity-70" />
+                  </button>
+                </div>
+              </div>
+
+              <nav className="flex-1 min-h-0 px-3 pt-4 text-sm space-y-2 overflow-y-auto">
+                <div className="space-y-1">
+                  <SideRow
+                    iconClass="fa-regular fa-message"
+                    label="新對話"
+                    active={activeView === "llm"}
+                    onClick={() => {
+                      newThread();
+                      setIsMobileNavOpen(false);
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <SideRow
+                    iconClass="fa-solid fa-wand-magic-sparkles"
+                    label="EduGen"
+                    active={activeView === "edugen"}
+                    onClick={() => {
+                      setActiveView("edugen");
+                      setIsMobileNavOpen(false);
+                    }}
+                  />
+                  <SideRow
+                    iconClass="fa-solid fa-folder-tree"
+                    label="資源管理"
+                    active={activeView === "assets"}
+                    onClick={() => {
+                      setActiveView("assets");
+                      setIsMobileNavOpen(false);
+                    }}
+                  />
+                  <SideRow
+                    iconClass="fa-regular fa-clock"
+                    label="對話紀錄"
+                    active={isHistoryOpen}
+                    onClick={() => {
+                      setIsMobileNavOpen(false);
+                      openHistory();
+                    }}
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <div className="flex items-center justify-between px-1 mb-2">
+                    <p className="text-[11px] tracking-wide opacity-60">
+                      最近對話
+                    </p>
+                    <button
+                      type="button"
+                      className="text-[11px] opacity-60 hover:opacity-90 transition"
+                      onClick={() => {
+                        setIsMobileNavOpen(false);
+                        openHistory();
+                      }}
+                    >
+                      搜尋
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {historyThreads.slice(0, 8).map((t) => (
+                      <SideThreadItem
+                        key={t.id}
+                        title={t.title}
+                        meta={t.updatedAt}
+                        active={activeThreadId === t.id}
+                        onClick={() => {
+                          loadThreadToMain(t.id);
+                          setIsMobileNavOpen(false);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </nav>
+
+              <div
+                className="px-4 py-3 border-t"
+                style={{ borderColor: "rgba(148,163,184,0.20)" }}
+              >
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
+                >
+                  <i className="fa-solid fa-gear text-[12px] opacity-80" />
+                  <span>設定</span>
+                </button>
+              </div>
+            </aside>
+          </div>
+        </div>
+      )}
+
+      {/* Main */}
       <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden llm-main-shell">
         {activeView === "edugen" ? (
           <PlaceholderView title="EduGen" />
@@ -1374,24 +1481,7 @@ export default function LLMPage() {
           <PlaceholderView title="資源管理" />
         ) : (
           <section className="flex-1 min-h-0 flex flex-col relative">
-            <div className="flex items-center justify-between mb-2 text-xs opacity-70 px-1">
-              <span>Demo 1.0 ver.（尚未接後端）</span>
-
-              <button
-                type="button"
-                className="text-xs px-3 py-2 rounded-lg transition"
-                style={{ backgroundColor: "transparent" }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.backgroundColor = "transparent")
-                }
-                onClick={() => openHistory()}
-              >
-                對話紀錄
-              </button>
-            </div>
+            <div className="flex items-center justify-between mb-2 text-xs opacity-70 px-1" />
 
             <div
               className="chat-scroll flex-1 min-h-0 overflow-y-auto text-sm break-words"
@@ -1507,7 +1597,9 @@ export default function LLMPage() {
                           )}
 
                           <div
-                            className={isExpanded ? "" : "flex items-center gap-3"}
+                            className={
+                              isExpanded ? "" : "flex items-center gap-3"
+                            }
                           >
                             {!isExpanded && (
                               <div className="flex items-center gap-2">
@@ -1531,8 +1623,13 @@ export default function LLMPage() {
 
                             <textarea
                               ref={inputRef}
-                              value={input}
-                              onChange={handleInputChange}
+                              value={draftText}
+                              onChange={(e) => {
+                                setDraftText(e.target.value);
+                                requestAnimationFrame(() =>
+                                  autoResizeTextarea()
+                                );
+                              }}
                               onKeyDown={handleKeyDown}
                               placeholder="提出任何問題⋯"
                               rows={1}
@@ -1543,6 +1640,9 @@ export default function LLMPage() {
                                 color: "var(--foreground)",
                                 caretColor: "var(--foreground)",
                               }}
+                              autoComplete="off"
+                              autoCorrect="off"
+                              spellCheck={false}
                             />
 
                             {!isExpanded && (
@@ -1553,7 +1653,7 @@ export default function LLMPage() {
                                 <button
                                   type="submit"
                                   disabled={
-                                    (!input.trim() &&
+                                    (!draftText.trim() &&
                                       pendingFiles.length === 0) ||
                                     loading
                                   }
@@ -1602,7 +1702,7 @@ export default function LLMPage() {
                                 <button
                                   type="submit"
                                   disabled={
-                                    (!input.trim() &&
+                                    (!draftText.trim() &&
                                       pendingFiles.length === 0) ||
                                     loading
                                   }
