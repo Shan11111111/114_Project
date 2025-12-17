@@ -108,7 +108,7 @@ html.dark {
   /* 🗨️ 深色聊天泡泡 → 霓虹感 */
   --chat-user-bg: #06b6d4; /* 亮青藍 */
   --chat-user-text: #01111a;
-  --chat-assistant-bg: #020617; /* 幾乎黑，當內襯 */
+  --chat-assistant-bg: #323a5b; /* 幾乎黑，當內襯 */
   --chat-assistant-text: #e2e8f0;
 
   /* 霓虹光暈顏色 */
