@@ -29,7 +29,7 @@ type DetectionBox = {
   conf: number;
   poly: PolyPoint[]; // [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] normalized 0~1
   bone_info?: BoneInfo;
-  sub_label?: string | null; // ⭐ 小類（例如 C4 / T7 / L3）
+  sub_label?: string | null; // 小類（例如 C4 / T7 / L3）
 };
 
 type ImgBox = {
@@ -48,7 +48,10 @@ export default function BoneVisionPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ⭐ 是否只顯示目前選取框
+  // ✅ 存 S1 這次辨識寫入 DB 的 ImageCaseId（S1→S2 交接關鍵）
+  const [imageCaseId, setImageCaseId] = useState<number | null>(null);
+
+  // 是否只顯示目前選取框
   const [showOnlyActive, setShowOnlyActive] = useState(false);
 
   // 影像與框線用
@@ -125,12 +128,14 @@ export default function BoneVisionPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
+
     setFile(f);
     setDetections([]);
     setRawResponse(null);
     setActiveId(null);
     setErrorMsg(null);
     setShowOnlyActive(false);
+    setImageCaseId(null); // ✅ 換圖就清掉（避免用到舊 caseId）
     handleResetView();
 
     const reader = new FileReader();
@@ -164,6 +169,14 @@ export default function BoneVisionPage() {
       const data = await res.json();
       setRawResponse(data);
 
+      // ✅ 抓 ImageCaseId（支援多種 key 命名）
+      const cidRaw =
+        data.image_case_id ?? data.imageCaseId ?? data.image_caseId ?? null;
+      const cid =
+        typeof cidRaw === "number" ? cidRaw : Number(cidRaw) || null;
+
+      setImageCaseId(cid);
+
       const boxes: DetectionBox[] = (data.boxes || []).map(
         (b: any, idx: number) => ({
           id: idx,
@@ -174,13 +187,20 @@ export default function BoneVisionPage() {
             Number(p[1]),
           ]),
           bone_info: b.bone_info ?? null,
-          sub_label: b.sub_label ?? null, // ⭐ 接收後端的 sub_label
+          sub_label: b.sub_label ?? null,
         })
       );
 
       setDetections(boxes);
       setActiveId(boxes.length ? boxes[0].id : null);
       setShowOnlyActive(false);
+
+      // ✅ 沒回傳 caseId 就警告（不擋你看結果，但會讓「了解更多」不能用）
+      if (!cid) {
+        console.warn(
+          "⚠️ /predict 沒回傳 image_case_id（或 imageCaseId），了解更多將無法帶入 S2 bootstrap"
+        );
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message ?? "推論失敗，請檢查後端");
@@ -243,6 +263,14 @@ export default function BoneVisionPage() {
               {loading ? "辨識中..." : "開始辨識（模型）"}
             </button>
 
+            {/* ✅ 顯示本次 DB caseId（方便你 debug 跳轉） */}
+            <div className="mt-3 text-[11px] text-slate-400">
+              ImageCaseId：{" "}
+              <span className="text-cyan-300 font-mono">
+                {imageCaseId ?? "—"}
+              </span>
+            </div>
+
             {errorMsg && (
               <p className="mt-3 text-xs text-red-400 whitespace-pre-wrap">
                 {errorMsg}
@@ -290,7 +318,7 @@ export default function BoneVisionPage() {
                   Reset
                 </button>
 
-                {/* ⭐ 只顯示目前選取框切換按鈕 */}
+                {/* 只顯示目前選取框切換按鈕 */}
                 <button
                   onClick={() => setShowOnlyActive((v) => !v)}
                   className={`ml-2 px-2 py-1 rounded-full border text-[11px] ${
@@ -421,9 +449,7 @@ export default function BoneVisionPage() {
                     >
                       {box.cls_name}
                       {box.sub_label ? ` - ${box.sub_label}` : ""}{" "}
-                      <span className="opacity-70">
-                        ({box.conf.toFixed(2)})
-                      </span>
+                      <span className="opacity-70">({box.conf.toFixed(2)})</span>
                     </button>
                   ))}
                 </div>
@@ -442,7 +468,7 @@ export default function BoneVisionPage() {
                         </span>
                       </p>
 
-                      {/* ⭐ 顯示脊椎節數 / 小類 */}
+                      {/* 顯示節數 / 小類 */}
                       {activeBox.sub_label && (
                         <p className="text-slate-400 mt-1">
                           節數 / 小類：{" "}
@@ -480,17 +506,33 @@ export default function BoneVisionPage() {
                         </p>
                       </div>
 
+                      {/* ✅ 改這顆：帶 caseId 去 LLM，讓 LLM 用 bootstrap-from-s1 從 DB 撈圖 + detections */}
                       <button
-                        onClick={() =>
-                          router.push(
-                            `/llm?bone=${encodeURIComponent(
-                              activeBox.cls_name
-                            )}`
-                          )
-                        }
+                        onClick={() => {
+                          if (!imageCaseId) {
+                            alert(
+                              "目前沒有 ImageCaseId（/predict 需要回傳 image_case_id 才能帶入 S2）"
+                            );
+                            return;
+                          }
+                          // 可選：帶 boneId 讓 LLM 頁面做聚焦/預設提示（不影響 bootstrap）
+                          const boneId = activeBox.bone_info?.bone_id ?? "";
+                          const url =
+                            `/llm?caseId=${encodeURIComponent(
+                              String(imageCaseId)
+                            )}` + (boneId ? `&boneId=${encodeURIComponent(String(boneId))}` : "");
+                          router.push(url);
+                        }}
+                        disabled={!imageCaseId}
                         className="mt-2 inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
                                    bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40
-                                   hover:bg-cyan-400 transition-colors"
+                                   hover:bg-cyan-400 transition-colors
+                                   disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={
+                          imageCaseId
+                            ? "前往 LLM（會帶入本次辨識結果）"
+                            : "需要 /predict 回傳 image_case_id 才能使用"
+                        }
                       >
                         了解更多（galabone）
                       </button>
