@@ -73,28 +73,36 @@ export const s0Api = {
     const raw = await getJson("/s0/cases/pending");
 
     return (raw || []).map((c: any) => {
-      // 後端現在會給 imageUrl / thumbnailUrl，
-      // 但也把 snake_case / PascalCase 都一起兼容
-      const imageUrl =
+      // 後端可能給：imageUrl / image_url / image_path ...
+      const rawPath =
         c.imageUrl ??
         c.image_url ??
-        c.thumbnailUrl ??
-        c.thumbnail_url ??
+        c.image_path ??
         c.ImageUrl ??
-        null;
+        "";
 
-      const thumbnailUrl =
+      const rawThumb =
         c.thumbnailUrl ??
         c.thumbnail_url ??
         c.ThumbnailUrl ??
-        imageUrl ??
-        "";
+        rawPath;
+
+      // 如果是 /public/... 這類 path，就前面補 API_BASE
+      const imageUrl =
+        typeof rawPath === "string" && rawPath.startsWith("/")
+          ? `${API_BASE}${rawPath}`
+          : rawPath;
+
+      const thumbnailUrl =
+        typeof rawThumb === "string" && rawThumb.startsWith("/")
+          ? `${API_BASE}${rawThumb}`
+          : rawThumb;
 
       return {
         imageCaseId:
           c.imageCaseId ?? c.image_case_id ?? c.ImageCaseId,
         imageUrl: imageUrl ?? "",
-        thumbnailUrl,
+        thumbnailUrl: thumbnailUrl ?? imageUrl ?? "",
         createdAt:
           c.createdAt ??
           c.created_at ??
@@ -134,7 +142,7 @@ export async function askAgentFromS0(payload: {
   });
 
   if (!res.ok) {
-    // 多抓一點資訊幫你 debug（像現在 404）
+    // 多抓一點資訊幫你 debug（像之前 404）
     let extra = "";
     try {
       extra = await res.text();
