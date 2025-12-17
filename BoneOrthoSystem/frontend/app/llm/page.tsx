@@ -5,9 +5,11 @@ import {
   KeyboardEvent,
   ChangeEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import { useSearchParams } from "next/navigation";
 
 type BackendMsg = {
   role: "user" | "assistant";
@@ -26,20 +28,26 @@ type ChatMessage = {
   filetype?: string | null;
 };
 
+type Detection = {
+  bone_id: number | null;
+  bone_zh: string | null;
+  bone_en: string | null;
+  label41: string;
+  confidence: number;
+  bbox: [number, number, number, number]; // normalized 0~1 (x1,y1,x2,y2)
+};
+
 const MIN_HEIGHT = 28;
 const MAX_HEIGHT = 120;
 
-// ✅ 後端 base（避免你又打到 3000 變成一坨 HTML）
-const API_BASE =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
+const API_BASE = (
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
 
-// 你現在聊天是打這個（照你現況不改）
 const CHAT_URL = `${API_BASE}/s2x/agent/chat`;
-
-// ✅ 通用上傳（你後端 main.py 有 /upload）
+const BOOT_URL = `${API_BASE}/s2/agent/bootstrap-from-s1`;
+const ENSURE_TITLE_URL = `${API_BASE}/s2/agent/ensure-title`;
 const UPLOAD_URL = `${API_BASE}/upload`;
-
-// ✅ 教材上傳（你 swagger 是 /s2/materials/upload）
 const MATERIAL_UPLOAD_URL = `${API_BASE}/s2/materials/upload`;
 
 function toAbsoluteUrl(maybeUrl?: string | null) {
@@ -55,14 +63,242 @@ function isUUID(v: string) {
   );
 }
 
-export default function LLMPage() {
-  const greeting: ChatMessage = {
-    id: 1,
-    role: "assistant",
-    type: "text",
-    content:
-      "嗨，我是 GalaBone LLM。在這裡輸入你的問題，我會用教材（RAG）幫你解釋。",
+// ✅ 去重 key（避免合併時重複堆疊）
+function msgKey(m: {
+  role: string;
+  type: string;
+  content?: string;
+  url?: string | null;
+}) {
+  return `${m.role}|${m.type}|${(m.content ?? "").trim()}|${m.url ?? ""}`;
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * ✅ 圖片工具列只保留：
+ * - 大小縮放（- / +）=> 控制「顯示寬度 px」
+ * - 偵測框 顯示/隱藏（眼睛 icon）
+ */
+function ImageDetectionViewer(props: {
+  src: string;
+  detections: Detection[];
+  initialWidthPx?: number;
+}) {
+  const { src, detections, initialWidthPx = 426 } = props;
+
+  const frameRef = useRef<HTMLDivElement | null>(null);
+
+  const [widthPx, setWidthPx] = useState<number>(initialWidthPx);
+  const [hideDetections, setHideDetections] = useState(false);
+
+  const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
+
+  const detCount = detections?.length ?? 0;
+
+  const measure = () => {
+    const el = frameRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setFrameSize({ w: rect.width, h: rect.height });
   };
+
+  useEffect(() => {
+    measure();
+    const el = frameRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    // widthPx 變化時也量一次
+    measure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widthPx]);
+
+  const pxFromNorm = (b: [number, number, number, number]) => {
+    const [x1, y1, x2, y2] = b;
+    const left = x1 * frameSize.w;
+    const top = y1 * frameSize.h;
+    const width = (x2 - x1) * frameSize.w;
+    const height = (y2 - y1) * frameSize.h;
+    return { left, top, width, height };
+  };
+
+  const zoomOut = () => setWidthPx((w) => clamp(w - 40, 260, 1000));
+  const zoomIn = () => setWidthPx((w) => clamp(w + 40, 260, 1000));
+
+  return (
+    <div
+      className="w-full rounded-2xl border p-3"
+      style={{
+        borderColor: "rgba(148,163,184,0.35)",
+        backgroundColor: "rgba(2,132,199,0.12)",
+      }}
+    >
+      {/* ✅ Header：寬度 + 偵測框數 + (- / +) + eye */}
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-[12px] text-slate-100/90">
+          <span>
+            圖片寬度：<span className="font-mono">{Math.round(widthPx)}px</span>
+          </span>
+          <span>｜</span>
+          <span>
+            偵測框數：<span className="font-mono">{detCount}</span>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* - */}
+          <button
+            type="button"
+            onClick={zoomOut}
+            className="h-9 w-9 rounded-xl border flex items-center justify-center"
+            style={{
+              borderColor: "rgba(255,255,255,0.35)",
+              backgroundColor: "rgba(255,255,255,0.10)",
+              color: "rgba(255,255,255,0.95)",
+            }}
+            title="縮小"
+            aria-label="縮小"
+          >
+            <i className="fa-solid fa-minus" />
+          </button>
+
+          {/* + */}
+          <button
+            type="button"
+            onClick={zoomIn}
+            className="h-9 w-9 rounded-xl border flex items-center justify-center"
+            style={{
+              borderColor: "rgba(255,255,255,0.35)",
+              backgroundColor: "rgba(255,255,255,0.10)",
+              color: "rgba(255,255,255,0.95)",
+            }}
+            title="放大"
+            aria-label="放大"
+          >
+            <i className="fa-solid fa-plus" />
+          </button>
+
+          {/* eye */}
+          <button
+            type="button"
+            onClick={() => setHideDetections((v) => !v)}
+            className="h-9 px-3 rounded-xl border flex items-center justify-center gap-2"
+            style={{
+              borderColor: hideDetections
+                ? "rgba(99,102,241,0.85)"
+                : "rgba(255,255,255,0.35)",
+              backgroundColor: hideDetections
+                ? "rgba(99,102,241,0.20)"
+                : "rgba(255,255,255,0.10)",
+              color: "rgba(255,255,255,0.95)",
+            }}
+            title={hideDetections ? "顯示偵測框" : "隱藏偵測框"}
+            aria-label="隱藏/顯示偵測框"
+          >
+            <i
+              className={
+                hideDetections ? "fa-solid fa-eye-slash" : "fa-solid fa-eye"
+              }
+            />
+            <span className="text-[12px] font-semibold">
+              {hideDetections ? "顯示偵測框" : "隱藏偵測框"}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* 圖片區：允許橫向捲動（寬度變大時） */}
+      <div className="w-full overflow-x-auto">
+        <div
+          className="relative overflow-hidden rounded-2xl border"
+          style={{
+            width: `${widthPx}px`,
+            borderColor: "rgba(255,255,255,0.18)",
+            backgroundColor: "rgba(15,23,42,0.35)",
+          }}
+        >
+          <div ref={frameRef} className="relative w-full">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt="image"
+              className="block w-full h-auto select-none"
+              draggable={false}
+              onLoad={() => measure()}
+            />
+
+            {/* detections */}
+            {!hideDetections &&
+              (detections || []).map((d, idx) => {
+                const { left, top, width, height } = pxFromNorm(d.bbox);
+                const title =
+                  (d.bone_zh && d.bone_zh.trim()) ||
+                  (d.bone_en && d.bone_en.trim()) ||
+                  `label41=${d.label41}`;
+                const conf = Number.isFinite(d.confidence)
+                  ? d.confidence.toFixed(3)
+                  : String(d.confidence);
+
+                return (
+                  <div
+                    key={`det-${idx}-${left}-${top}`}
+                    className="absolute rounded-lg"
+                    style={{
+                      left,
+                      top,
+                      width,
+                      height,
+                      border: "3px solid rgba(56,189,248,0.85)",
+                      boxShadow: "0 0 0 1px rgba(2,132,199,0.15) inset",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <div
+                      className="absolute -top-7 left-0 px-2 py-1 rounded-lg text-[12px] font-semibold"
+                      style={{
+                        backgroundColor: "rgba(2,132,199,0.92)",
+                        color: "white",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {title} {conf}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-2 text-[12px] text-slate-100/80">
+        Tip：偵測框座標是 0~1 normalized，縮放不會影響框位置。
+      </div>
+    </div>
+  );
+}
+
+export default function LLMPage() {
+  const searchParams = useSearchParams();
+
+  const greeting: ChatMessage = useMemo(
+    () => ({
+      id: 1,
+      role: "assistant",
+      type: "text",
+      content:
+        "嗨，我是 GalaBone LLM。在這裡輸入你的問題，我會用教材（RAG）幫你解釋。",
+    }),
+    []
+  );
 
   const [messages, setMessages] = useState<ChatMessage[]>([greeting]);
   const [input, setInput] = useState("");
@@ -74,17 +310,16 @@ export default function LLMPage() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ✅ 工具選單：上傳狀態
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingMaterial, setUploadingMaterial] = useState(false);
 
-  // ✅ 教材欄位（不亂刪，你之後要接管理頁也可沿用）
+  // 教材欄位（保留）
   const [matTitle, setMatTitle] = useState("");
   const [matType, setMatType] = useState("pdf");
   const [matLanguage, setMatLanguage] = useState("zh-TW");
   const [matStyle, setMatStyle] = useState("edu");
   const [matUserId, setMatUserId] = useState("teacher01");
-  const [matConversationId, setMatConversationId] = useState(""); // UUID 才送
+  const [matConversationId, setMatConversationId] = useState("");
   const [matBoneId, setMatBoneId] = useState<string>("");
   const [matBoneSmallId, setMatBoneSmallId] = useState<string>("");
   const [matStructureJson, setMatStructureJson] = useState("{}");
@@ -92,11 +327,9 @@ export default function LLMPage() {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // ✅ 檔案 input refs
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const materialInputRef = useRef<HTMLInputElement | null>(null);
 
-  // ✅ 用來避免 key 撞號（Date.now + idx 有時會撞）
   const msgSeqRef = useRef(1000);
   const nextId = () => {
     msgSeqRef.current += 1;
@@ -106,6 +339,14 @@ export default function LLMPage() {
   const baseHeightRef = useRef<number | null>(null);
   const [isMultiLine, setIsMultiLine] = useState(false);
   const [inputBoxHeight, setInputBoxHeight] = useState(MIN_HEIGHT);
+
+  const pinnedSeedRef = useRef<ChatMessage[]>([]);
+  const hiddenMsgKeysRef = useRef<Set<string>>(new Set());
+
+  // ✅ detections 依「abs image url」掛著，避免相對/絕對 key 對不起來
+  const [detectionsByUrl, setDetectionsByUrl] = useState<
+    Record<string, Detection[]>
+  >({});
 
   function autoResizeTextarea() {
     const el = inputRef.current;
@@ -151,9 +392,8 @@ export default function LLMPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ 把後端 messages 轉 UI messages，並保留 greeting（避免一回覆就把開場白洗掉）
-  function applyBackendMessages(serverMsgs: BackendMsg[]) {
-    const mapped: ChatMessage[] = (serverMsgs || []).map((m) => {
+  function mapBackendToUi(serverMsgs: BackendMsg[]) {
+    return (serverMsgs || []).map((m) => {
       const absUrl = toAbsoluteUrl(m.url ?? null);
       return {
         id: nextId(),
@@ -162,23 +402,41 @@ export default function LLMPage() {
         content: (m.content ?? "") as string,
         url: absUrl,
         filetype: m.filetype ?? null,
-      };
+      } as ChatMessage;
     });
-
-    // 若後端第一句不是 assistant greeting，就把 greeting 插回去（你 UI 才不會空虛）
-    const hasGreetingLike =
-      mapped.length > 0 &&
-      mapped[0].role === "assistant" &&
-      (mapped[0].content || "").includes("GalaBone");
-
-    setMessages(hasGreetingLike ? mapped : [greeting, ...mapped]);
   }
 
-  async function callChatOnce(userMsg: BackendMsg) {
-    const payload = {
-      session_id: sessionId,
-      messages: [userMsg], // ✅ 只送本次新增的一則，避免後端 session 重複累加
-    };
+  function applyBackendMessages(serverMsgs: BackendMsg[]) {
+    const mapped = mapBackendToUi(serverMsgs);
+
+    setMessages((prev) => {
+      const pinned = pinnedSeedRef.current || [];
+      const result: ChatMessage[] = [];
+      const seen = new Set<string>();
+
+      const pushIfOk = (m: ChatMessage) => {
+        const k = msgKey(m);
+        if (hiddenMsgKeysRef.current.has(k)) return;
+        if (seen.has(k)) return;
+        seen.add(k);
+        result.push(m);
+      };
+
+      pushIfOk(greeting);
+      for (const p of pinned) pushIfOk(p);
+      for (const m of prev) pushIfOk(m);
+      for (const m of mapped) pushIfOk(m);
+
+      return result;
+    });
+  }
+
+  async function postChatExplicit(
+    session_id: string,
+    batch: BackendMsg[],
+    refreshUI: boolean
+  ) {
+    const payload = { session_id, messages: batch };
 
     const res = await fetch(CHAT_URL, {
       method: "POST",
@@ -189,19 +447,218 @@ export default function LLMPage() {
     const ct = res.headers.get("content-type") || "";
     const raw = await res.text();
 
-    if (!res.ok) {
-      throw new Error(`後端錯誤 ${res.status}：${raw.slice(0, 300)}`);
-    }
-    if (!ct.includes("application/json")) {
-      // 你打錯 URL 時，通常會回 HTML
-      throw new Error(
-        `回傳不是 JSON（多半是路徑打錯/打到 3000）：${raw.slice(0, 200)}`
-      );
-    }
+    if (!res.ok) throw new Error(`chat 失敗 ${res.status}：${raw.slice(0, 300)}`);
+    if (!ct.includes("application/json"))
+      throw new Error(`chat 回傳不是 JSON：${raw.slice(0, 200)}`);
 
     const data = JSON.parse(raw) as { messages: BackendMsg[]; actions?: any[] };
-    applyBackendMessages(data.messages || []);
+    if (refreshUI) applyBackendMessages(data.messages || []);
+    return data.messages || [];
   }
+
+  async function callChatOnce(userMsg: BackendMsg) {
+    await postChatExplicit(sessionId, [userMsg], true);
+  }
+
+  async function ensureConversationTitle(
+    conversation_id: string,
+    image_case_id: number
+  ) {
+    const res = await fetch(ENSURE_TITLE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id, image_case_id }),
+    });
+
+    const ct = res.headers.get("content-type") || "";
+    const raw = await res.text();
+
+    if (!res.ok) {
+      throw new Error(`ensure-title 失敗 ${res.status}：${raw.slice(0, 200)}`);
+    }
+    if (!ct.includes("application/json")) {
+      throw new Error(`ensure-title 回傳不是 JSON：${raw.slice(0, 200)}`);
+    }
+  }
+
+  async function primeTitleByChat(session_id: string, caseId: number) {
+    const shortTitle = `ImageCaseId: ${caseId} 辨識結果`;
+    const trimmedShort = shortTitle.trim();
+
+    const primeMsg: BackendMsg = {
+      role: "user",
+      type: "text",
+      content: trimmedShort,
+    };
+
+    const allMsgs = await postChatExplicit(session_id, [primeMsg], false);
+
+    hiddenMsgKeysRef.current.add(
+      msgKey({ role: "user", type: "text", content: trimmedShort, url: null })
+    );
+
+    let lastUserIdx = -1;
+    for (let i = 0; i < allMsgs.length; i++) {
+      const m = allMsgs[i];
+      if (
+        m.role === "user" &&
+        m.type === "text" &&
+        ((m.content ?? "").trim() === trimmedShort)
+      ) {
+        lastUserIdx = i;
+      }
+    }
+
+    const next = lastUserIdx >= 0 ? allMsgs[lastUserIdx + 1] : undefined;
+    if (
+      next &&
+      next.role === "assistant" &&
+      next.type === "text" &&
+      ((next.content ?? "").trim().length > 0)
+    ) {
+      hiddenMsgKeysRef.current.add(
+        msgKey({
+          role: "assistant",
+          type: "text",
+          content: (next.content ?? "").trim(),
+          url: null,
+        })
+      );
+    }
+  }
+
+  async function seedToLegacyThenReply(
+    session_id: string,
+    seed_messages: BackendMsg[],
+    caseId: number
+  ) {
+    const firstImageUrl =
+      seed_messages?.find((m) => m.type === "image" && m.url)?.url ?? null;
+
+    const safe = (seed_messages || []).filter((m) => m.type === "text");
+
+    const fallbackAsk: BackendMsg = {
+      role: "user",
+      type: "text",
+      content:
+        `請根據 ImageCaseId=${caseId} 的偵測摘要，用衛教方式解釋偵測到的骨骼部位、可能的臨床意義，` +
+        `並給我 3 個延伸提問。\n` +
+        (firstImageUrl ? `（影像連結：${toAbsoluteUrl(firstImageUrl)}）` : ""),
+    };
+
+    if (safe.length === 0) {
+      await postChatExplicit(session_id, [fallbackAsk], true);
+      return;
+    }
+
+    const last = safe[safe.length - 1];
+    const lastIsUserText =
+      last.role === "user" &&
+      last.type === "text" &&
+      (last.content ?? "").trim().length > 0;
+
+    const upto = lastIsUserText ? safe.length - 1 : safe.length;
+    for (let i = 0; i < upto; i++) {
+      await postChatExplicit(session_id, [safe[i]], false);
+    }
+
+    if (lastIsUserText) {
+      await postChatExplicit(session_id, [last], true);
+    } else {
+      await postChatExplicit(session_id, [fallbackAsk], true);
+    }
+  }
+
+  // ✅ /llm?caseId=XX 自動 bootstrap
+  const bootOnceRef = useRef(false);
+  useEffect(() => {
+    const caseIdStr = searchParams.get("caseId");
+    if (!caseIdStr) return;
+
+    if (bootOnceRef.current) return;
+    bootOnceRef.current = true;
+
+    const caseId = Number(caseIdStr);
+    if (!Number.isFinite(caseId) || caseId <= 0) {
+      setErrorMsg(`caseId 不合法：${caseIdStr}`);
+      return;
+    }
+
+    (async () => {
+      setErrorMsg(null);
+      setLoading(true);
+
+      try {
+        const r = await fetch(BOOT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_case_id: caseId }),
+        });
+
+        const rCt = r.headers.get("content-type") || "";
+        const rRaw = await r.text();
+
+        if (!r.ok) {
+          throw new Error(`bootstrap 失敗 ${r.status}：${rRaw.slice(0, 300)}`);
+        }
+        if (!rCt.includes("application/json")) {
+          throw new Error(`bootstrap 回傳不是 JSON：${rRaw.slice(0, 200)}`);
+        }
+
+        const boot = JSON.parse(rRaw) as {
+          session_id: string;
+          seed_messages: BackendMsg[];
+          detections?: Detection[];
+        };
+
+        if (!boot?.session_id || !Array.isArray(boot.seed_messages)) {
+          throw new Error(
+            `bootstrap 回傳格式不對：${JSON.stringify(boot).slice(0, 200)}`
+          );
+        }
+
+        setSessionId(boot.session_id);
+
+        const seedUi = mapBackendToUi(boot.seed_messages);
+        pinnedSeedRef.current = seedUi;
+        setMessages([greeting, ...seedUi]);
+
+        // ✅ detections 掛到 seed image（abs url）
+        const seedImgRel =
+          boot.seed_messages.find((m) => m.type === "image" && m.url)?.url ??
+          null;
+        const seedImgAbs = toAbsoluteUrl(seedImgRel);
+
+        if (seedImgAbs) {
+          setDetectionsByUrl((prev) => ({
+            ...prev,
+            [seedImgAbs]: Array.isArray(boot.detections) ? boot.detections : [],
+          }));
+        }
+
+        try {
+          await ensureConversationTitle(boot.session_id, caseId);
+        } catch {
+          try {
+            await primeTitleByChat(boot.session_id, caseId);
+          } catch (e2: any) {
+            console.warn(e2);
+            setErrorMsg(
+              (prev) =>
+                prev ?? `⚠️ ensure-title/prime 都失敗：${e2?.message ?? e2}`
+            );
+          }
+        }
+
+        await seedToLegacyThenReply(boot.session_id, boot.seed_messages, caseId);
+      } catch (err: any) {
+        console.error(err);
+        setErrorMsg(err?.message ?? "自動帶入失敗");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [searchParams, greeting]);
 
   async function sendMessage(e?: FormEvent) {
     if (e) e.preventDefault();
@@ -238,11 +695,7 @@ export default function LLMPage() {
     setLoading(true);
 
     try {
-      await callChatOnce({
-        role: "user",
-        type: "text",
-        content: text,
-      });
+      await callChatOnce({ role: "user", type: "text", content: text });
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err?.message ?? "呼叫後端失敗");
@@ -253,7 +706,7 @@ export default function LLMPage() {
           role: "assistant",
           type: "text",
           content:
-            "⚠️ 後端暫時沒回來。請確認：後端 8000 有開、/s2x/agent/chat 存在、CORS OK、向量庫已建好。",
+            "⚠️ 後端暫時沒回來。請確認：後端 8000 有開、/s2x/agent/chat 存在、CORS OK。",
         },
       ]);
     } finally {
@@ -273,13 +726,12 @@ export default function LLMPage() {
     autoResizeTextarea();
   }
 
-  // ✅ 工具：上傳圖片 → 後端 /upload → 再送一則 image 訊息給 chat
+  // 上傳圖片 → /upload → 送 chat（圖片通常沒 detections）
   async function handlePickAndSendImage(file: File) {
     setUploadingImage(true);
     setErrorMsg(null);
 
     try {
-      // 1) 上傳檔案
       const fd = new FormData();
       fd.append("file", file);
 
@@ -287,7 +739,8 @@ export default function LLMPage() {
       const ct = res.headers.get("content-type") || "";
       const raw = await res.text();
 
-      if (!res.ok) throw new Error(`上傳失敗 ${res.status}：${raw.slice(0, 200)}`);
+      if (!res.ok)
+        throw new Error(`上傳失敗 ${res.status}：${raw.slice(0, 200)}`);
       if (!ct.includes("application/json"))
         throw new Error(`上傳回傳非 JSON：${raw.slice(0, 200)}`);
 
@@ -299,7 +752,6 @@ export default function LLMPage() {
 
       const absUrl = toAbsoluteUrl(data.url) || null;
 
-      // 2) 先在 UI 放一張 user image
       setMessages((prev) => [
         ...prev,
         {
@@ -312,12 +764,15 @@ export default function LLMPage() {
         },
       ]);
 
-      // 3) 送到 chat（觸發 YOLO / 或後端圖片流程）
+      if (absUrl) {
+        setDetectionsByUrl((prev) => ({ ...prev, [absUrl]: prev[absUrl] ?? [] }));
+      }
+
       setLoading(true);
       await callChatOnce({
         role: "user",
         type: "image",
-        url: data.url, // ✅ 這裡送「後端相對路徑」，後端才找得到
+        url: data.url,
         filetype: data.filetype ?? null,
         content: null,
       });
@@ -332,7 +787,7 @@ export default function LLMPage() {
     }
   }
 
-  // ✅ 工具：上傳教材 → /s2/materials/upload（會寫 DB + 建索引）
+  // 教材上傳（保留）
   async function handlePickAndUploadMaterial(file: File) {
     setUploadingMaterial(true);
     setErrorMsg(null);
@@ -346,29 +801,24 @@ export default function LLMPage() {
       fd.append("style", matStyle);
       fd.append("user_id", matUserId);
 
-      // ✅ 只有 UUID 才送 conversation_id（不然你現在 sessionId=test-1 會爆）
       if (matConversationId.trim() && isUUID(matConversationId)) {
         fd.append("conversation_id", matConversationId.trim());
       }
-
-      // ✅ optional ints：空就不要送（比送空字串安全）
       if (matBoneId.trim()) fd.append("bone_id", matBoneId.trim());
-      if (matBoneSmallId.trim())
-        fd.append("bone_small_id", matBoneSmallId.trim());
-
+      if (matBoneSmallId.trim()) fd.append("bone_small_id", matBoneSmallId.trim());
       fd.append("structure_json", matStructureJson || "{}");
 
       const res = await fetch(MATERIAL_UPLOAD_URL, { method: "POST", body: fd });
       const ct = res.headers.get("content-type") || "";
       const raw = await res.text();
 
-      if (!res.ok) throw new Error(`教材上傳失敗 ${res.status}：${raw.slice(0, 250)}`);
+      if (!res.ok)
+        throw new Error(`教材上傳失敗 ${res.status}：${raw.slice(0, 250)}`);
       if (!ct.includes("application/json"))
         throw new Error(`教材回傳非 JSON：${raw.slice(0, 200)}`);
 
       const data = JSON.parse(raw) as { material_id: string; file_path: string };
 
-      // ✅ 回饋一則系統訊息（不打擾聊天）
       setMessages((prev) => [
         ...prev,
         {
@@ -398,11 +848,9 @@ export default function LLMPage() {
     }
   }
 
-  // 匯出動作（之後接你們 /export router）
   function handleExport(type: "pdf" | "ppt") {
     setShowExportMenu(false);
     console.log("export:", type);
-    // TODO: 接你們的 /export API
   }
 
   return (
@@ -515,7 +963,7 @@ export default function LLMPage() {
                 }`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-3 py-2 whitespace-pre-wrap break-words leading-relaxed
+                  className={`max-w-[90%] rounded-2xl px-3 py-2 whitespace-pre-wrap break-words leading-relaxed
                     ${
                       msg.role === "user"
                         ? "bg-sky-500 text-white rounded-br-sm"
@@ -523,11 +971,10 @@ export default function LLMPage() {
                     }`}
                 >
                   {msg.type === "image" && msg.url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <ImageDetectionViewer
                       src={msg.url}
-                      alt="image"
-                      className="max-w-full rounded-xl border border-slate-700"
+                      detections={detectionsByUrl[msg.url] ?? []}
+                      initialWidthPx={426}
                     />
                   ) : (
                     msg.content
@@ -658,7 +1105,7 @@ export default function LLMPage() {
                       </div>
                     </div>
 
-                    {/* ✅ 工具選單（不刪 showToolMenu，讓它真的有功能） */}
+                    {/* 工具選單（保留 upload） */}
                     {showToolMenu && (
                       <div
                         className="absolute left-0 right-0 bottom-full mb-2 rounded-2xl border shadow-xl p-3 z-30"
@@ -712,8 +1159,11 @@ export default function LLMPage() {
                           </div>
                         </div>
 
-                        {/* 教材上傳 */}
-                        <div className="border-t pt-3" style={{ borderColor: "var(--navbar-border)" }}>
+                        {/* 教材上傳（保留） */}
+                        <div
+                          className="border-t pt-3"
+                          style={{ borderColor: "var(--navbar-border)" }}
+                        >
                           <div className="text-xs font-semibold opacity-80 mb-2">
                             教材上傳（RAG）
                           </div>
@@ -791,7 +1241,9 @@ export default function LLMPage() {
                             </label>
 
                             <label className="flex flex-col gap-1">
-                              <span className="opacity-70">conversation_id (UUID 可選)</span>
+                              <span className="opacity-70">
+                                conversation_id (UUID 可選)
+                              </span>
                               <input
                                 className="rounded-lg px-2 py-1 border outline-none"
                                 style={{
@@ -800,7 +1252,9 @@ export default function LLMPage() {
                                   borderColor: "var(--navbar-border)",
                                 }}
                                 value={matConversationId}
-                                onChange={(e) => setMatConversationId(e.target.value)}
+                                onChange={(e) =>
+                                  setMatConversationId(e.target.value)
+                                }
                                 placeholder="留空就 NULL"
                               />
                             </label>
@@ -821,7 +1275,9 @@ export default function LLMPage() {
                             </label>
 
                             <label className="flex flex-col gap-1">
-                              <span className="opacity-70">bone_small_id (可選)</span>
+                              <span className="opacity-70">
+                                bone_small_id (可選)
+                              </span>
                               <input
                                 className="rounded-lg px-2 py-1 border outline-none"
                                 style={{
@@ -830,14 +1286,18 @@ export default function LLMPage() {
                                   borderColor: "var(--navbar-border)",
                                 }}
                                 value={matBoneSmallId}
-                                onChange={(e) => setMatBoneSmallId(e.target.value)}
+                                onChange={(e) =>
+                                  setMatBoneSmallId(e.target.value)
+                                }
                                 placeholder="例如 206"
                               />
                             </label>
                           </div>
 
                           <label className="flex flex-col gap-1 mt-2 text-[11px]">
-                            <span className="opacity-70">structure_json（可選）</span>
+                            <span className="opacity-70">
+                              structure_json（可選）
+                            </span>
                             <textarea
                               className="rounded-lg px-2 py-1 border outline-none"
                               style={{
@@ -847,7 +1307,9 @@ export default function LLMPage() {
                               }}
                               rows={2}
                               value={matStructureJson}
-                              onChange={(e) => setMatStructureJson(e.target.value)}
+                              onChange={(e) =>
+                                setMatStructureJson(e.target.value)
+                              }
                             />
                           </label>
 
@@ -872,11 +1334,13 @@ export default function LLMPage() {
                               }}
                               onClick={() => materialInputRef.current?.click()}
                             >
-                              {uploadingMaterial ? "教材上傳中…" : "選擇教材並上傳"}
+                              {uploadingMaterial
+                                ? "教材上傳中…"
+                                : "選擇教材並上傳"}
                             </button>
 
                             <div className="text-[11px] opacity-70">
-                              ⚠️ 你目前後端會「上傳即建索引」。若要避免污染共用向量庫，請看我下面的後端開關建議。
+                              ⚠️ 你目前後端會「上傳即建索引」。
                             </div>
                           </div>
                         </div>
@@ -917,7 +1381,6 @@ export default function LLMPage() {
                           type="button"
                           onClick={() => handleExport("pdf")}
                           className="w-full text-left px-3 py-2"
-                          style={{ cursor: "pointer" }}
                         >
                           匯出 PDF
                         </button>
@@ -925,7 +1388,6 @@ export default function LLMPage() {
                           type="button"
                           onClick={() => handleExport("ppt")}
                           className="w-full text-left px-3 py-2"
-                          style={{ cursor: "pointer" }}
                         >
                           匯出 PPT
                         </button>
