@@ -472,7 +472,7 @@ export default function S0Page() {
       selectedBoneId == null ||
       selectedSmallBoneId == null
     ) {
-      setStatus("請先選好大骨與小骨，再詢問 Dr.Bone。");
+      setStatus("請先選好大骨與小骨，再詢問 GalaBone。");
       return;
     }
     await askDrBone(selectedBoneId, selectedSmallBoneId);
@@ -519,7 +519,7 @@ export default function S0Page() {
       <h1 className="s0-title">影像標註站（S0）</h1>
       <p className="s0-subtitle">
         STEP 1：選影像 → STEP 2：選大骨 → STEP 3：選小骨 → STEP 4：在影像上框出骨頭，按「送出」即可建立或覆蓋標註；也可以請
-        Dr.Bone 解說。
+        GalaBone 解說。
       </p>
 
       <section className="s0-top">
@@ -777,7 +777,7 @@ export default function S0Page() {
               onClick={handleAskAi}
               disabled={qaLoading || !selectedBoneId || !selectedSmallBoneId}
             >
-              {qaLoading ? "Dr.Bone 解說中…" : "請 Dr.Bone 解說這顆骨頭"}
+              {qaLoading ? "GalaBone 解說中…" : "請 GalaBone 解說這顆骨頭"}
             </button>
 
             <button
@@ -791,7 +791,7 @@ export default function S0Page() {
 
           {qaAnswer && (
             <div className="s0-ai-answer">
-              <h3 className="s0-ai-title">Dr.Bone 解說</h3>
+              <h3 className="s0-ai-title">GalaBone 解說</h3>
               <p className="s0-ai-text whitespace-pre-wrap">{qaAnswer}</p>
             </div>
           )}

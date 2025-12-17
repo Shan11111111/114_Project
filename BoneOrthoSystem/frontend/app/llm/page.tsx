@@ -48,21 +48,46 @@ const API_BASE = (
 const CHAT_URL = `${API_BASE}/s2x/agent/chat`;
 const BOOT_URL = `${API_BASE}/s2/agent/bootstrap-from-s1`;
 const ENSURE_TITLE_URL = `${API_BASE}/s2/agent/ensure-title`;
-const UPLOAD_URL = `${API_BASE}/upload`;
-const MATERIAL_UPLOAD_URL = `${API_BASE}/s2/materials/upload`;
+
+// ✅ 一般使用者：上傳到 frontend/public/user_upload_file（不建索引）
+const UPLOAD_URL = `/api/upload`;
+
+// ✅ 管理者：教材上傳（會建索引）→ Next API proxy 到後端
+const MATERIAL_UPLOAD_URL = `/api/materials/upload`;
+
+// ✅ 管理者工具開關（預設關）
+const ENABLE_ADMIN_TOOLS =
+  process.env.NEXT_PUBLIC_ENABLE_ADMIN_TOOLS === "true";
+
 
 function toAbsoluteUrl(maybeUrl?: string | null) {
   if (!maybeUrl) return null;
-  if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://"))
+  if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://")) {
     return maybeUrl;
-  return `${API_BASE}${maybeUrl.startsWith("/") ? "" : "/"}${maybeUrl}`;
+  }
+
+  const path = maybeUrl.startsWith("/") ? maybeUrl : `/${maybeUrl}`;
+
+  // ✅ 一般使用者上傳的 public 檔案：用前端 origin
+  const isFrontendPublic =
+    path.startsWith("/user_upload_file/") ||
+    path.startsWith("/public/user_upload_file/");
+
+  if (isFrontendPublic) {
+    const normalized = path.startsWith("/public/")
+      ? path.replace(/^\/public\//, "/")
+      : path;
+
+    if (typeof window !== "undefined") {
+      return `${window.location.origin}${normalized}`;
+    }
+    return normalized;
+  }
+
+  // ✅ 其他相對路徑：才用後端 API_BASE 補
+  return `${API_BASE}${path}`;
 }
 
-function isUUID(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    v.trim()
-  );
-}
 
 // ✅ 去重 key（避免合併時重複堆疊）
 function msgKey(m: {
@@ -76,6 +101,11 @@ function msgKey(m: {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+function isUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
 }
 
 /**
@@ -771,12 +801,13 @@ export default function LLMPage() {
 
       setLoading(true);
       await callChatOnce({
-        role: "user",
-        type: "image",
-        url: data.url,
-        filetype: data.filetype ?? null,
-        content: null,
-      });
+  role: "user",
+  type: "image",
+  // ✅ 丟 absolute url，前端渲染才不會找錯 host
+  url: absUrl ?? data.url,
+  filetype: data.filetype ?? null,
+  content: null,
+});
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err?.message ?? "圖片上傳/送出失敗");
