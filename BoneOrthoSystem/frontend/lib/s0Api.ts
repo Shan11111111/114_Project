@@ -48,43 +48,67 @@ export type ImageCase = {
 export const s0Api = {
   async getBigBones(): Promise<BigBone[]> {
     const raw = await getJson("/s0/big-bones");
-    return raw.map((b: any) => ({
-      boneId: b.bone_id ?? b.boneId,
-      boneZh: b.bone_zh ?? b.boneZh,
-      boneEn: b.bone_en ?? b.boneEn,
+    return (raw || []).map((b: any) => ({
+      boneId: b.boneId ?? b.bone_id ?? b.BoneId,
+      boneZh: b.boneZh ?? b.bone_zh ?? b.BoneZh,
+      boneEn: b.boneEn ?? b.bone_en ?? b.BoneEn,
     }));
   },
 
   async getSmallBones(boneId: number): Promise<SmallBone[]> {
     const raw = await getJson(`/s0/small-bones?boneId=${boneId}`);
-    return raw.map((s: any) => ({
-      smallBoneId: s.small_bone_id ?? s.smallBoneId,
-      smallBoneZh: s.small_bone_zh ?? s.smallBoneZh,
-      smallBoneEn: s.small_bone_en ?? s.smallBoneEn,
-      serialNumber: s.serial_number ?? s.serialNumber ?? null,
+    return (raw || []).map((s: any) => ({
+      smallBoneId: s.smallBoneId ?? s.small_bone_id ?? s.SmallBoneId,
+      smallBoneZh: s.smallBoneZh ?? s.small_bone_zh ?? s.SmallBoneZh,
+      smallBoneEn: s.smallBoneEn ?? s.small_bone_en ?? s.SmallBoneEn,
+      serialNumber:
+        s.serialNumber ?? s.serial_number ?? s.SerialNumber ?? null,
       place: s.place ?? s.Place ?? null,
       note: s.note ?? s.Note ?? null,
     }));
   },
 
+  // 從 /s0/cases/pending 撈「真的」 ImageCase
   async getPendingCases(): Promise<ImageCase[]> {
     const raw = await getJson("/s0/cases/pending");
-    return raw.map((c: any) => {
-      const imageUrl = c.image_url ?? c.imageUrl;
-      const thumb = c.thumbnail_url ?? c.thumbnailUrl ?? imageUrl;
+
+    return (raw || []).map((c: any) => {
+      // 後端現在會給 imageUrl / thumbnailUrl，
+      // 但也把 snake_case / PascalCase 都一起兼容
+      const imageUrl =
+        c.imageUrl ??
+        c.image_url ??
+        c.thumbnailUrl ??
+        c.thumbnail_url ??
+        c.ImageUrl ??
+        null;
+
+      const thumbnailUrl =
+        c.thumbnailUrl ??
+        c.thumbnail_url ??
+        c.ThumbnailUrl ??
+        imageUrl ??
+        "";
+
       return {
-        imageCaseId: c.image_case_id ?? c.imageCaseId,
-        imageUrl,
-        thumbnailUrl: thumb,
-        createdAt: c.created_at ?? c.createdAt ?? "",
+        imageCaseId:
+          c.imageCaseId ?? c.image_case_id ?? c.ImageCaseId,
+        imageUrl: imageUrl ?? "",
+        thumbnailUrl,
+        createdAt:
+          c.createdAt ??
+          c.created_at ??
+          c.CreatedAt ??
+          "",
       };
     });
   },
 
-  // ⭐ 這裡包 try/catch，後端炸掉就回 []，不要讓整頁爆紅
+  // 這裡包 try/catch，後端炸掉就回 []，不要讓整頁爆紅
   async getAnnotations(caseId: number): Promise<any[]> {
     try {
-      return await getJson(`/s0/annotations/${caseId}`);
+      const data = await getJson(`/s0/annotations/${caseId}`);
+      return data ?? [];
     } catch (err) {
       console.error("[S0] getAnnotations error:", err);
       return [];
@@ -96,6 +120,7 @@ export const s0Api = {
   },
 };
 
+// ----- S2 Dr.Bone -----
 export async function askAgentFromS0(payload: {
   imageCaseId: number;
   boneId: number | null;
@@ -109,8 +134,14 @@ export async function askAgentFromS0(payload: {
   });
 
   if (!res.ok) {
-    // 讓錯誤訊息可以看到真正的 status code
-    throw new Error(`S2 ask failed: ${res.status}`);
+    // 多抓一點資訊幫你 debug（像現在 404）
+    let extra = "";
+    try {
+      extra = await res.text();
+    } catch {
+      // ignore
+    }
+    throw new Error(`S2 ask failed: ${res.status} ${extra}`);
   }
 
   const data = await res.json();

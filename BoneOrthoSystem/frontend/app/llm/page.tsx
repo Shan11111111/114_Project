@@ -48,7 +48,7 @@ const API_BASE = (
 const CHAT_URL = `${API_BASE}/s2x/agent/chat`;
 const BOOT_URL = `${API_BASE}/s2/agent/bootstrap-from-s1`;
 const ENSURE_TITLE_URL = `${API_BASE}/s2/agent/ensure-title`;
-const UPLOAD_URL = `${API_BASE}/s2x/upload`;
+const UPLOAD_URL = `${API_BASE}/upload`;
 const MATERIAL_UPLOAD_URL = `${API_BASE}/s2/materials/upload`;
 
 function toAbsoluteUrl(maybeUrl?: string | null) {

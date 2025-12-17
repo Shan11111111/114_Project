@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from .models import ChatRequest, ChatResponse, ChatMessage, Action
 from .state.sessions import get_session, append_messages
 from .tools.rag_tool import answer_with_rag
-from .tools.yolo_tool import analyze_image
+# from .tools.yolo_tool import analyze_image
 from .tools.doc_tool import extract_text_and_summary
 from .routers.export import router as export_router
 
@@ -167,57 +167,26 @@ def agent_chat(req: ChatRequest):
     last = req.messages[-1]
     actions: list[Action] = []
 
-    # ========== 圖片 YOLO ==========
+    # ========== 圖片（不跑 YOLO，避免 500） ==========
     if last.type == "image" and last.role == "user":
         session["current_image_url"] = last.url
 
-        if last.url:
-            yolo_res = analyze_image(last.url)
-            boxed_url = yolo_res.get("boxed_url")
-            dets = yolo_res.get("detections") or []
+        tip = (
+            "✅ 我收到圖片了。\n"
+            "這裡不會再做 S2 YOLO（我們只信 S1 的偵測）。\n"
+            "你可以直接問：\n"
+            "1) 這張影像你想看哪個部位？\n"
+            "2) 你要我用『衛教』還是『專業判讀重點』方式說明？\n"
+            "3) 若你是從 S1 帶進來的 caseId，我可以依偵測摘要解說。"
+        )
 
-            labels = ", ".join(d.get("bone", "") for d in dets if d.get("bone"))
-            explain = (
-                f"Dr.Bone：偵測到的骨頭為 {labels}"
-                if labels
-                else "Dr.Bone：這張圖未偵測到特定骨頭。"
-            )
-
-            img_msg = ChatMessage(role="assistant", type="image", url=boxed_url)
-            txt_msg = ChatMessage(role="assistant", type="text", content=explain)
-
-            session["messages"].append(img_msg)
-            session["messages"].append(txt_msg)
-
-            add_message_to_db_from_chatmessage(conversation_id, img_msg)
-            add_message_to_db_from_chatmessage(conversation_id, txt_msg)
-
-            bones = [d.get("bone") for d in dets if d.get("bone")]
-            if bones:
-                actions.append(
-                    Action(
-                        type="highlight_bones",
-                        target_model=session.get("current_model_id"),
-                        bones=bones,
-                        image_url=boxed_url,
-                    )
-                )
-
-    # ========== 文字 RAG ==========
-    elif last.type == "text" and last.role == "user":
-        user_q = last.content or ""
-
-        # ✅ 這裡回傳的第二個值當 sources（存 MetaJson）
-        ans_text, sources = answer_with_rag(user_q, session)
-
-        reply = ChatMessage(role="assistant", type="text", content=ans_text)
+        reply = ChatMessage(role="assistant", type="text", content=tip)
         session["messages"].append(reply)
+        add_message_to_db_from_chatmessage(conversation_id, reply)
 
-        add_message_to_db_from_chatmessage(conversation_id, reply, sources=sources)
+        return ChatResponse(messages=session["messages"], actions=[])
 
-        # 自動補 title（如果 DB 裡是空的）
-        set_conversation_title_if_empty(conversation_id, user_q)
-
+    # fallback: 尚未實作完整的 RAG/agent 回應，先回傳目前 session 訊息
     return ChatResponse(messages=session["messages"], actions=actions)
 
 

@@ -13,7 +13,8 @@ def get_pending_cases():
     return [
         {
             "image_case_id": 6,
-            # ⭐ 注意：這裡直接給「前端 public 的相對路徑」
+            # 這裡先走「前端自己的 public/bone_images」
+            # 圖片放在：frontend/public/bone_images/a779cf00b3614f82afc75eb6c0c6bd44.png
             "image_url": "/bone_images/a779cf00b3614f82afc75eb6c0c6bd44.png",
             "thumbnail_url": "/bone_images/a779cf00b3614f82afc75eb6c0c6bd44.png",
             "created_at": "2025-12-12T00:00:00",
