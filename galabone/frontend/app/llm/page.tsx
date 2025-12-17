@@ -59,6 +59,118 @@ function fakeLLMReply(prompt: string): string {
 const MIN_HEIGHT = 28;
 const MAX_HEIGHT = 120;
 
+// ==============================
+// ✅ GPT-style「⋯」選單（分享/刪除）
+// ==============================
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  danger,
+  hoverBg,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  hoverBg: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full px-3 py-2 text-xs flex items-center gap-2"
+      style={{
+        color: danger ? "#ef4444" : "var(--foreground)",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = hoverBg)}
+      onMouseLeave={(e) =>
+        (e.currentTarget.style.backgroundColor = "transparent")
+      }
+    >
+      <i className={`${icon} text-[11px]`} />
+      {label}
+    </button>
+  );
+}
+
+function ThreadMoreMenu({
+  threadId,
+  onDelete,
+  onShare,
+  NAV_HOVER_BG,
+}: {
+  threadId: string;
+  onDelete: () => void;
+  onShare: () => void;
+  NAV_HOVER_BG: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // 點外面自動關閉
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      const t = e.target as HTMLElement;
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(t)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="w-5 h-5 flex items-center justify-center rounded-md opacity-60 hover:opacity-100"
+        title="更多"
+        aria-label={`More actions for ${threadId}`}
+      >
+        <i className="fa-solid fa-ellipsis text-xs" />
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-1 w-28 rounded-xl border z-50 overflow-hidden"
+          style={{
+            backgroundColor: "var(--background)",
+            borderColor: "var(--navbar-border)",
+            boxShadow: "0 12px 30px rgba(0,0,0,0.18)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MenuItem
+            icon="fa-solid fa-share-nodes"
+            label="分享"
+            hoverBg={NAV_HOVER_BG}
+            onClick={() => {
+              setOpen(false);
+              onShare();
+            }}
+          />
+          <MenuItem
+            icon="fa-solid fa-trash"
+            label="刪除"
+            danger
+            hoverBg={NAV_HOVER_BG}
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============================================================
 // ✅ HistoryOverlay 獨立元件：
 // - 搜尋狀態在元件內，不會讓整個 LLMPage 每個字都 rerender
@@ -66,6 +178,7 @@ const MAX_HEIGHT = 120;
 // - 用 startTransition 把 filter 丟到低優先度，輸入更順
 // - query 透過 ref 持久化：關掉再開還在
 // - ✅ inline rename：右側標題可直接編輯（Enter 存、Esc 取消、Blur 存）
+// - ✅ 左側清單時間 → 改成 GPT-style ⋯ 選單（分享/刪除）
 // ============================================================
 const HistoryOverlay = memo(function HistoryOverlay({
   isOpen,
@@ -77,6 +190,8 @@ const HistoryOverlay = memo(function HistoryOverlay({
   onLoadThreadToMain,
   onNewThread,
   onRenameThread,
+  onDeleteThread,
+  onShareThread,
   NAV_ACTIVE_BG,
   NAV_HOVER_BG,
   persistedQueryRef,
@@ -90,6 +205,8 @@ const HistoryOverlay = memo(function HistoryOverlay({
   onLoadThreadToMain: (threadId: string) => void;
   onNewThread: () => void;
   onRenameThread: (threadId: string, nextTitle: string) => void;
+  onDeleteThread: (threadId: string) => void;
+  onShareThread: (threadId: string) => void;
   NAV_ACTIVE_BG: string;
   NAV_HOVER_BG: string;
   persistedQueryRef: React.MutableRefObject<string>;
@@ -316,7 +433,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                   )}
                 </div>
 
-                {/* 小提示：讓你知道目前在做低優先度更新（可刪） */}
+                {/* 小提示：告知目前在做低優先度更新（可刪） */}
                 <div className="mt-2 text-[10px] opacity-50">
                   {isPending ? "更新中…" : " "}
                 </div>
@@ -339,7 +456,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => onSelectThread(t.id)}
-                        className="w-full text-left p-3 rounded-xl transition mb-2"
+                        className="w-full text-left px-3 py-1.5 rounded-lg transition mb-1"
                         style={{
                           backgroundColor: active
                             ? NAV_ACTIVE_BG
@@ -354,14 +471,20 @@ const HistoryOverlay = memo(function HistoryOverlay({
                           e.currentTarget.style.backgroundColor = "transparent";
                         }}
                       >
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center justify-between gap-1">
                           <div className="text-sm font-medium truncate">
                             {t.title}
                           </div>
-                          <div className="text-[11px] opacity-60 shrink-0">
-                            {t.updatedAt}
-                          </div>
+
+                          {/* ✅ 原本時間 → 改成 GPT-style ⋯ */}
+                          <ThreadMoreMenu
+                            threadId={t.id}
+                            NAV_HOVER_BG={NAV_HOVER_BG}
+                            onShare={() => onShareThread(t.id)}
+                            onDelete={() => onDeleteThread(t.id)}
+                          />
                         </div>
+
                         <div className="text-[12px] opacity-70 mt-1 line-clamp-1">
                           {t.preview}
                         </div>
@@ -384,8 +507,13 @@ const HistoryOverlay = memo(function HistoryOverlay({
                 className="px-4 py-3 border-b flex items-center justify-between"
                 style={{ borderColor: "rgba(148,163,184,0.20)" }}
               >
-                <div className="min-w-0">
-                  {/* ✅ 標題 inline rename（不影響其他區塊） */}
+                <div className="min-w-0 flex-1">
+                  {/* 時間 → 放在上方 */}
+                  <div className="text-[11px] opacity-60 mb-0.5">
+                    {currentThread?.updatedAt || ""}
+                  </div>
+
+                  {/* 標題 → 放在下方 */}
                   {isRenaming ? (
                     <input
                       ref={renameInputRef}
@@ -419,14 +547,9 @@ const HistoryOverlay = memo(function HistoryOverlay({
                       {currentThread?.title || "未選擇對話"}
                     </div>
                   )}
-
-                  <div className="text-[11px] opacity-60">
-                    {currentThread?.updatedAt || ""}
-                  </div>
                 </div>
-
                 <div className="flex items-center gap-2">
-                  {/* ✅ 原本 ←返回 改成 重新命名（開啟 inline edit） */}
+                  {/*  重新命名（開啟 inline edit） */}
                   <button
                     type="button"
                     className="text-xs px-3 py-2 rounded-lg transition"
@@ -440,7 +563,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                     onClick={beginRename}
                     title="重新命名此對話"
                   >
-                    重新命名
+                    <i className="fa-solid fa-pen"></i> 重新命名
                   </button>
 
                   {/* ✅ 原本 匯出（假） 改成 繼續聊天（回主畫面） */}
@@ -457,6 +580,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                     onClick={() => onLoadThreadToMain(activeThreadId)}
                     title="回到主畫面並繼續聊天"
                   >
+                    <i className="fa-regular fa-comment"></i>
                     繼續聊天
                   </button>
                 </div>
@@ -552,7 +676,7 @@ export default function LLMPage() {
 
   const isExpanded = isMultiLine || pendingFiles.length > 0;
 
-  // ✅ 假的 thread 清單（改成可更新：只為了 rename，不影響其他行為）
+  // ✅ 假的 thread 清單（改成可更新：只為了 rename / delete，不影響其他行為）
   const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([
     {
       id: "t-001",
@@ -660,6 +784,39 @@ export default function LLMPage() {
     setHistoryThreads((prev) =>
       prev.map((t) => (t.id === threadId ? { ...t, title } : t))
     );
+  }
+
+  // ✅ delete：刪除 thread（UI 直接消失）
+  function deleteThread(threadId: string) {
+    if (!confirm("確定要刪除這個對話嗎？")) return;
+
+    setHistoryThreads((prev) => {
+      const next = prev.filter((t) => t.id !== threadId);
+
+      // 若刪到目前 active，切到第一個（或清空）
+      if (activeThreadId === threadId) {
+        const fallbackId = next[0]?.id ?? "";
+        setActiveThreadId(fallbackId);
+
+        // 若有 fallback，就同步載入到主畫面
+        if (fallbackId) {
+          loadThreadToMain(fallbackId);
+        } else {
+          newThread();
+        }
+      }
+
+      return next;
+    });
+  }
+
+  // ✅ share：先用 clipboard（可換成你後端分享連結）
+  function shareThread(threadId: string) {
+    const url = `${location.origin}/chat?thread=${encodeURIComponent(
+      threadId
+    )}`;
+    navigator.clipboard.writeText(url);
+    alert("已複製分享連結");
   }
 
   // =========================
@@ -1059,17 +1216,19 @@ export default function LLMPage() {
     meta,
     active,
     onClick,
+    threadId,
   }: {
     title: string;
     meta?: string;
     active?: boolean;
     onClick: () => void;
+    threadId: string;
   }) {
     return (
       <button
         type="button"
         onClick={onClick}
-        className="w-full text-left px-3 py-2 rounded-lg transition"
+        className="w-full text-left px-3 py-1.5 rounded-lg transition"
         style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
         onMouseEnter={(e) => {
           if (active) return;
@@ -1083,9 +1242,17 @@ export default function LLMPage() {
       >
         <div className="flex items-center justify-between gap-2">
           <div className="text-[13px] font-medium truncate">{title}</div>
-          {meta && (
-            <div className="text-[11px] opacity-60 shrink-0">{meta}</div>
-          )}
+
+          {/* ✅ 原本右側時間 */}
+          {/* ✅ 改成 GPT-style ⋯ 選單（分享/刪除） */}
+          <div className="shrink-0">
+            <ThreadMoreMenu
+              threadId={threadId}
+              NAV_HOVER_BG={NAV_HOVER_BG}
+              onShare={() => shareThread(threadId)}
+              onDelete={() => deleteThread(threadId)}
+            />
+          </div>
         </div>
       </button>
     );
@@ -1131,6 +1298,8 @@ export default function LLMPage() {
         onLoadThreadToMain={(id) => loadThreadToMain(id)}
         onNewThread={() => newThread()}
         onRenameThread={renameThread}
+        onDeleteThread={deleteThread}
+        onShareThread={shareThread}
         NAV_ACTIVE_BG={NAV_ACTIVE_BG}
         NAV_HOVER_BG={NAV_HOVER_BG}
         persistedQueryRef={historyPersistedQueryRef}
@@ -1222,9 +1391,6 @@ export default function LLMPage() {
                     active={activeView === "llm"}
                     onClick={() => newThread()}
                   />
-                </div>
-
-                <div className="space-y-1">
                   <SideRow
                     iconClass="fa-solid fa-wand-magic-sparkles"
                     label="EduGen"
@@ -1264,6 +1430,7 @@ export default function LLMPage() {
                     {historyThreads.slice(0, 8).map((t) => (
                       <SideThreadItem
                         key={t.id}
+                        threadId={t.id}
                         title={t.title}
                         meta={t.updatedAt}
                         active={activeThreadId === t.id}
@@ -1440,6 +1607,7 @@ export default function LLMPage() {
                     {historyThreads.slice(0, 8).map((t) => (
                       <SideThreadItem
                         key={t.id}
+                        threadId={t.id}
                         title={t.title}
                         meta={t.updatedAt}
                         active={activeThreadId === t.id}
