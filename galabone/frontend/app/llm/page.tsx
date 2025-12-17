@@ -1147,6 +1147,8 @@ export default function LLMPage() {
   }
 
   // ===== Sidebar UI =====
+
+  // ✅✅✅ 改這裡：收合 sidebar 的 icon button（縮小＋置中）
   function SideIconButton({
     iconClass,
     label,
@@ -1162,7 +1164,7 @@ export default function LLMPage() {
       <button
         type="button"
         onClick={onClick}
-        className="w-11 h-11 rounded-xl flex items-center justify-center transition"
+        className="w-9 h-9 rounded-lg flex items-center justify-center transition"
         style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
         onMouseEnter={(e) => {
           if (active) return;
@@ -1174,11 +1176,15 @@ export default function LLMPage() {
         }}
         title={label}
       >
-        <i className={`${iconClass} text-[18px] opacity-75`} />
+        <i
+          className={`${iconClass} text-[15px] opacity-70 leading-none`}
+          style={{ lineHeight: 1 }}
+        />
       </button>
     );
   }
 
+  // ✅✅✅ 改這裡：展開 sidebar 的每列 icon（縮小＋置中）
   function SideRow({
     iconClass,
     label,
@@ -1205,7 +1211,10 @@ export default function LLMPage() {
           e.currentTarget.style.backgroundColor = "transparent";
         }}
       >
-        <i className={`${iconClass} text-[16px] opacity-75`} />
+        <i
+          className={`${iconClass} text-[14px] opacity-70 leading-none`}
+          style={{ lineHeight: 1 }}
+        />
         <span>{label}</span>
       </button>
     );
@@ -1330,50 +1339,44 @@ export default function LLMPage() {
         >
           {/* Header */}
           <div
-            className="border-b"
-            style={{ borderColor: "rgba(148,163,184,0.20)" }}
+            className={`flex ${
+              isNavCollapsed
+                ? "justify-center items-center px-3 pt-3 pb-3"
+                : "items-start justify-between px-4 pt-4 pb-3"
+            }`}
           >
-            <div
-              className={`flex items-start justify-between ${
-                isNavCollapsed ? "px-3 pt-3 pb-3" : "px-4 pt-4 pb-3"
-              }`}
-            >
-              {!isNavCollapsed ? (
-                <div>
-                  <h1 className="text-lg font-semibold tracking-wide">
-                    GalaBone
-                  </h1>
-                  <p className="text-[11px] mt-1 opacity-70">
-                    Your Bone We Care
-                  </p>
-                </div>
-              ) : (
-                <div className="h-9" />
-              )}
+            {!isNavCollapsed && (
+              <div>
+                <h1 className="text-lg font-semibold tracking-wide">
+                  GalaBone
+                </h1>
+                <p className="text-[11px] mt-1 opacity-70">Your Bone We Care</p>
+              </div>
+            )}
 
-              <button
-                type="button"
-                onClick={() => setIsNavCollapsed((v) => !v)}
-                title={isNavCollapsed ? "展開導覽列" : "收合導覽列"}
-                className="w-11 h-11 rounded-xl flex items-center justify-center transition"
-                style={{
-                  border: "1px solid rgba(148,163,184,0.18)",
-                  backgroundColor: "transparent",
-                }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.backgroundColor = "transparent")
-                }
-              >
-                <i
-                  className={`fa-solid ${
-                    isNavCollapsed ? "fa-chevron-right" : "fa-chevron-left"
-                  } text-[14px] opacity-70 transition-transform duration-200 ease-out group-hover:rotate-180`}
-                />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setIsNavCollapsed((v) => !v)}
+              title={isNavCollapsed ? "展開導覽列" : "收合導覽列"}
+              className="w-9 h-9 rounded-lg grid place-items-center transition"
+              style={{
+                border: "1px solid rgba(148,163,184,0.18)",
+                backgroundColor: "transparent",
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.backgroundColor = "transparent")
+              }
+            >
+              <i
+                className={`fa-solid ${
+                  isNavCollapsed ? "fa-angle-right" : "fa-angle-left"
+                } text-[13px] opacity-65 leading-none`}
+                style={{ lineHeight: 1, transform: "translateY(0.5px)" }}
+              />
+            </button>
           </div>
 
           {/* Nav */}
@@ -1483,7 +1486,10 @@ export default function LLMPage() {
                 type="button"
                 className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
               >
-                <i className="fa-solid fa-gear text-[12px] opacity-80" />
+                <i
+                  className="fa-solid fa-gear text-[11px] opacity-80 leading-none"
+                  style={{ lineHeight: 1 }}
+                />
                 <span>設定</span>
               </button>
             )}
