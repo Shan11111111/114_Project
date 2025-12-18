@@ -93,10 +93,9 @@ def get_bone_info(small_bone_id: int):
                 COALESCE(s.small_bone_en, b.bone_en) AS bone_en,
                 b.bone_region,
                 b.bone_desc
-            FROM bone.Bone_small AS s
-            JOIN dbo.Bone_Info AS b
-              ON s.bone_id = b.bone_id
-            WHERE s.small_bone_id = ?
+                FROM [dbo].[bone.Bone_small] AS s
+                JOIN [dbo].[Bone_Info] AS b ON b.bone_id = s.bone_id
+                WHERE s.small_bone_id = ?
             """,
             small_bone_id,
         )

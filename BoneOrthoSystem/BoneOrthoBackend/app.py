@@ -18,6 +18,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+
 from s0_annotation import router as s0_router
 from s1_detection.router import router as s1_router
 from s2_agent import router as s2_router
@@ -50,10 +51,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
+DEV_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+
+]
+
+
 # ✅ CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    #allow_origins=["*"],
+    allow_origins=DEV_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -84,6 +93,8 @@ def root():
         "message": "BoneOrtho Backend running",
         "modules": ["s0", "s1", "s2", "s3"],
     }
+
+
 
 
 # =========================================================
