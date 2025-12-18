@@ -1,11 +1,11 @@
-# BoneOrthoBackend/s2_agent/legacy_agent/backend/app/main.py
+# main.py
 from __future__ import annotations
 
 import json
+import re
 import sys
 import uuid
 from pathlib import Path
-from typing import List
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Response
@@ -19,40 +19,36 @@ from .tools.rag_tool import answer_with_rag
 from .tools.doc_tool import extract_text_and_summary
 from .routers.export import router as export_router
 
-from fastapi import Request
-from db import session_to_conversation_uuid  # noqa: E402
 
 # =========================================================
 # 找到 BoneOrthoBackend 專案根目錄（有 db.py 的那層）
 # =========================================================
 def _find_backend_root() -> Path:
     p = Path(__file__).resolve()
-    for _ in range(20):
+    for _ in range(30):
         if (p / "db.py").exists():
             return p
         p = p.parent
-    return Path(__file__).resolve().parents[4]
+    return Path(__file__).resolve().parents[6]
 
 
 BACKEND_ROOT = _find_backend_root()
 
-# 確保可以 import 到專案根目錄的 db.py
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.append(str(BACKEND_ROOT))
 
-# 載入 .env（放在 BoneOrthoBackend/.env）
 load_dotenv(BACKEND_ROOT / ".env")
 
+
 # =========================================================
-# ✅ 找 BoneOrthoSystem 根目錄（為了 public）
+# 找 BoneOrthoSystem 根目錄（為了 public）
 # =========================================================
 def _find_system_root(target_folder="BoneOrthoSystem") -> Path:
     p = Path(__file__).resolve()
-    for _ in range(30):
+    for _ in range(40):
         if p.name == target_folder:
             return p
         p = p.parent
-    # 保底：通常 BoneOrthoBackend 的上一層就是 BoneOrthoSystem
     return BACKEND_ROOT.parent
 
 
@@ -60,9 +56,9 @@ SYSTEM_ROOT = _find_system_root("BoneOrthoSystem")
 PUBLIC_DIR = SYSTEM_ROOT / "public"
 PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# ✅ 你指定：S2 上傳都放這裡
 USER_UPLOAD_DIR = PUBLIC_DIR / "user_upload_file"
 USER_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # DB functions
 from db import (  # noqa: E402
@@ -74,6 +70,8 @@ from db import (  # noqa: E402
     update_conversation_title,
     set_conversation_title_if_empty,
     delete_conversation,
+    session_to_conversation_uuid,
+    ensure_conversation_exists,   # ✅ 先建 Conversation（UserId 正確），避免後續亂寫
 )
 
 app = FastAPI(title="S2 Legacy Agent (Integrated)")
@@ -86,42 +84,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ /s2x/uploads/* 靜態服務：改成指向 public/user_upload_file（資料夾不再分裂）
+# /s2x/uploads/* 由上層 app 掛 /s2x；這裡 mount "/uploads"
 app.mount("/uploads", StaticFiles(directory=str(USER_UPLOAD_DIR)), name="uploads")
 
-# 匯出 PDF/PPTX router
 app.include_router(export_router)
 
 
 # =========================================================
-# 工具：把 ChatMessage 存進 DB
+# Helpers
 # =========================================================
-def add_message_to_db_from_chatmessage(
-    conversation_id: str,
-    msg: ChatMessage,
-    user_id: str,
-    sources: list[dict] | None = None,
-):
-    attachments_json = None
+def _extract_question(text: str) -> str:
+    """
+    前端會把 prompt 後面加 --- RAG 指令/檔案摘要
+    ✅ 向量檢索只能用「真正問題」，避免污染 query
+    """
+    t = (text or "").strip()
+    if "\n---\n" in t:
+        t = t.split("\n---\n", 1)[0].strip()
+    # 壓縮空白
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
-    if msg.type == "image" and msg.url:
-        attachments_json = json.dumps(
-            {"url": msg.url, "filetype": msg.filetype},
-            ensure_ascii=False,
-        )
 
-    add_message(
-        conversation_id=conversation_id,
-        role=msg.role,
-        content=msg.content or "",
-        attachments_json=attachments_json,
-        sources=sources,
-        user_id=user_id,  # ✅ 新增：真正 user_id
-    )
+def _title_seed(text: str, max_len: int = 80) -> str:
+    s = (text or "").strip().splitlines()[0].strip()
+    s = re.sub(r"\s+", " ", s).strip()
+    return (s[:max_len] if s else "新對話")
+
+
+def _format_sources_for_text(sources: list[dict] | None) -> str:
+    if not sources:
+        return ""
+    lines = []
+    for i, s in enumerate(sources, 1):
+        title = s.get("title") or s.get("file") or s.get("name") or f"source-{i}"
+        page = s.get("page")
+        chunk = s.get("chunk") or s.get("chunk_index") or s.get("chunk_id")
+        score = s.get("score") or s.get("similarity")
+        meta = []
+        if page is not None:
+            meta.append(f"p.{page}")
+        if chunk is not None:
+            meta.append(f"chunk:{chunk}")
+        if isinstance(score, (int, float)):
+            meta.append(f"score:{score:.3f}")
+        tail = (" · " + " · ".join(meta)) if meta else ""
+        lines.append(f"[#{i}] {title}{tail}")
+    return "\n\n---\n【Sources】\n" + "\n".join(lines)
 
 
 # =========================================================
-# 健康檢查
+# Health
 # =========================================================
 @app.get("/health")
 def health():
@@ -141,10 +154,7 @@ def health():
 
 
 # =========================================================
-# 通用上傳端點（legacy 版）：仍保留 /s2x/upload
-# ✅ 實體存到 public/user_upload_file
-# ✅ 回傳 url 用 /public/user_upload_file/...（給前端最穩）
-# 另外附 legacy_url=/uploads/...（若你要走 /s2x/uploads 也可以）
+# Upload
 # =========================================================
 _ALLOWED_UPLOAD_EXT = {
     "png", "jpg", "jpeg", "webp", "bmp",
@@ -154,11 +164,13 @@ _ALLOWED_UPLOAD_EXT = {
     "xls", "xlsx",
 }
 
+
 def _ext_of(filename: str) -> str:
     parts = (filename or "").rsplit(".", 1)
     if len(parts) == 2:
         return parts[1].lower()
     return ""
+
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -176,8 +188,8 @@ async def upload_file(file: UploadFile = File(...)):
     with open(fpath, "wb") as f:
         f.write(data)
 
-    public_url = f"/public/user_upload_file/{fname}"   # ✅ 前端 toAbsoluteUrl 最穩
-    legacy_url = f"/uploads/{fname}"                   # 會變成 /s2x/uploads/{fname}
+    public_url = f"/public/user_upload_file/{fname}"   # 給 Next 最穩
+    legacy_url = f"/uploads/{fname}"                   # 變成 /s2x/uploads/{fname}
 
     result = {
         "url": public_url,
@@ -187,7 +199,6 @@ async def upload_file(file: UploadFile = File(...)):
         "storage": "public/user_upload_file",
     }
 
-    # ✅ 有能力就抽文字；抽不到也不要炸（你要的是「可上傳」，不是「一定要轉成功」）
     if safe_ext in {"pdf", "ppt", "pptx", "txt", "doc", "docx", "xls", "xlsx", "csv"}:
         try:
             text, summary = extract_text_and_summary(fpath, safe_ext)
@@ -200,86 +211,103 @@ async def upload_file(file: UploadFile = File(...)):
 
     return result
 
-# s2_agent/legacy_agent/backend/app/main.py
-from uuid import UUID, uuid4
-
-def ensure_guid(s: str | None) -> str:
-    if not s:
-        return str(uuid4())
-    try:
-        return str(UUID(str(s).strip()))
-    except Exception:
-        return str(uuid4())
 
 # =========================================================
-# 主要聊天端點：RAG（不做 S2 YOLO）
+# Chat (RAG)
 # =========================================================
 @app.post("/agent/chat", response_model=ChatResponse)
-def agent_chat(req: ChatRequest, request: Request):
+def agent_chat(req: ChatRequest):
     if not req.session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
+    if not req.messages:
+        raise HTTPException(status_code=400, detail="messages is empty")
 
-    # ✅ 1) session_id → conversation GUID（若本來就 GUID 就原樣）
-    conversation_id = session_to_conversation_uuid(req.session_id)
+    # 你 models.py 沒有 user_id；所以這裡只用 fallback（不會再 AttributeError）
+    user_id = "guest"
 
-    # ✅ 2) user_id 從 header 帶（前端送 x-user-id），沒有就 guest
-    user_id = request.headers.get("x-user-id", "guest").strip() or "guest"
+    # ✅ deterministic: session_id -> GUID
+    conv_id = session_to_conversation_uuid(req.session_id)
 
-    # session（記憶體）
-    session = get_session(conversation_id)
+    # ✅ 先確保 Conversation 存在且 UserId = guest（避免你 DB 被亂寫成 GUID）
+    ensure_conversation_exists(conv_id, user_id=user_id, source="s2x")
+
+    # session memory
+    session = get_session(conv_id)
     append_messages(session, req.messages)
 
-    # 先把前端傳進來的訊息全部寫入 DB
+    # 先存 user messages（原文照存，RAG query 另外 clean）
     for msg in req.messages:
-        add_message_to_db_from_chatmessage(conversation_id, msg, user_id=user_id)
+        attachments_json = None
+        if msg.type == "image" and msg.url:
+            attachments_json = json.dumps({"url": msg.url, "filetype": msg.filetype}, ensure_ascii=False)
+
+        add_message(
+            conversation_id=conv_id,
+            role=msg.role,
+            content=msg.content or "",
+            attachments_json=attachments_json,
+            sources=None,
+        )
 
     last = req.messages[-1]
     actions: list[Action] = []
 
-    # 圖片
+    # image: no yolo
     if last.type == "image" and last.role == "user":
         session["current_image_url"] = last.url
 
         tip = (
             "✅ 我收到圖片了。\n"
-            "這裡不會再做 S2 YOLO（我們只信 S1 的偵測結果）。\n"
-            "你可以直接問：要『衛教版』還是『判讀重點』？"
+            "這裡不做 S2 YOLO（我們只信 S1 偵測）。\n"
+            "你可以直接問：想了解哪個部位？要『衛教版』還是『判讀重點』？"
         )
 
         reply = ChatMessage(role="assistant", type="text", content=tip)
         session["messages"].append(reply)
-        add_message_to_db_from_chatmessage(conversation_id, reply, user_id=user_id)
+
+        add_message(
+            conversation_id=conv_id,
+            role="assistant",
+            content=tip,
+            attachments_json=None,
+            sources=None,
+        )
 
         return ChatResponse(messages=session["messages"], actions=[])
 
-    # 文字：走 RAG
+    # text: RAG
     if last.type == "text" and last.role == "user":
-        user_q = (last.content or "").strip()
-        if not user_q:
+        raw_q = (last.content or "").strip()
+        if not raw_q:
             raise HTTPException(status_code=400, detail="empty text message")
 
-        ans_text, sources = answer_with_rag(user_q, session)
+        clean_q = _extract_question(raw_q)
 
-        reply = ChatMessage(role="assistant", type="text", content=ans_text)
+        ans_text, sources = answer_with_rag(clean_q, session)
+
+        # ✅ 先用文字把 sources 附上（你 models.py 還沒加 Action.items 前的保底）
+        ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
+
+        reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
         session["messages"].append(reply)
-        add_message_to_db_from_chatmessage(conversation_id, reply, user_id=user_id, sources=sources)
 
-        # title seed（你原本那段縮排也有問題，我順便修乾淨）
-        def _title_seed(text: str, max_len: int = 60) -> str:
-            s = (text or "").strip().splitlines()[0].strip()
-            s = " ".join(s.split())
-            return (s[:max_len] if s else "新對話")
+        add_message(
+            conversation_id=conv_id,
+            role="assistant",
+            content=ans_text_out,
+            attachments_json=None,
+            sources=sources,
+        )
 
-        set_conversation_title_if_empty(conversation_id, _title_seed(user_q, 60))
+        set_conversation_title_if_empty(conv_id, _title_seed(clean_q, 80))
 
         return ChatResponse(messages=session["messages"], actions=actions)
 
     return ChatResponse(messages=session["messages"], actions=actions)
 
 
-
 # =========================================================
-# 聊天室清單 & 歷史訊息 API
+# Conversation APIs
 # =========================================================
 class ConversationCreate(BaseModel):
     user_id: str
@@ -317,15 +345,10 @@ def api_get_conversation_messages(conversation_id: str):
     rows = get_messages(conversation_id)
 
     messages: list[ChatMessage] = []
-
     for r in rows:
         role = r.get("role") or r.get("Role")
         content = r.get("content") or r.get("Content")
-        attachments_json = (
-            r.get("attachments_json")
-            or r.get("AttachmentsJson")
-            or r.get("attachments")
-        )
+        attachments_json = r.get("attachments_json") or r.get("AttachmentsJson") or r.get("attachments")
 
         msg_type = "text"
         url = None
@@ -348,7 +371,8 @@ def api_get_conversation_messages(conversation_id: str):
 
         messages.append(m)
 
-    session = get_session(conversation_id)
+    sess_id = session_to_conversation_uuid(str(conversation_id))
+    session = get_session(sess_id)
     session["messages"] = messages
 
     return ChatResponse(messages=messages, actions=[])
@@ -361,7 +385,7 @@ def api_delete_conversation(conversation_id: str):
 
 
 # =========================================================
-# 依 bone_id 取圖片（給 RAG 用）
+# bone image
 # =========================================================
 @app.get("/bones/{bone_id}/image")
 def api_get_bone_image(bone_id: int):

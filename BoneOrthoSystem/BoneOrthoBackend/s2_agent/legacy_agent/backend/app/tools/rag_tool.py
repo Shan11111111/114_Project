@@ -1,240 +1,160 @@
-# BoneOrthoBackend/s2_agent/legacy_agent/backend/app/tools/rag_tool.py
 from __future__ import annotations
 
-from dotenv import load_dotenv
-from pathlib import Path
-
-# 指到 BoneOrthoBackend/.env
-load_dotenv(Path(__file__).resolve().parents[5] / ".env")
-
 import os
-import re
-from typing import Tuple, List, Dict, Any
+from typing import Any, Dict, List, Tuple
 
 from openai import OpenAI
+
+# qdrant-client
 from qdrant_client import QdrantClient
-
-from ..models import ChatMessage
-from s2_agent.service import embed_text  # 你們現成的 embedding
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 
+# -----------------------------
+# Env
+# -----------------------------
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-COLLECTION = os.getenv("QDRANT_COLLECTION", "bone_edu_docs")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")  # optional
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "bone_edu_docs")
 
-# ====== 控制行為的硬規則 ======
-TOP_K = int(os.getenv("RAG_TOP_K", "4"))
-THRESHOLD = float(os.getenv("RAG_THRESHOLD", "0.30"))  # 先用 0.25~0.35 試
-MAX_LINES = int(os.getenv("RAG_MAX_LINES", "6"))
-NO_DATA_REPLY = "資料庫沒有對應資料，是否要改問其他關鍵字或補充情境？"
+EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+TOP_K = int(os.getenv("RAG_TOP_K", "6"))
 
-SYSTEM_PROMPT = """你是 GalaBone 的醫療衛教助理。你的任務是：只回答使用者當下問題，不要擴寫成百科全書。
+# OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-你只被允許使用我提供的【檢索內容】作答；禁止使用常識補充、禁止自行推測。
-
-硬性規則（必須遵守）：
-1) 僅能使用【檢索內容】中與問題直接相關的資訊；不相關的一律忽略。
-2) 若【檢索內容】與問題主題不一致或不足以回答，請直接回覆：
-   「資料庫沒有對應資料，是否要改問其他關鍵字或補充情境？」
-3) 回答預設精簡模式：最多 6 行（含條列），除非使用者明確說「講詳細」。
-4) 回答結構固定（不得新增段落）：
-   - 一句話結論
-   - 3 個重點（條列）
-   - 需要就醫/警訊（最多 2 點）
-5) 引用來源：只列你真的有用到的來源編號，例如 [1][2]；不要列沒用到的。
-6) 禁止跨主題亂混：使用者沒問的疾病/主題，不要主動提。
-
-安全提醒：你不是醫師，提供衛教資訊；若有急性劇痛、肢體變形、麻木無力、呼吸困難等紅旗症狀，建議立即就醫。
-""".strip()
+# Qdrant
+qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_API_KEY else QdrantClient(url=QDRANT_URL)
 
 
-# ====== 小工具 ======
-def _cap_lines(s: str, n: int = MAX_LINES) -> str:
-    s = (s or "").strip()
-    lines = s.splitlines()
-    return "\n".join(lines[:n]).strip()
+def _embed(text: str) -> List[float]:
+    text = (text or "").strip()
+    if not text:
+        return []
+    r = client.embeddings.create(model=EMBEDDING_MODEL, input=text)
+    return r.data[0].embedding
 
 
-def _extract_used_indices(answer: str, max_idx: int) -> list[int]:
-    nums = [int(x) for x in re.findall(r"\[(\d+)\]", answer or "")]
-    used, seen = [], set()
-    for k in nums:
-        if 1 <= k <= max_idx and k not in seen:
-            seen.add(k)
-            used.append(k)
-    return used
+def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
+    """
+    把你索引時存的 payload 轉成前端能吃的 RagSource
+    你們 payload 欄位可能不一樣，所以這裡做容錯。
+    """
+    title = payload.get("title") or payload.get("file") or payload.get("filename") or payload.get("source") or "unknown"
+    page = payload.get("page") or payload.get("pageno") or payload.get("page_no")
+    chunk = payload.get("chunk") or payload.get("chunk_id")
+    url = payload.get("url")
+
+    # snippet / text
+    snippet = payload.get("snippet") or payload.get("text") or payload.get("content")
+    if isinstance(snippet, str) and len(snippet) > 900:
+        snippet = snippet[:900] + "…"
+
+    return {
+        "title": title,
+        "file": payload.get("file") or payload.get("filename") or title,
+        "page": page,
+        "chunk": chunk,
+        "url": url,
+        "score": float(score) if score is not None else None,
+        "snippet": snippet,
+        "kind": payload.get("kind") or payload.get("type") or "qdrant",
+    }
 
 
-def _looks_like_cosine_score(score: float | None) -> bool:
-    return score is not None and -1.0 <= score <= 1.0
+def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
+    vec = _embed(query)
+    if not vec:
+        return []
 
-
-def _pass_threshold(score: float | None) -> bool:
-    # 如果 score 不在 -1~1（或 None），先不硬過濾，避免你們距離尺度不同造成全滅
-    if score is None:
-        return True
-    if _looks_like_cosine_score(score):
-        return score >= THRESHOLD
-    return True
-
-
-TOPIC_KEYWORDS = [
-    # (問題關鍵字, 允許的教材關鍵字)
-    (["聽力", "耳鳴", "耳朵", "聽覺", "聽力檢查"], ["聽力", "耳"]),
-    (["骨折", "骨裂", "外傷", "扭傷"], ["骨折", "外傷", "骨裂"]),
-    (["骨質疏鬆", "骨鬆"], ["骨質疏鬆", "骨鬆"]),
-]
-
-
-def _topic_filter(question: str, hits: list[dict]) -> list[dict]:
-    q = question or ""
-    want_tokens = None
-    for q_keys, tokens in TOPIC_KEYWORDS:
-        if any(k in q for k in q_keys):
-            want_tokens = tokens
-            break
-    if not want_tokens:
-        return hits  # 沒命中主題就不過濾
-
-    filtered = []
-    for h in hits:
-        title = (h.get("title") or "")
-        text = (h.get("text") or "")
-        hay = title + " " + text
-        if any(t in hay for t in want_tokens):
-            filtered.append(h)
-    return filtered
-
-
-# ====== 原本 demo / history（保留） ======
-def simple_llm_answer(question: str, history: List[ChatMessage]) -> str:
-    return (
-        f"（示範回答）你問的是：「{question}」。目前系統暫時無法完成檢索/生成，"
-        "請確認 Qdrant 是否啟動、collection 是否存在、且有寫入資料。"
-    )
-
-
-def _build_history_text(history: List[ChatMessage]) -> str:
-    lines: List[str] = []
-    for m in history:
-        if m.type != "text" or not m.content:
-            continue
-        role = "使用者" if m.role == "user" else ("AI" if m.role == "assistant" else m.role)
-        lines.append(f"{role}: {m.content}")
-    return "\n".join(lines)
-
-
-# ====== Qdrant 檢索 ======
-def _qdrant_search(question: str, limit: int = TOP_K) -> List[Dict[str, Any]]:
-    client = QdrantClient(url=QDRANT_URL)
-    qvec = embed_text(question)
-
-    res = client.query_points(
-        collection_name=COLLECTION,
-        query=qvec,
-        limit=limit,
-        with_payload=True,
-    )
-
-    hits: List[Dict[str, Any]] = []
-    for p in (res.points or []):
-        payload = p.payload or {}
-        hits.append(
-            {
-                "score": getattr(p, "score", None),
-                "title": payload.get("title"),
-                "material_id": payload.get("material_id"),
-                "page": payload.get("page"),
-                "text": payload.get("text", ""),
-            }
+    try:
+        hits = qdrant.search(
+            collection_name=QDRANT_COLLECTION,
+            query_vector=vec,
+            limit=top_k,
+            with_payload=True,
+            with_vectors=False,
         )
-    return hits
+    except UnexpectedResponse as e:
+        # Qdrant 不通 / collection 不存在
+        print(f"❌ Qdrant search failed: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Qdrant search error: {e}")
+        return []
 
-
-def _format_context(hits: List[Dict[str, Any]], max_chars: int = 4500) -> Tuple[str, List[Dict[str, Any]]]:
-    ctx_parts: List[str] = ["【檢索內容】"]
     sources: List[Dict[str, Any]] = []
-    total = 0
+    for h in hits:
+        payload = h.payload or {}
+        sources.append(_payload_to_source(payload, getattr(h, "score", None)))
 
-    for i, h in enumerate(hits, 1):
-        title = (h.get("title") or "").strip()
-        material_id = str(h.get("material_id") or "")
-        page = h.get("page", None)
-        score = h.get("score", None)
-        text = (h.get("text") or "").strip()
-
-        sources.append({"idx": i, "title": title, "material_id": material_id, "page": page, "score": score})
-
-        block = f"[{i}] {title} page={page}\n{text}\n"
-        total += len(block)
-        if total > max_chars:
-            break
-        ctx_parts.append(block)
-
-    return "\n".join(ctx_parts).strip(), sources
+    return sources
 
 
-# ====== 主流程：回答 ======
-def answer_with_rag(question: str, session: dict) -> Tuple[str, List[Dict[str, Any]]]:
-    history: List[ChatMessage] = session.get("messages", [])
+def answer_with_rag(user_q: str, session: dict | None = None) -> Tuple[str, List[Dict[str, Any]]]:
+    """
+    回傳：(answer_text, sources[])
+    sources 會被 main.py 包進 actions 給前端顯示。
+    """
+    user_q = (user_q or "").strip()
+    if not user_q:
+        return "你問的內容是空的，我沒辦法檢索。請再輸入一次。", []
 
-    # 1) 查向量庫
-    try:
-        hits = _qdrant_search(question, limit=TOP_K)
-    except Exception as e:
-        print("[answer_with_rag] qdrant search error:", e)
-        return NO_DATA_REPLY, []
+    sources = retrieve_sources(user_q)
 
-    if not hits:
-        return NO_DATA_REPLY, []
-
-    # 2) 主題過濾（避免問聽力卻撈骨科）
-    hits = _topic_filter(question, hits)
-
-    # 3) 相似度門檻（避免塞垃圾）
-    hits = [h for h in hits if _pass_threshold(h.get("score"))]
-
-    if not hits:
-        return NO_DATA_REPLY, []
-
-    context_str, sources = _format_context(hits)
-
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        # 沒 LLM 時也保持精簡，不噴全文摘錄
-        brief = []
-        for s in sources[:3]:
-            brief.append(f"[{s['idx']}] {s.get('title','')} page={s.get('page')}")
-        ans = "我找到可能相關的教材，但目前未設定 LLM，無法生成精簡回答。\n" + "\n".join(brief)
-        return _cap_lines(ans, MAX_LINES), sources[:3]
-
-    # 4) messages：固定把檢索內容放在 system 讓它「只能用這段」
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "system", "content": context_str},
-        {"role": "user", "content": question},
-    ]
-
-    try:
-        client = OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
-            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
-            messages=messages,
-            temperature=0.2,
-            max_tokens=350,  # 刻意縮小，避免長篇大論
+    if not sources:
+        # ✅ 老師閉嘴模式：找不到就說找不到
+        return (
+            "我在目前的教材向量庫裡，找不到足夠匹配的內容。\n"
+            "你可以：\n"
+            "1) 換更具體關鍵字（例：『肋骨骨折 症狀』/『脛骨骨折 固定方式』）\n"
+            "2) 上傳你的 PDF/leaflet 讓我用本次檔案內容回答（不建索引、不污染向量庫）\n",
+            []
         )
-        content = (resp.choices[0].message.content or "").strip()
-        if not content:
-            return NO_DATA_REPLY, []
 
-        # 5) 強制最多 6 行
-        content = _cap_lines(content, MAX_LINES)
+    context_lines = []
+    for i, s in enumerate(sources, 1):
+        name = s.get("file") or s.get("title") or f"source-{i}"
+        meta = []
+        if s.get("page") is not None:
+            meta.append(f"p.{s['page']}")
+        if s.get("chunk") is not None:
+            meta.append(f"chunk:{s['chunk']}")
+        if s.get("score") is not None:
+            meta.append(f"score:{float(s['score']):.3f}")
+        meta_str = " · ".join(meta)
+        snippet = s.get("snippet") or ""
+        context_lines.append(f"[#{i}] {name} ({meta_str})\n{snippet}")
 
-        # 6) sources 只回真的被引用到的 [n]
-        used = _extract_used_indices(content, max_idx=len(sources))
-        used_sources = [sources[i - 1] for i in used] if used else []
+    context = "\n\n".join(context_lines)
 
-        return content, used_sources
+    system = (
+        "你是骨科衛教/判讀輔助的助手。你只能根據【提供的檢索片段】回答。\n"
+        "如果片段不足以支持結論，必須說『資料不足』，並提出需要的補充資訊。\n"
+        "回答要清楚、分點、可直接給老師看。\n"
+    )
 
+    prompt = (
+        f"【使用者問題】\n{user_q}\n\n"
+        f"【檢索片段（可引用）】\n{context}\n\n"
+        "請輸出：\n"
+        "1) 直接回答\n"
+        "2) 判讀/衛教重點（分點）\n"
+        "3) 注意事項（你不確定就說不確定）\n"
+    )
+
+    try:
+        chat = client.chat.completions.create(
+            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+        )
+        ans = chat.choices[0].message.content or ""
+        return ans.strip(), sources
     except Exception as e:
-        print("[answer_with_rag] completion error:", e)
-        return NO_DATA_REPLY, []
+        print(f"❌ LLM answer failed: {e}")
+        # 就算 LLM 掛了，也把 sources 回去，至少你 UI 還能證明「有檢索」
+        return "檢索有命中，但生成回答時發生錯誤（請看後端 log）。", sources
