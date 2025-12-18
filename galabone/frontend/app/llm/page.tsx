@@ -18,6 +18,8 @@ type UploadedFile = {
   size: number;
   type: number | string;
   url: string;
+  raw?: File; //真正要上傳的 File
+  serverUrl?: string; //新增：後端回來的 url（如果你要記）
 };
 
 type ChatMessage = {
@@ -58,6 +60,109 @@ function fakeLLMReply(prompt: string): string {
 
 const MIN_HEIGHT = 28;
 const MAX_HEIGHT = 120;
+
+// ==============================
+// ✅ 後端 API（只加邏輯，不影響 UI）
+// ==============================
+const API_BASE = (
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  ""
+).replace(/\/+$/, "");
+
+const S2X_UPLOAD_URL = `${API_BASE}/s2x/upload`;
+const S2X_CHAT_URL = `${API_BASE}/s2x/agent/chat`;
+const S2X_EXPORT_PDF_URL = `${API_BASE}/s2x/export/pdf`;
+const S2X_EXPORT_PPTX_URL = `${API_BASE}/s2x/export/pptx`;
+
+function getUserIdFallback() {
+  return "guest";
+}
+
+function toAbsUrl(maybeUrl?: string) {
+  if (!maybeUrl) return "";
+  if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://"))
+    return maybeUrl;
+  const API_BASE = (
+    process.env.NEXT_PUBLIC_BACKEND_URL ||
+    process.env.NEXT_PUBLIC_API_BASE ||
+    "http://127.0.0.1:8000"
+  ).replace(/\/+$/, "");
+
+  const path = maybeUrl.startsWith("/") ? maybeUrl : `/${maybeUrl}`;
+  // 常見：後端回傳 /uploads/xxx
+  if (path.startsWith("/uploads/")) return `${API_BASE}/s2x${path}`;
+  return `${API_BASE}${path}`;
+}
+
+async function uploadOneFileToBackend(file: File) {
+  if (!API_BASE) throw new Error("尚未設定 NEXT_PUBLIC_BACKEND_URL");
+
+  const fd = new FormData();
+  fd.append("file", file);
+
+  const res = await fetch(S2X_UPLOAD_URL, { method: "POST", body: fd });
+  const ct = res.headers.get("content-type") || "";
+  const raw = await res.text();
+
+  if (!res.ok) throw new Error(`上傳失敗 ${res.status}：${raw.slice(0, 300)}`);
+  if (!ct.includes("application/json")) {
+    throw new Error(`上傳回傳非 JSON：${raw.slice(0, 200)}`);
+  }
+
+  const data = JSON.parse(raw) as any;
+  return data;
+}
+
+async function postChatToBackend(payload: any) {
+  if (!API_BASE) throw new Error("尚未設定 NEXT_PUBLIC_BACKEND_URL");
+
+  const res = await fetch(S2X_CHAT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const ct = res.headers.get("content-type") || "";
+  const raw = await res.text();
+
+  if (!res.ok) throw new Error(`Chat 失敗 ${res.status}：${raw.slice(0, 300)}`);
+
+  if (ct.includes("application/json")) return JSON.parse(raw);
+  // 萬一後端直接回文字
+  return { reply: raw };
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function exportToBackend(type: "pdf" | "pptx", content: string) {
+  if (!API_BASE) throw new Error("尚未設定 NEXT_PUBLIC_BACKEND_URL");
+
+  const url = type === "pdf" ? S2X_EXPORT_PDF_URL : S2X_EXPORT_PPTX_URL;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+
+  if (!res.ok) {
+    const raw = await res.text().catch(() => "");
+    throw new Error(`匯出失敗 ${res.status}：${raw.slice(0, 300)}`);
+  }
+
+  const blob = await res.blob();
+  return blob;
+}
 
 // ==============================
 // ✅ GPT-style「⋯」選單（分享/刪除）
@@ -966,6 +1071,7 @@ export default function LLMPage() {
       size: file.size,
       type: file.type,
       url: URL.createObjectURL(file),
+      raw: file,
     }));
 
     setPendingFiles((prev) => [...prev, ...newFiles]);
@@ -996,6 +1102,9 @@ export default function LLMPage() {
 
     setMessages((prev) => [...prev, userMessage]);
 
+    // 把要上傳的檔案先留住（因為下面會清 pendingFiles + revoke）
+    const filesToUpload = pendingFiles.slice();
+
     resetMainInputBox();
 
     setPendingFiles((prev) => {
@@ -1005,16 +1114,105 @@ export default function LLMPage() {
 
     setLoading(true);
 
-    setTimeout(() => {
-      const answerText = fakeLLMReply(text || "（已上傳檔案）");
+    try {
+      // ✅ 沒設定後端就退回 demo（避免你開發時一直炸）
+      if (!API_BASE) {
+        const answerText = fakeLLMReply(text || "（已上傳檔案）");
+        const botMessage: ChatMessage = {
+          id: Date.now() + 1,
+          role: "assistant",
+          content: answerText,
+        };
+        setMessages((prev) => [...prev, botMessage]);
+        setLoading(false);
+        return;
+      }
+
+      // 1) 先上傳檔案（若有）
+      let fileContextText = "";
+      for (const f of filesToUpload) {
+        if (!f.raw) continue;
+
+        const up = await uploadOneFileToBackend(f.raw);
+
+        // 後端可能回：{ url, filename, text, summary, ... }
+        const fn = String(up?.filename ?? up?.name ?? f.name);
+        const summary = String(up?.summary ?? "");
+        const txt = String(up?.text ?? "");
+        const urlRel = String(up?.url ?? up?.path ?? "");
+        const abs = toAbsUrl(urlRel);
+
+        // 若你想記 serverUrl（不影響 UI）
+        // 這裡只更新 filesToUpload 這份副本，不回寫 state（避免影響 UI）
+        f.serverUrl = abs || urlRel;
+
+        if (summary.trim()) {
+          fileContextText += `\n\n---\n[檔案：${fn}]\n摘要：\n${summary.trim()}\n`;
+        }
+        if (txt.trim()) {
+          const maxChars = 12000;
+          fileContextText += `\n[檔案：${fn} 內容節錄]\n${txt.slice(
+            0,
+            maxChars
+          )}${txt.length > maxChars ? "\n(…略)" : ""}\n`;
+        }
+      }
+
+      // 2) 呼叫 chat
+      const userId = getUserIdFallback();
+      const conversation_id = activeThreadId || `t-${Date.now()}`;
+
+      const finalPrompt =
+        (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
+        (fileContextText ? `\n\n${fileContextText}` : "");
+
+      // 兼容不同後端 payload 欄位（你舊版可能叫 message / content）
+      const payloadCandidates = [
+        { user_id: userId, conversation_id, message: finalPrompt },
+        { user_id: userId, conversation_id, content: finalPrompt },
+        { conversation_id, message: finalPrompt },
+        { conversation_id, content: finalPrompt },
+      ];
+
+      let data: any = null;
+      let lastErr: any = null;
+      for (const p of payloadCandidates) {
+        try {
+          data = await postChatToBackend(p);
+          break;
+        } catch (err: any) {
+          lastErr = err;
+          continue;
+        }
+      }
+      if (!data) throw lastErr ?? new Error("chat payload 全部失敗");
+
+      const answerText =
+        data?.reply ??
+        data?.answer ??
+        data?.content ??
+        (typeof data === "string" ? data : null) ??
+        `⚠️ chat 回傳格式看不懂：${JSON.stringify(data).slice(0, 200)}`;
+
       const botMessage: ChatMessage = {
         id: Date.now() + 1,
         role: "assistant",
-        content: answerText,
+        content: String(answerText),
       };
+
       setMessages((prev) => [...prev, botMessage]);
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 2,
+          role: "assistant",
+          content: `⚠️ 後端呼叫失敗：${err?.message ?? String(err)}`,
+        },
+      ]);
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -1028,9 +1226,35 @@ export default function LLMPage() {
     }
   }
 
-  function handleExport(type: "pdf" | "ppt") {
+  async function handleExport(type: "pdf" | "ppt") {
     setShowToolMenu(false);
-    console.log("export:", type);
+
+    try {
+      const transcript = messages
+        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+        .join("\n\n");
+
+      if (!transcript.trim()) {
+        alert("目前沒有可匯出的內容");
+        return;
+      }
+
+      if (!API_BASE) {
+        alert("尚未設定 NEXT_PUBLIC_BACKEND_URL，無法匯出");
+        return;
+      }
+
+      if (type === "pdf") {
+        const blob = await exportToBackend("pdf", transcript);
+        downloadBlob(blob, `chat_${Date.now()}.pdf`);
+        return;
+      }
+
+      const blob = await exportToBackend("pptx", transcript);
+      downloadBlob(blob, `chat_${Date.now()}.pptx`);
+    } catch (err: any) {
+      alert(`匯出失敗：${err?.message ?? String(err)}`);
+    }
   }
 
   // ===== Tool menu =====
