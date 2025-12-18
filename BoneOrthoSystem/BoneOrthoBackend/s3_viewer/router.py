@@ -117,6 +117,49 @@ def get_bone_info(small_bone_id: int):
     )
 
 
+@router.get("/bone-list")
+def get_bone_list():
+    """
+    給前端左側清單用：
+    回傳「有 MeshMap 對應」的骨頭項目（避免清單點了沒反應）。
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                m.MeshName                    AS mesh_name,
+                m.SmallBoneId                 AS small_bone_id,
+
+                s.bone_id                     AS bone_id,
+                COALESCE(s.small_bone_zh, b.bone_zh) AS bone_zh,
+                COALESCE(s.small_bone_en, b.bone_en) AS bone_en,
+
+                b.bone_region                 AS bone_region
+            FROM [model].[BoneMeshMap] AS m
+            JOIN [dbo].[bone.Bone_small] AS s
+              ON s.small_bone_id = m.SmallBoneId
+            JOIN [dbo].[Bone_Info] AS b
+              ON b.bone_id = s.bone_id
+            ORDER BY b.bone_region, bone_zh, m.MeshName
+            """
+        )
+        rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
+
+    return [dict(zip(cols, r)) for r in rows]
+
+
+
+
+
+
+
+
+
+
+
+
 # ---------- 3. 先留著 MR 用的 state sync ----------
 
 class MeshState(BaseModel):

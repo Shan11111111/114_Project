@@ -114,7 +114,8 @@ def session_to_conversation_uuid(session_id: str) -> str:
 
 def ensure_conversation_exists(conversation_id: str, user_id: str, source: str = "s2x") -> None:
     """
-    確保 agent.Conversation 這筆存在（因為 ConversationMessage 有 FK）
+    確保 agent.Conversation 這筆存在（ConversationMessage 有 FK）
+    user_id = 真正的使用者（guest / s1-xxx / ...）
     """
     sql = """
     IF NOT EXISTS (SELECT 1 FROM agent.Conversation WHERE ConversationId = ?)
@@ -127,6 +128,7 @@ def ensure_conversation_exists(conversation_id: str, user_id: str, source: str =
         cur = conn.cursor()
         cur.execute(sql, conversation_id, conversation_id, user_id, source)
         conn.commit()
+
 
 def touch_conversation(conversation_id: str) -> None:
     sql = "UPDATE agent.Conversation SET UpdatedAt = SYSUTCDATETIME() WHERE ConversationId = ?"
@@ -200,37 +202,36 @@ def get_conversation_messages(conversation_id: str) -> List[Dict[str, Any]]:
 
 
 def add_message(
-    conversation_id: str,                   # ✅ 改成 str：可收 GUID 或 session_id
+    conversation_id: str,                   # GUID 或 session 字串
     role: str,
     content: str,
-    bone_id: Optional[int] = None,          # 表沒欄位 → 放 MetaJson
-    small_bone_id: Optional[int] = None,    # 表沒欄位 → 放 MetaJson
-    sources: Optional[Any] = None,          # 放 MetaJson
-    attachments_json: Optional[str] = None, # 放 AttachmentsJson（字串 JSON）
+    user_id: str = "guest",                 # ✅ 新增：真正的使用者 id
+    bone_id: Optional[int] = None,
+    small_bone_id: Optional[int] = None,
+    sources: Optional[Any] = None,
+    attachments_json: Optional[str] = None,
     **kwargs,
 ) -> str:
     """
-    寫入 agent.ConversationMessage（依照你們實際欄位）
-    - AttachmentsJson：存 legacy 傳進來的 attachments_json
-    - MetaJson：存 sources + bone_id/small_bone_id + extra
+    寫入 agent.ConversationMessage
     """
 
     raw = str(conversation_id)
-    conv_id = session_to_conversation_uuid(raw)
+    conv_id = session_to_conversation_uuid(raw)  # ✅ 保證是 GUID
 
-    # 確保 conversation 存在（FK 不會炸）
-    ensure_conversation_exists(conv_id, user_id=raw, source="s2x")
+    # ✅ 這裡才是重點：Conversation.UserId 必須用真正的 user_id
+    ensure_conversation_exists(conv_id, user_id=user_id, source="s2x")
 
-    # 1) AttachmentsJson：保持 legacy 的 JSON 字串；不是 JSON 就包成 raw
+    # AttachmentsJson
     attachments_json_out = None
     if attachments_json:
         try:
-            json.loads(attachments_json)  # 驗證是 JSON
+            json.loads(attachments_json)
             attachments_json_out = attachments_json
         except Exception:
             attachments_json_out = json.dumps({"raw": attachments_json}, ensure_ascii=False)
 
-    # 2) MetaJson：把 sources / bone_id / small_bone_id 都放進 meta
+    # MetaJson
     meta: Dict[str, Any] = {}
     if sources is not None:
         meta["sources"] = sources
@@ -257,9 +258,8 @@ def add_message(
         conn.commit()
 
     touch_conversation(conv_id)
-
-    # MessageId 可能是 uniqueidentifier / bigint → 一律轉字串回傳最安全
     return str(mid)
+
 
 
 def update_conversation_title(conversation_id: str, title: str) -> None:
@@ -288,17 +288,68 @@ def get_messages(conversation_id: str):
     # legacy 相容
     return get_conversation_messages(conversation_id)
 
-def set_conversation_title_if_empty(conversation_id: str, title: str) -> None:
+# db.py
+import uuid
+import re
+
+_CONV_TITLE_MAX = 60  # 你表 Title 很可能很短，先保守。要加長就改這個 + 改 DB 欄位長度
+
+def _normalize_uuid(s: str | None) -> str | None:
+    if not s:
+        return None
+    raw = str(s).strip()
+
+    # 去掉常見包法
+    raw = raw.strip("{}").strip()
+
+    # 允許 32 hex（無連字號）
+    if re.fullmatch(r"[0-9a-fA-F]{32}", raw):
+        try:
+            return str(uuid.UUID(raw))
+        except Exception:
+            return None
+
+    # 允許標準 GUID
+    try:
+        return str(uuid.UUID(raw))
+    except Exception:
+        return None
+
+def _safe_title(seed: str | None) -> str | None:
+    if not seed:
+        return None
+    t = str(seed).replace("\r", " ").replace("\n", " ").strip()
+    if not t:
+        return None
+    return t[:_CONV_TITLE_MAX]
+
+def set_conversation_title_if_empty(conv_id: str, title_seed: str):
+    """
+    只在 Title 為 NULL/空字串時才更新，並且：
+    - conv_id 必須是合法 GUID（uniqueidentifier）
+    - title 會被截短避免 2628 截斷錯誤
+    """
+    cid = _normalize_uuid(conv_id)
+    if not cid:
+        print(f"⚠️ set_conversation_title_if_empty skip: invalid conv_id = {conv_id!r}")
+        return
+
+    title = _safe_title(title_seed)
     if not title:
         return
-    conv_id = session_to_conversation_uuid(str(conversation_id))
+
     sql = """
     UPDATE agent.Conversation
-    SET Title = ?, UpdatedAt = SYSUTCDATETIME()
+    SET Title =
+        CASE
+            WHEN Title IS NULL OR LTRIM(RTRIM(Title)) = '' THEN ?
+            ELSE Title
+        END,
+        UpdatedAt = GETDATE()
     WHERE ConversationId = ?
-      AND (Title IS NULL OR LTRIM(RTRIM(Title)) = '');
     """
+
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql, title, conv_id)
+        cur.execute(sql, title, cid)
         conn.commit()

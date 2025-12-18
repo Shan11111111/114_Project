@@ -19,6 +19,8 @@ from .tools.rag_tool import answer_with_rag
 from .tools.doc_tool import extract_text_and_summary
 from .routers.export import router as export_router
 
+from fastapi import Request
+from db import session_to_conversation_uuid  # noqa: E402
 
 # =========================================================
 # 找到 BoneOrthoBackend 專案根目錄（有 db.py 的那層）
@@ -97,6 +99,7 @@ app.include_router(export_router)
 def add_message_to_db_from_chatmessage(
     conversation_id: str,
     msg: ChatMessage,
+    user_id: str,
     sources: list[dict] | None = None,
 ):
     attachments_json = None
@@ -113,6 +116,7 @@ def add_message_to_db_from_chatmessage(
         content=msg.content or "",
         attachments_json=attachments_json,
         sources=sources,
+        user_id=user_id,  # ✅ 新增：真正 user_id
     )
 
 
@@ -196,16 +200,30 @@ async def upload_file(file: UploadFile = File(...)):
 
     return result
 
+# s2_agent/legacy_agent/backend/app/main.py
+from uuid import UUID, uuid4
+
+def ensure_guid(s: str | None) -> str:
+    if not s:
+        return str(uuid4())
+    try:
+        return str(UUID(str(s).strip()))
+    except Exception:
+        return str(uuid4())
 
 # =========================================================
 # 主要聊天端點：RAG（不做 S2 YOLO）
 # =========================================================
 @app.post("/agent/chat", response_model=ChatResponse)
-def agent_chat(req: ChatRequest):
+def agent_chat(req: ChatRequest, request: Request):
     if not req.session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
 
-    conversation_id = req.session_id
+    # ✅ 1) session_id → conversation GUID（若本來就 GUID 就原樣）
+    conversation_id = session_to_conversation_uuid(req.session_id)
+
+    # ✅ 2) user_id 從 header 帶（前端送 x-user-id），沒有就 guest
+    user_id = request.headers.get("x-user-id", "guest").strip() or "guest"
 
     # session（記憶體）
     session = get_session(conversation_id)
@@ -213,48 +231,49 @@ def agent_chat(req: ChatRequest):
 
     # 先把前端傳進來的訊息全部寫入 DB
     for msg in req.messages:
-        add_message_to_db_from_chatmessage(conversation_id, msg)
+        add_message_to_db_from_chatmessage(conversation_id, msg, user_id=user_id)
 
     last = req.messages[-1]
     actions: list[Action] = []
 
-    # ========== 圖片（不跑 YOLO，避免 500） ==========
+    # 圖片
     if last.type == "image" and last.role == "user":
         session["current_image_url"] = last.url
 
         tip = (
             "✅ 我收到圖片了。\n"
             "這裡不會再做 S2 YOLO（我們只信 S1 的偵測結果）。\n"
-            "如果你是從 S1 帶 caseId 進來，我會用 S1 偵測摘要 + DB/RAG 來解說。\n"
-            "你可以直接問：你想了解哪個部位？要『衛教版』還是『判讀重點』？"
+            "你可以直接問：要『衛教版』還是『判讀重點』？"
         )
 
         reply = ChatMessage(role="assistant", type="text", content=tip)
         session["messages"].append(reply)
-        add_message_to_db_from_chatmessage(conversation_id, reply)
+        add_message_to_db_from_chatmessage(conversation_id, reply, user_id=user_id)
 
         return ChatResponse(messages=session["messages"], actions=[])
 
-    # ========== 文字：走 RAG ==========
+    # 文字：走 RAG
     if last.type == "text" and last.role == "user":
         user_q = (last.content or "").strip()
         if not user_q:
             raise HTTPException(status_code=400, detail="empty text message")
 
-        # ✅ 真的去做 RAG
         ans_text, sources = answer_with_rag(user_q, session)
 
         reply = ChatMessage(role="assistant", type="text", content=ans_text)
         session["messages"].append(reply)
+        add_message_to_db_from_chatmessage(conversation_id, reply, user_id=user_id, sources=sources)
 
-        add_message_to_db_from_chatmessage(conversation_id, reply, sources=sources)
+        # title seed（你原本那段縮排也有問題，我順便修乾淨）
+        def _title_seed(text: str, max_len: int = 60) -> str:
+            s = (text or "").strip().splitlines()[0].strip()
+            s = " ".join(s.split())
+            return (s[:max_len] if s else "新對話")
 
-        # 自動補 title（如果 DB 裡是空的）
-        set_conversation_title_if_empty(conversation_id, user_q)
+        set_conversation_title_if_empty(conversation_id, _title_seed(user_q, 60))
 
         return ChatResponse(messages=session["messages"], actions=actions)
 
-    # 其他型別：直接回 session（保底）
     return ChatResponse(messages=session["messages"], actions=actions)
 
 
