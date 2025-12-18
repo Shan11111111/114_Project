@@ -68,13 +68,41 @@ def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
         return []
 
     try:
-        hits = qdrant.search(
-            collection_name=QDRANT_COLLECTION,
-            query_vector=vec,
-            limit=top_k,
-            with_payload=True,
-            with_vectors=False,
-        )
+        # 兼容不同版本 qdrant-client：有的有 search，有的改成 query_points
+        if hasattr(qdrant, "search"):
+            hits = qdrant.search(
+                collection_name=QDRANT_COLLECTION,
+                query_vector=vec,
+                limit=top_k,
+                with_payload=True,
+                with_vectors=False,
+            )
+        elif hasattr(qdrant, "query_points"):
+            # 1.16.x 常見是 query_points；參數名有時叫 query_vector、有時叫 query
+            try:
+                resp = qdrant.query_points(
+                    collection_name=QDRANT_COLLECTION,
+                    query_vector=vec,
+                    limit=top_k,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+            except Exception:  # ✅ 不要只抓 TypeError
+                resp = qdrant.query_points(
+                    collection_name=QDRANT_COLLECTION,
+                    query=vec,
+                    limit=top_k,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+
+            hits = getattr(resp, "points", resp)
+        else:
+            raise RuntimeError("Unsupported qdrant-client: no search/query_points")
+
+
+
+
     except UnexpectedResponse as e:
         # Qdrant 不通 / collection 不存在
         print(f"❌ Qdrant search failed: {e}")

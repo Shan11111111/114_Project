@@ -1,4 +1,4 @@
-#s1_handoff.py
+# s1_handoff.py
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -38,26 +38,18 @@ class BootstrapOut(BaseModel):
 
 _tail_num_re = re.compile(r"\s*\(\d+\)\s*$")
 
+
 def _normalize_text(v: Any) -> Optional[str]:
-    """
-    防呆：
-    - bytes -> str
-    - 任何奇怪 surrogateescape 的字元 -> 還原成正常 UTF-8（避免 JSON 出現 \udce6\udc88...）
-    """
     if v is None:
         return None
     if isinstance(v, bytes):
         v = v.decode("utf-8", "replace")
     if not isinstance(v, str):
         v = str(v)
-
-    # 如果 v 內含 surrogateescape（U+DCxx），用 surrogateescape 還原原始 byte 再 decode 回正常文字
     try:
         v = v.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
     except Exception:
-        # 最後防線：不要讓它炸
         v = v.encode("utf-8", "ignore").decode("utf-8", "ignore")
-
     return v
 
 
@@ -72,14 +64,12 @@ def _display_name(bone_zh: Optional[str], bone_en: Optional[str]) -> Optional[st
     zh = _clean_zh_name(bone_zh)
     en = _normalize_text(bone_en)
     en = (en or "").strip() or None
-
     if zh and en:
         return f"{zh}（{en}）"
     return zh or en
 
 
 def _build_seed_text(case_id: int, dets: List[Dict[str, Any]], user_question: str) -> str:
-    # 1) 統計「可讀部位」
     counter = Counter()
     unknown_cnt = 0
 
@@ -90,29 +80,24 @@ def _build_seed_text(case_id: int, dets: List[Dict[str, Any]], user_question: st
         else:
             unknown_cnt += 1
 
-    # 2) 組摘要（不放 conf / bbox）
     lines: List[str] = []
+    lines.append("偵測到的主要骨骼部位：")
     if counter:
-        lines.append("S1 偵測到的主要骨骼部位：")
         for name, cnt in counter.most_common():
             lines.append(f"- {name}" + (f" ×{cnt}" if cnt > 1 else ""))
     else:
-        lines.append("S1 偵測到的主要骨骼部位：")
         lines.append("- （目前沒有可對應到骨名的偵測結果）")
 
     if unknown_cnt > 0:
         lines.append(f"- 未能對應明確骨名的區域：{unknown_cnt} 個（可能是重疊/局部遮蔽/分類不確定）")
 
-    # 3) 加上約束，避免答非所問（例如跑去講骨質疏鬆）
     constraints = (
         "回答限制（請遵守）：\n"
         "1) 請只圍繞本次偵測到的骨骼部位與這張影像的判讀重點。\n"
-        "2) 不要主動輸出與本次部位無關的泛用衛教（例如：骨質疏鬆症），除非你能明確連回『手部/手腕』影像判讀或偵測部位。\n"
-        "3) 若資訊不足，請用「需要再確認的點」列出你要我補充什麼，而不是自行猜疾病。\n"
     )
 
     seed_text = (
-        f"我從 S1 辨識頁面帶入一張骨科 X 光影像的偵測摘要。\n"
+        f"我從辨識頁面帶入一張骨科 X 光影像的偵測摘要。\n"
         f"ImageCaseId: {case_id}\n\n"
         + "\n".join(lines)
         + "\n\n我的問題：\n"
@@ -121,6 +106,20 @@ def _build_seed_text(case_id: int, dets: List[Dict[str, Any]], user_question: st
         + constraints
     )
     return _normalize_text(seed_text) or seed_text
+
+
+def _has_col(cur, schema: str, table: str, col: str) -> bool:
+    cur.execute(
+        """
+        SELECT 1
+        FROM sys.columns c
+        JOIN sys.objects o ON c.object_id = o.object_id
+        JOIN sys.schemas s ON o.schema_id = s.schema_id
+        WHERE s.name = ? AND o.name = ? AND c.name = ?
+        """,
+        (schema, table, col),
+    )
+    return cur.fetchone() is not None
 
 
 @router.post("/bootstrap-from-s1", response_model=BootstrapOut)
@@ -157,7 +156,26 @@ def bootstrap_from_s1(body: BootstrapIn):
         if not image_url:
             raise HTTPException(400, "image_path 是空的，S1 可能沒寫成功")
 
-        # 2) 取 detections（給前端畫框用：保留 conf/bbox 在 JSON 的 detections，不放進 seed_text）
+        # ✅ 2) 偵測欄位存在檢查（避免你某台 DB 還沒 migrate 就爆掉）
+        has_polyjson = _has_col(cur, "vision", "ImageDetection", "PolyJson")
+        has_poly_norm = _has_col(cur, "vision", "ImageDetection", "PolyIsNormalized")
+
+        # （P1~P4 可選；有 PolyJson 其實就夠畫旋轉框）
+        p_cols = ["P1X","P1Y","P2X","P2Y","P3X","P3Y","P4X","P4Y"]
+        has_p = {c: _has_col(cur, "vision", "ImageDetection", c) for c in p_cols}
+
+        extra_select = []
+        if has_polyjson:
+            extra_select.append("d.PolyJson")
+        if has_poly_norm:
+            extra_select.append("d.PolyIsNormalized")
+        for c in p_cols:
+            if has_p[c]:
+                extra_select.append(f"d.{c}")
+
+        extra_sql = (",\n                " + ",\n                ".join(extra_select)) if extra_select else ""
+
+        # 3) 取 detections（bbox + 可選 poly）
         cur.execute(
             f"""
             SELECT TOP ({int(body.top_k)})
@@ -167,6 +185,7 @@ def bootstrap_from_s1(body: BootstrapIn):
                 d.Label41,
                 d.Confidence,
                 d.X1, d.Y1, d.X2, d.Y2
+                {extra_sql}
             FROM vision.ImageDetection d
             LEFT JOIN dbo.Bone_Info b ON d.BoneId = b.bone_id
             WHERE d.ImageCaseId = ?
@@ -188,16 +207,32 @@ def bootstrap_from_s1(body: BootstrapIn):
             x2 = float(getattr(row, "X2", 0.0)) if getattr(row, "X2", None) is not None else None
             y2 = float(getattr(row, "Y2", 0.0)) if getattr(row, "Y2", None) is not None else None
 
-            dets.append({
+            det = {
                 "bone_id": bone_id,
                 "bone_zh": bone_zh,
                 "bone_en": bone_en,
                 "label41": label41,
                 "confidence": conf,
                 "bbox": [x1, y1, x2, y2],
-            })
+            }
 
-        # 3) 問題（預設）
+            # ✅ 把旋轉框資訊一起回傳（前端就能畫 polygon）
+            if has_polyjson:
+                det["PolyJson"] = _normalize_text(getattr(row, "PolyJson", None))
+                # 也順手給一個 alias，避免前端有人叫 poly_json
+                det["poly_json"] = det["PolyJson"]
+
+            if has_poly_norm:
+                det["PolyIsNormalized"] = getattr(row, "PolyIsNormalized", None)
+
+            # P1~P4（有就回，沒就算了）
+            for c in p_cols:
+                if has_p[c]:
+                    det[c] = getattr(row, c, None)
+
+            dets.append(det)
+
+        # 4) 問題（預設）
         question = (body.question or "").strip()
         if not question:
             question = (
@@ -208,7 +243,7 @@ def bootstrap_from_s1(body: BootstrapIn):
 
         session_id = f"s1-{case_id}-{uuid4().hex[:8]}"
 
-        # 4) 這裡才是重點：seed_text 改成「人類可讀摘要」，不塞 bbox/conf
+        # 5) seed_text（人類可讀摘要，不塞 bbox/conf）
         seed_text = _build_seed_text(case_id, dets, question)
 
         seed_messages = [

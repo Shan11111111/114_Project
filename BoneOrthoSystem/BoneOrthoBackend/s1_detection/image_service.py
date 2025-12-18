@@ -134,51 +134,68 @@ def insert_image_case(
 # ========================================================
 # (4) 寫入 vision.ImageDetection
 # ========================================================
-def insert_image_detections(
-    image_case_id: int,
-    boxes: List[Dict[str, Any]],
-) -> None:
+import json
+from typing import Any, Dict, List
+from db import get_connection
 
+def insert_image_detections(image_case_id: int, boxes: List[Dict[str, Any]]) -> None:
     conn = get_connection()
     try:
         cur = conn.cursor()
 
         for box in boxes:
-            poly = box.get("poly", [])
-            xs = [p[0] for p in poly] if poly else [0.0]
-            ys = [p[1] for p in poly] if poly else [0.0]
+            poly = box.get("poly") or []
+            poly4 = poly[:4] if len(poly) >= 4 else []
 
-            x1, x2 = min(xs), max(xs)
-            y1, y2 = min(ys), max(ys)
+            # fallback：沒 poly 就用 0
+            xs = [p[0] for p in poly4] if poly4 else [0.0]
+            ys = [p[1] for p in poly4] if poly4 else [0.0]
+
+            x1, x2 = float(min(xs)), float(max(xs))
+            y1, y2 = float(min(ys)), float(max(ys))
 
             bone_info = box.get("bone_info") or {}
             bone_id = bone_info.get("bone_id")
 
-            confidence = float(box.get("conf", 0.0))
+            confidence = float(box.get("conf", 0.0) or 0.0)
             cls_id = box.get("cls_id")
             label41 = int(cls_id) if cls_id is not None else 0
 
+            # ✅ poly 存 DB（保持 0~1 normalized）
+            poly_json = json.dumps(poly4, ensure_ascii=False) if poly4 else None
+            poly_is_norm = 1
+
+            # ✅ P1~P4
+            if poly4:
+                (p1x, p1y), (p2x, p2y), (p3x, p3y), (p4x, p4y) = poly4
+                cx = (p1x + p2x + p3x + p4x) / 4.0
+                cy = (p1y + p2y + p3y + p4y) / 4.0
+            else:
+                p1x = p1y = p2x = p2y = p3x = p3y = p4x = p4y = None
+                cx = cy = None
+
             cur.execute(
                 """
-            INSERT INTO vision.ImageDetection (
-                ImageCaseId,
-                BoneId,
-                SmallBoneId,
-                Label41,
-                Attr206,
-                Side,
-                Finger,
-                Phalanx,
-                SerialNumber,
-                Confidence,
-                X1,
-                Y1,
-                X2,
-                Y2,
-                CreatedAt
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())
-            """,
+                INSERT INTO vision.ImageDetection (
+                    ImageCaseId,
+                    BoneId,
+                    SmallBoneId,
+                    Label41,
+                    Attr206,
+                    Side,
+                    Finger,
+                    Phalanx,
+                    SerialNumber,
+                    Confidence,
+                    X1, Y1, X2, Y2,
+                    PolyJson,
+                    PolyIsNormalized,
+                    P1X, P1Y, P2X, P2Y, P3X, P3Y, P4X, P4Y,
+                    Cx, Cy,
+                    CreatedAt
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())
+                """,
                 (
                     image_case_id,
                     bone_id,
@@ -190,17 +207,17 @@ def insert_image_detections(
                     None,
                     None,
                     confidence,
-                    x1,
-                    y1,
-                    x2,
-                    y2,
+                    x1, y1, x2, y2,
+                    poly_json,
+                    poly_is_norm,
+                    p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y,
+                    cx, cy,
                 ),
             )
 
         conn.commit()
     finally:
         conn.close()
-
 
 # ========================================================
 # (5) 一次完成存圖＋三張表
