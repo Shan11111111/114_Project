@@ -29,7 +29,7 @@ type ChatMessage = {
   files?: UploadedFile[];
 };
 
-type ViewKey = "llm" | "edugen" | "assets";
+type ViewKey = "llm" | "assets";
 
 type HistoryThread = {
   id: string;
@@ -46,6 +46,8 @@ type HistoryMessage = {
   content: string;
   createdAt: string;
 };
+
+type RagMode = "file_then_vector" | "vector_only" | "file_only";
 
 // 假 LLM 回覆
 function fakeLLMReply(prompt: string): string {
@@ -747,6 +749,9 @@ export default function LLMPage() {
   // ✅ 目前頁面
   const [activeView, setActiveView] = useState<ViewKey>("llm");
 
+  // ✅ RAG 模式（沿用 pasted.txt：不建立索引）
+  const [ragMode, setRagMode] = useState<RagMode>("file_then_vector");
+
   // ✅ History overlay
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
@@ -780,6 +785,8 @@ export default function LLMPage() {
   const [inputBoxHeight, setInputBoxHeight] = useState(MIN_HEIGHT);
 
   const isExpanded = isMultiLine || pendingFiles.length > 0;
+
+  const [ragOpen, setRagOpen] = useState(false);
 
   // ✅ 假的 thread 清單（改成可更新：只為了 rename / delete，不影響其他行為）
   const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([
@@ -917,9 +924,7 @@ export default function LLMPage() {
 
   // ✅ share：先用 clipboard（可換成你後端分享連結）
   function shareThread(threadId: string) {
-    const url = `${location.origin}/chat?thread=${encodeURIComponent(
-      threadId
-    )}`;
+    const url = `${location.origin}/llm?thread=${encodeURIComponent(threadId)}`;
     navigator.clipboard.writeText(url);
     alert("已複製分享連結");
   }
@@ -1612,18 +1617,150 @@ export default function LLMPage() {
             {!isNavCollapsed ? (
               <div className="h-full min-h-0 flex flex-col gap-2 text-sm">
                 <div className="space-y-1">
-                  <SideRow
-                    iconClass="fa-regular fa-message"
-                    label="新對話"
-                    active={activeView === "llm"}
-                    onClick={() => newThread()}
-                  />
-                  <SideRow
-                    iconClass="fa-solid fa-wand-magic-sparkles"
-                    label="EduGen"
-                    active={activeView === "edugen"}
-                    onClick={() => setActiveView("edugen")}
-                  />
+                  {/* ===== RAG 模式（跟 SideRow 同骨架） ===== */}
+                  {/* ===== RAG 模式（簡潔版，無 icon） ===== */}
+                  <div className="px-3 pt-2">
+                    {/* 標題 */}
+                    <div className="text-[13px] font-semibold opacity-85 mb-1">
+                      RAG 模式{" "}
+                      <span className="text-[11px] font-normal opacity-60">
+                        （不會建立索引）
+                      </span>
+                    </div>
+
+                    {/* ===== RAG 模式（簡潔版，無 icon） ===== */}
+                    <div className="pt-0">
+                      <div className="relative" data-rag-dropdown-root>
+                        {/* Trigger */}
+                        <button
+                          type="button"
+                          onClick={() => setRagOpen((v) => !v)}
+                          className="w-full flex items-start justify-between rounded-xl px-3 py-2 text-[12px] border transition gap-2"
+                          style={{
+                            backgroundColor: "rgba(148,163,184,0.06)",
+                            borderColor: ragOpen
+                              ? "rgba(148,163,184,0.28)"
+                              : "rgba(148,163,184,0.18)",
+                            boxShadow: ragOpen
+                              ? "0 0 0 2px rgba(148,163,184,0.10)"
+                              : "none",
+                            color: "var(--foreground)",
+                          }}
+                        >
+                          <span
+                            className="block flex-1 text-left"
+                            style={{
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                              lineHeight: "1.35",
+                              whiteSpace: "normal",
+                              wordBreak: "break-word",
+                              opacity: 0.9,
+                            }}
+                          >
+                            {ragMode === "file_then_vector" &&
+                              "先用上傳檔案 → 不足再查向量庫"}
+                            {ragMode === "vector_only" &&
+                              "只查向量庫（你做好的教材庫）"}
+                            {ragMode === "file_only" &&
+                              "只用上傳檔案（不查向量庫）"}
+                          </span>
+
+                          <i
+                            className={`fa-solid fa-chevron-down mt-[2px] text-[11px] opacity-60 transition ${
+                              ragOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+
+                        {/* Menu */}
+                        {ragOpen && (
+                          <div
+                            className="absolute z-50 mt-2 w-full rounded-xl overflow-hidden border"
+                            style={{
+                              maxWidth: "360px",
+                              backgroundColor: "var(--background)",
+                              borderColor: "rgba(148,163,184,0.22)",
+                              boxShadow: "0 12px 28px rgba(0,0,0,0.22)",
+                              color: "var(--foreground)",
+                            }}
+                          >
+                            {[
+                              {
+                                value: "file_then_vector",
+                                label: "先用上傳檔案 → 不足再查向量庫",
+                              },
+                              {
+                                value: "vector_only",
+                                label: "只查向量庫（你做好的教材庫）",
+                              },
+                              {
+                                value: "file_only",
+                                label: "只用上傳檔案（不查向量庫）",
+                              },
+                            ].map((opt) => {
+                              const active = ragMode === opt.value;
+
+                              return (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  onClick={() => {
+                                    setRagMode(opt.value as RagMode);
+                                    setRagOpen(false);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-[13px] transition"
+                                  style={{
+                                    lineHeight: "1.5",
+                                    whiteSpace: "normal",
+                                    wordBreak: "break-word",
+                                    backgroundColor: active
+                                      ? NAV_ACTIVE_BG
+                                      : "transparent", 
+                                    fontWeight: active ? 600 : 400,
+                                    color: "var(--foreground)",
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (active) return;
+                                    e.currentTarget.style.backgroundColor =
+                                      NAV_HOVER_BG; 
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (active) return;
+                                    e.currentTarget.style.backgroundColor =
+                                      "transparent";
+                                  }}
+                                >
+                                  {opt.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 說明文字 */}
+                      <div className="pt-1 pb-2 text-[11px] opacity-50">
+                        新對話將使用此 RAG 模式
+                      </div>
+                    </div>
+
+                    {/* 柔和分隔 */}
+                    <div
+                      className="mt-2"
+                      style={{ borderTop: "1px solid rgba(148,163,184,0.18)" }}
+                    />
+                  </div>
+                  <div className="mt-1">
+                    <SideRow
+                      iconClass="fa-regular fa-message"
+                      label="新對話"
+                      active={activeView === "llm"}
+                      onClick={() => newThread()}
+                    />
+                  </div>
                   <SideRow
                     iconClass="fa-solid fa-folder-tree"
                     label="資源管理"
@@ -1675,12 +1812,7 @@ export default function LLMPage() {
                   active={activeView === "llm"}
                   onClick={() => newThread()}
                 />
-                <SideIconButton
-                  iconClass="fa-solid fa-wand-magic-sparkles"
-                  label="EduGen"
-                  active={activeView === "edugen"}
-                  onClick={() => setActiveView("edugen")}
-                />
+
                 <SideIconButton
                   iconClass="fa-solid fa-folder-tree"
                   label="資源管理"
@@ -1787,34 +1919,37 @@ export default function LLMPage() {
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <SideRow
-                    iconClass="fa-solid fa-wand-magic-sparkles"
-                    label="EduGen"
-                    active={activeView === "edugen"}
-                    onClick={() => {
-                      setActiveView("edugen");
-                      setIsMobileNavOpen(false);
+                <div className="px-2">
+                  {/* 標題列：長得像 SideRow 的 header */}
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl opacity-90">
+                    <i className="fa-solid fa-diagram-project text-[14px] opacity-80" />
+                    <div className="text-[14px] font-semibold">RAG 模式</div>
+                    <div className="text-[11px] opacity-60">
+                      （不會建立索引）
+                    </div>
+                  </div>
+
+                  {/* Select：改成跟 sidebar 同色系、同圓角、同高度 */}
+                  <select
+                    value={ragMode}
+                    onChange={(e) => setRagMode(e.target.value as RagMode)}
+                    className="w-full rounded-xl px-3 py-2 text-[13px] outline-none border"
+                    style={{
+                      backgroundColor: "rgba(148,163,184,0.10)", // 跟 sidebar 灰底融合
+                      borderColor: "rgba(148,163,184,0.22)",
+                      color: "var(--foreground)",
                     }}
-                  />
-                  <SideRow
-                    iconClass="fa-solid fa-folder-tree"
-                    label="資源管理"
-                    active={activeView === "assets"}
-                    onClick={() => {
-                      setActiveView("assets");
-                      setIsMobileNavOpen(false);
-                    }}
-                  />
-                  <SideRow
-                    iconClass="fa-regular fa-clock"
-                    label="對話紀錄"
-                    active={isHistoryOpen}
-                    onClick={() => {
-                      setIsMobileNavOpen(false);
-                      openHistory();
-                    }}
-                  />
+                  >
+                    <option value="file_then_vector">
+                      先用上傳檔案 → 不足再查向量庫
+                    </option>
+                    <option value="vector_only">
+                      只查向量庫（你做好的教材庫）
+                    </option>
+                    <option value="file_only">
+                      只用上傳檔案（不查向量庫）
+                    </option>
+                  </select>
                 </div>
 
                 <div className="pt-2">
@@ -1870,9 +2005,7 @@ export default function LLMPage() {
 
       {/* Main */}
       <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden llm-main-shell">
-        {activeView === "edugen" ? (
-          <PlaceholderView title="EduGen" />
-        ) : activeView === "assets" ? (
+        {activeView === "assets" ? (
           <PlaceholderView title="資源管理" />
         ) : (
           <section className="flex-1 min-h-0 flex flex-col relative">
