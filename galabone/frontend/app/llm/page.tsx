@@ -884,6 +884,17 @@ export default function LLMPage() {
 
   const [activeThreadId, setActiveThreadId] = useState<string>("t-001");
 
+  const [sessionId, setSessionId] = useState<string>(activeThreadId || "");
+  const [userId, setUserId] = useState<string>(getUserIdFallback());
+
+  useEffect(() => {
+  // 後端還沒做對話紀錄的情況下，用 activeThreadId 當 session 先撐著
+    console.log("🔁 session sync effect ran:", activeThreadId);
+
+  setSessionId(activeThreadId);
+}, [activeThreadId]);
+
+
   // ✅ 統一 hover/active 顏色
   const NAV_ACTIVE_BG = "rgba(148,163,184,0.16)";
   const NAV_HOVER_BG = "rgba(148,163,184,0.10)";
@@ -1172,25 +1183,19 @@ export default function LLMPage() {
         (fileContextText ? `\n\n${fileContextText}` : "");
 
       // 兼容不同後端 payload 欄位（你舊版可能叫 message / content）
-      const payloadCandidates = [
-        { user_id: userId, conversation_id, message: finalPrompt },
-        { user_id: userId, conversation_id, content: finalPrompt },
-        { conversation_id, message: finalPrompt },
-        { conversation_id, content: finalPrompt },
-      ];
+      const payload = {
+        session_id: (sessionId || "").trim(), // 這是後端真正要的
+        user_id: (userId || "guest").trim(),
+        messages: [
+          {
+            role: "user",
+            type: "text",
+            content: finalPrompt,
+          },
+        ],
+      };
 
-      let data: any = null;
-      let lastErr: any = null;
-      for (const p of payloadCandidates) {
-        try {
-          data = await postChatToBackend(p);
-          break;
-        } catch (err: any) {
-          lastErr = err;
-          continue;
-        }
-      }
-      if (!data) throw lastErr ?? new Error("chat payload 全部失敗");
+      const data = await postChatToBackend(payload);
 
       const answerText =
         data?.reply ??
@@ -1718,14 +1723,14 @@ export default function LLMPage() {
                                     wordBreak: "break-word",
                                     backgroundColor: active
                                       ? NAV_ACTIVE_BG
-                                      : "transparent", 
+                                      : "transparent",
                                     fontWeight: active ? 600 : 400,
                                     color: "var(--foreground)",
                                   }}
                                   onMouseEnter={(e) => {
                                     if (active) return;
                                     e.currentTarget.style.backgroundColor =
-                                      NAV_HOVER_BG; 
+                                      NAV_HOVER_BG;
                                   }}
                                   onMouseLeave={(e) => {
                                     if (active) return;
