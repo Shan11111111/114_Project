@@ -146,7 +146,11 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-async function exportToBackend(type: "pdf" | "pptx", content: string) {
+// ✅ 改成與舊版檔案B一致：export 送 session_id/user_id/messages
+async function exportToBackend(
+  type: "pdf" | "pptx",
+  payload: { session_id: string; user_id: string; messages: any[] }
+) {
   if (!API_BASE) throw new Error("尚未設定 NEXT_PUBLIC_BACKEND_URL");
 
   const url = type === "pdf" ? S2X_EXPORT_PDF_URL : S2X_EXPORT_PPTX_URL;
@@ -154,7 +158,7 @@ async function exportToBackend(type: "pdf" | "pptx", content: string) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
@@ -162,8 +166,7 @@ async function exportToBackend(type: "pdf" | "pptx", content: string) {
     throw new Error(`匯出失敗 ${res.status}：${raw.slice(0, 300)}`);
   }
 
-  const blob = await res.blob();
-  return blob;
+  return await res.blob();
 }
 
 // ==============================
@@ -888,12 +891,11 @@ export default function LLMPage() {
   const [userId, setUserId] = useState<string>(getUserIdFallback());
 
   useEffect(() => {
-  // 後端還沒做對話紀錄的情況下，用 activeThreadId 當 session 先撐著
+    // 後端還沒做對話紀錄的情況下，用 activeThreadId 當 session 先撐著
     console.log("🔁 session sync effect ran:", activeThreadId);
 
-  setSessionId(activeThreadId);
-}, [activeThreadId]);
-
+    setSessionId(activeThreadId);
+  }, [activeThreadId]);
 
   // ✅ 統一 hover/active 顏色
   const NAV_ACTIVE_BG = "rgba(148,163,184,0.16)";
@@ -1184,23 +1186,30 @@ export default function LLMPage() {
 
       // 兼容不同後端 payload 欄位（你舊版可能叫 message / content）
       const payload = {
-        session_id: (sessionId || "").trim(), // 這是後端真正要的
+        session_id: (sessionId || "").trim(),
         user_id: (userId || "guest").trim(),
-        messages: [
-          {
-            role: "user",
-            type: "text",
-            content: finalPrompt,
-          },
-        ],
+        rag_mode: ragMode, // rag_mode
+        // ragMode: ragMode,        // 
+        messages: [{ role: "user", type: "text", content: finalPrompt }],
       };
 
       const data = await postChatToBackend(payload);
 
+      // ✅ 支援後端回 { messages: [...] } 的格式
       const answerText =
         data?.reply ??
         data?.answer ??
         data?.content ??
+        data?.message ??
+        (Array.isArray(data?.messages)
+          ? String(
+              [...data.messages]
+                .reverse()
+                .find((m: any) => m?.role === "assistant")?.content ??
+                data.messages[data.messages.length - 1]?.content ??
+                ""
+            )
+          : null) ??
         (typeof data === "string" ? data : null) ??
         `⚠️ chat 回傳格式看不懂：${JSON.stringify(data).slice(0, 200)}`;
 
@@ -1236,34 +1245,47 @@ export default function LLMPage() {
     }
   }
 
+  // ✅ 跟檔案B一致：把目前 messages 轉成後端需要的 messages[]
+  function toBackendMessages(uiMsgs: ChatMessage[]) {
+    return uiMsgs.map((m) => ({
+      role: m.role,
+      type: "text",
+      content: m.content,
+      url: null,
+      filetype: null,
+    }));
+  }
+
   async function handleExport(type: "pdf" | "ppt") {
     setShowToolMenu(false);
 
     try {
-      const transcript = messages
-        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-        .join("\n\n");
-
-      if (!transcript.trim()) {
+      if (!messages.length) {
         alert("目前沒有可匯出的內容");
         return;
       }
-
       if (!API_BASE) {
         alert("尚未設定 NEXT_PUBLIC_BACKEND_URL，無法匯出");
         return;
       }
 
+      // ✅ 舊版B的 payload：session_id / user_id / messages
+      const payload = {
+        session_id: (sessionId || "").trim(),
+        user_id: (userId || "guest").trim(),
+        messages: toBackendMessages(messages),
+      };
+
       if (type === "pdf") {
-        const blob = await exportToBackend("pdf", transcript);
+        const blob = await exportToBackend("pdf", payload);
         downloadBlob(blob, `chat_${Date.now()}.pdf`);
         return;
       }
 
-      const blob = await exportToBackend("pptx", transcript);
+      const blob = await exportToBackend("pptx", payload);
       downloadBlob(blob, `chat_${Date.now()}.pptx`);
-    } catch (err: any) {
-      alert(`匯出失敗：${err?.message ?? String(err)}`);
+    } catch (e: any) {
+      alert(e?.message || "匯出失敗");
     }
   }
 
