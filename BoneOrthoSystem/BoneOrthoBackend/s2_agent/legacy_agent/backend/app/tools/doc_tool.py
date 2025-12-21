@@ -1,3 +1,4 @@
+#BoneOrthoBackend/s2_agent/legacy_agent/backend/app/tools/doc_tool.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,6 +15,7 @@ try:
     from pptx import Presentation  # pip install python-pptx
 except Exception:
     Presentation = None
+
 
 
 def _read_text_best_effort(path: Path) -> str:
@@ -111,11 +113,13 @@ def extract_text_and_summary(path: Path | str, ext: Optional[str] = None) -> Tup
     # --- PPTX ---
     elif ext == "pptx":
         if Presentation is None:
-            full_text = ""
-            summary = "（伺服器未安裝 python-pptx，無法解析 pptx。請先 pip install python-pptx）"
-            return full_text, summary
+            return "", "（伺服器未安裝 python-pptx，無法解析 pptx。請先 pip install python-pptx）"
 
-        prs = Presentation(str(path))
+        try:
+            prs = Presentation(str(path))
+        except Exception as e:
+            return "", f"（pptx 解析失敗：{type(e).__name__}: {e}）"
+
         texts: list[str] = []
         for si, slide in enumerate(prs.slides, start=1):
             slide_lines: list[str] = [f"[Slide {si}]"]
@@ -125,6 +129,7 @@ def extract_text_and_summary(path: Path | str, ext: Optional[str] = None) -> Tup
                     t = shape.text.strip()
                     if t:
                         slide_lines.append(t)
+
                 # 表格
                 if hasattr(shape, "has_table") and shape.has_table:
                     tbl = shape.table
@@ -136,18 +141,7 @@ def extract_text_and_summary(path: Path | str, ext: Optional[str] = None) -> Tup
                                 row_cells.append(cell_text)
                         if row_cells:
                             slide_lines.append("  ".join(row_cells))
+
             texts.append("\n".join(slide_lines))
+
         full_text = "\n\n".join(texts)
-
-    # --- PPT（舊格式）---
-    elif ext == "ppt":
-        # 不炸，但也不硬做：舊 ppt 解析要額外工具，做了反而更不穩
-        full_text = ""
-        summary = "（.ppt 為舊格式，後端不做文字抽取。建議先另存成 .pptx 再上傳）"
-        return full_text, summary
-
-    else:
-        full_text = ""
-
-    summary = _summarize(full_text, max_chars=600)
-    return full_text, summary

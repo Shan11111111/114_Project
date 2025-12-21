@@ -1,6 +1,11 @@
 # s2_agent/api_router.py
 from fastapi import APIRouter
 
+from s2_agent.legacy_agent.backend.app.routers.export import export_pdf as legacy_export_pdf
+from s2_agent.legacy_agent.backend.app.routers.export import export_pptx as legacy_export_pptx
+from s2_agent.legacy_agent.backend.app.models import ChatRequest  # 如果路徑不對就按你的實際位置調整
+
+
 router = APIRouter(prefix="/s2", tags=["S2 Agent Unified"])
 
 # 對話 / 聊天室管理
@@ -71,10 +76,12 @@ async def yolo_explain_bone():
 
 
 # 匯出報告
+# 匯出報告（✅ 改成真的回檔案，不再回 TODO JSON）
 @router.post("/export/pdf")
-async def export_pdf():
-    return {"url": "TODO.pdf"}
+def export_pdf(req: ChatRequest):
+    return legacy_export_pdf(req)
 
 @router.post("/export/ppt")
-async def export_ppt():
-    return {"url": "TODO.pptx"}
+def export_ppt(req: ChatRequest):
+    # 這裡雖然 endpoint 叫 /ppt，但實際用 legacy 的 export_pptx 產 .pptx
+    return legacy_export_pptx(req)
