@@ -4,16 +4,16 @@
    顏色變數：預設柔和淺色
 ============================ */
 :root {
-  /* 🔹 背景 / 字色 */
+  /* 背景 / 字色 */
   --background: #f5f7fa;
   --foreground: #1e293b;
 
-  /* 🔹 文字清晰層級 */
+  /* 文字層級 */
   --text-strong: #0f172a;
   --text-medium: #1f2835;
   --text-weak: #212831;
 
-  /* 🔹 Navbar */
+  /* Navbar */
   --navbar-bg: rgba(255, 255, 255, 0.85);
   --navbar-border: #d3d7de;
   --navbar-text: #0f172a;
@@ -24,10 +24,10 @@
   --navbar-icon-bg: #e2e8f0;
   --navbar-icon-text: #0f172a;
 
-  /* 🔹 Link hover（柔藍） */
+  /* Link */
   --link-hover: #0ea5e9;
 
-  /* 🔹 卡片背景 */
+  /* Card */
   --card-bg: #ffffff;
   --card-inner-bg: #f1f5f9;
   --card-border: #d1d5db;
@@ -38,24 +38,23 @@
     #ffffff
   );
 
-  /* 🔹 chip */
+  /* Chip */
   --chip-bg: #e2e8f0;
   --chip-text: #1e293b;
   --chip-hover: #d1d9e3;
-
   --chip-active-bg: #06b6d4;
   --chip-active-text: #0f172a;
 
-  /* 🗨️ 聊天泡泡（淺色模式） */
-  --chat-user-bg: #ddeBff; /* 你指定的白藍色 */
+  /* Chat（淺色） */
+  --chat-user-bg: #ddeBff;
   --chat-user-text: #1e293b;
-  --chat-assistant-bg: #e8edf7; /* 淡藍灰 */
+  --chat-assistant-bg: #e8edf7;
   --chat-assistant-text: #1e293b;
 
   color-scheme: light;
 }
 
-/* Tailwind 顏色引用 */
+/* Tailwind theme bridge */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -64,7 +63,7 @@
 }
 
 /* ============================
-   深色模式（X 光霓虹版）
+   深色模式（X 光霓虹）
 ============================ */
 html.dark {
   --background: #020617;
@@ -78,15 +77,11 @@ html.dark {
   --navbar-border: #1f2937;
   --navbar-text: #e5e7eb;
 
-  --navbar-logo-bg: #22d3ee;
-  --navbar-logo-text: #020617;
-
   --navbar-icon-bg: #111827;
   --navbar-icon-text: #e5e7eb;
 
   --link-hover: #67e8f9;
 
-  /* ⭐ 深色卡片 */
   --card-bg: #0f172a;
   --card-inner-bg: #020617;
   --card-border: #1e293b;
@@ -97,21 +92,17 @@ html.dark {
     #0f172a
   );
 
-  /* 深色 chip */
   --chip-bg: #1e293b;
   --chip-text: #e5e7eb;
   --chip-hover: #334155;
-
   --chip-active-bg: #06b6d4;
   --chip-active-text: #020617;
 
-  /* 🗨️ 深色聊天泡泡 → 霓虹感 */
-  --chat-user-bg: #06b6d4; /* 亮青藍 */
+  --chat-user-bg: #06b6d4;
   --chat-user-text: #01111a;
-  --chat-assistant-bg: #323a5b; /* 幾乎黑，當內襯 */
+  --chat-assistant-bg: #323a5b;
   --chat-assistant-text: #e2e8f0;
 
-  /* 霓虹光暈顏色 */
   --neon-cyan-soft: rgba(56, 189, 248, 0.35);
   --neon-cyan-strong: rgba(56, 189, 248, 0.85);
 
@@ -119,7 +110,7 @@ html.dark {
 }
 
 /* ============================
-   全站 body
+   Body / 全站
 ============================ */
 html,
 body {
@@ -130,11 +121,8 @@ body {
   transition: background-color 0.35s ease, color 0.35s ease;
 }
 
-/* ⭐ 讓常見元素一起滑順變色 */
 body * {
-  transition-property: background-color, color, border-color;
-  transition-duration: 0.35s;
-  transition-timing-function: ease;
+  transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease;
 }
 
 /* ============================
@@ -148,7 +136,7 @@ body * {
 }
 
 /* ============================
-   共用卡片
+   Card
 ============================ */
 .card {
   background: var(--card-bg);
@@ -159,7 +147,7 @@ body * {
 }
 
 /* ============================
-   灰字 Light / Dark 調整
+   灰字修正
 ============================ */
 html:not(.dark) .text-slate-600,
 html:not(.dark) .text-slate-500 {
@@ -184,7 +172,7 @@ html.dark .text-slate-200 {
 }
 
 /* ============================
-   chip
+   Chip
 ============================ */
 html:not(.dark) .bg-slate-800 {
   background-color: var(--chip-bg) !important;
@@ -210,18 +198,8 @@ html:not(.dark) .text-slate-900 {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.05);
-  border-radius: 9999px;
-  opacity: 0;
-  transition: background 0.2s ease, opacity 0.2s ease;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.45);
-}
-*::-webkit-scrollbar-thumb:active,
-*:hover::-webkit-scrollbar-thumb {
-  opacity: 1;
   background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
 }
 * {
   scrollbar-width: thin;
@@ -229,26 +207,18 @@ html:not(.dark) .text-slate-900 {
 }
 
 /* ============================
-   Chat bubble + Neon shell
+   Chat bubble + 霓虹
 ============================ */
-
-/* 基本膠囊泡泡形狀 */
 .chat-bubble {
   position: relative;
   padding: 0.45rem 0.8rem;
 }
 
-/* 左右只是身份區分用，形狀維持膠囊 */
-.chat-bubble-user {}
-.chat-bubble-assistant {}
-
-/* 關掉舊的三角尾巴，避免奇怪缺角 */
 .chat-bubble-user::after,
 .chat-bubble-assistant::after {
   content: none !important;
 }
 
-/* 夜間模式：霓虹 X 光發光效果 */
 html.dark .chat-bubble-user,
 html.dark .chat-bubble-assistant {
   box-shadow:
@@ -258,7 +228,6 @@ html.dark .chat-bubble-assistant {
   border: 1px solid var(--neon-cyan-strong);
 }
 
-/* 使用者泡泡再亮一點（像被 X 光圈出） */
 html.dark .chat-bubble-user {
   background: radial-gradient(
       circle at 30% 0%,
@@ -268,17 +237,7 @@ html.dark .chat-bubble-user {
     var(--chat-user-bg);
 }
 
-/* 輸入膠囊在夜間也有霓虹外框 */
-html.dark .neon-shell {
-  box-shadow:
-    0 0 12px var(--neon-cyan-soft),
-    0 0 32px rgba(8, 47, 73, 0.9);
-  border-color: rgba(148, 163, 184, 0.9) !important;
-}
-
-/* ============================
-   右側主畫面的 X 光漸層（只在深色）
-============================ */
+/* 右側主畫面 X 光漸層 */
 html.dark .llm-main-shell {
   background: radial-gradient(
     circle at top,
