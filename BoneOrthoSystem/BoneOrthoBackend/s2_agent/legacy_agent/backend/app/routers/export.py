@@ -17,6 +17,9 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.oxml.xmlchemy import OxmlElement  # 正確匯入
 
+from pptx.enum.text import MSO_AUTO_SIZE
+import math
+
 from ..models import ChatRequest
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -289,31 +292,54 @@ def disable_bullet(paragraph) -> None:
     bu_none = OxmlElement("a:buNone")
     pPr.insert(0, bu_none)
 
+def remove_all_slides(prs: Presentation) -> None:
+    """刪掉簡報中所有既有投影片（保留模板的 layouts/theme）。"""
+    sldIdLst = prs.slides._sldIdLst  # type: ignore
+    for sldId in list(sldIdLst):
+        rId = sldId.rId
+        sldIdLst.remove(sldId)
+        prs.part.drop_rel(rId)
+
+def wrap_cjk_for_ppt(text: str, max_chars_per_line: int = 32) -> list[str]:
+    """超簡單中英混排換行：大概每行最多 N 個字元（WPS/PowerPoint 都吃得到）。"""
+    if not text:
+        return [""]
+    lines = []
+    cur = ""
+    for ch in text:
+        cur += ch
+        if len(cur) >= max_chars_per_line:
+            lines.append(cur)
+            cur = ""
+    if cur:
+        lines.append(cur)
+    return lines
 
 # -------------------------
 # PPTX 匯出：標題頁 + 內容頁
 # -------------------------
 @router.post("/pptx")
 def export_pptx(req: ChatRequest):
-    """
-    匯出 PPT：
-    - 第 1 張：骨科互動助理－學習報告 + Session ID
-    - 第 2 張開始：條列所有對話內容（我 / AI / 系統）
-      只有「我：」「Dr.Bone：」是粗體，其餘一般字重。
-    """
-    prs = Presentation()
+    TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "bone_report_template.pptx"
+    print("[export_pptx] template exists =", TEMPLATE_PATH.exists(), "path =", TEMPLATE_PATH)
+
+    prs = Presentation(str(TEMPLATE_PATH)) if TEMPLATE_PATH.exists() else Presentation()
+
+    # ✅ 清掉模板原本的投影片，避免 P1~P3 空白
+    remove_all_slides(prs)
+
+    print("[export_pptx] layouts =", len(prs.slide_layouts))
 
     # ---- 第一頁：標題頁 ----
-    title_slide_layout = prs.slide_layouts[0]  # 預設標題版面
+    title_slide_layout = prs.slide_layouts[0]
     slide = prs.slides.add_slide(title_slide_layout)
     title_shape = slide.shapes.title
     subtitle_shape = slide.placeholders[1]
 
     title_shape.text = "骨科互動助理－學習報告"
-    # 一樣使用 req.session_id（前端已塞 User ID）
     subtitle_shape.text = f"Session ID：{req.session_id}"
 
-    # 標題字體大一點、粗體；subtitle 小一點
+    # 標題字體
     if title_shape.text_frame.paragraphs:
         p = title_shape.text_frame.paragraphs[0]
         for run in p.runs:
@@ -328,34 +354,40 @@ def export_pptx(req: ChatRequest):
 
     # ---- 第二頁開始：對話內容 ----
     content_layout = prs.slide_layouts[1]  # 標題 + 內容
+
+    def setup_tf(tframe):
+        tframe.clear()
+        tframe.word_wrap = True
+        tframe.margin_left = Inches(0.2)
+        tframe.margin_right = Inches(0.2)
+        tframe.margin_top = Inches(0.1)
+        tframe.margin_bottom = Inches(0.1)
+        tframe.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
     slide = prs.slides.add_slide(content_layout)
     slide.shapes.title.text = "本次對話內容"
-
     body = slide.placeholders[1]
     tf = body.text_frame
-    tf.clear()
-    tf.word_wrap = True  # 語句在框內自動換行
-    tf.margin_left = Inches(0.2)
-    tf.margin_right = Inches(0.2)
-    tf.margin_top = Inches(0.1)
-    tf.margin_bottom = Inches(0.1)
+    setup_tf(tf)
 
     first_para = True
-    max_paragraphs_per_slide = 12  # 太多就換下一張
-    slide_paragraph_count = 0
+    max_lines_per_slide = 5
+    current_lines = 0
 
     def add_new_content_slide():
         s = prs.slides.add_slide(content_layout)
         s.shapes.title.text = "本次對話內容（續）"
         b = s.placeholders[1]
         t = b.text_frame
-        t.clear()
-        t.word_wrap = True
-        t.margin_left = Inches(0.2)
-        t.margin_right = Inches(0.2)
-        t.margin_top = Inches(0.1)
-        t.margin_bottom = Inches(0.1)
+        setup_tf(t)
         return s, t
+
+    def ensure_space(need_lines: int):
+        nonlocal slide, tf, first_para, current_lines
+        if current_lines + need_lines > max_lines_per_slide:
+            slide, tf = add_new_content_slide()
+            first_para = True
+            current_lines = 0
 
     for m in req.messages:
         if not m.content:
@@ -373,65 +405,46 @@ def export_pptx(req: ChatRequest):
         for idx, raw_chunk in enumerate(chunks):
             chunk = normalize_line_text(raw_chunk)
 
-            # 第一行：顯示「我：...」「Dr.Bone：...」
+            # ✅ 把內容先用「固定字元數」切成多行，避免爆框
+            wrapped = wrap_cjk_for_ppt(chunk, max_chars_per_line=32)
+            need_lines = len(wrapped)
+            ensure_space(need_lines)
+
+            if first_para:
+                p = tf.paragraphs[0]
+                first_para = False
+            else:
+                p = tf.add_paragraph()
+
+            p.text = ""
+            p.level = 0
+            disable_bullet(p)
+
+            # 第一行帶前綴（粗體）
             if idx == 0:
-                text_body = chunk
-                if slide_paragraph_count >= max_paragraphs_per_slide:
-                    slide, tf = add_new_content_slide()
-                    slide_paragraph_count = 0
-                    first_para = True
-
-                if first_para:
-                    p = tf.paragraphs[0]
-                    first_para = False
-                else:
-                    p = tf.add_paragraph()
-
-                # 清掉預設文字
-                p.text = ""
-                p.level = 0
-                disable_bullet(p)
-
-                # 前綴 run（粗體：只對 user / assistant）
                 run_prefix = p.add_run()
                 run_prefix.text = f"{prefix}："
                 run_prefix.font.size = Pt(20)
                 run_prefix.font.bold = (m.role in ("user", "assistant"))
 
-                # 內容 run（一般字重）
-                if text_body:
-                    run_body = p.add_run()
-                    run_body.text = text_body
-                    run_body.font.size = Pt(20)
-                    run_body.font.bold = False
+                run_body = p.add_run()
+                # 第一行 + 後續行用 \n 串起來（WPS/PowerPoint 都吃）
+                run_body.text = wrapped[0] + (
+                    "\n" + "\n".join("　" + ln for ln in wrapped[1:]) if len(wrapped) > 1 else ""
+                )
+                run_body.font.size = Pt(20)
+                run_body.font.bold = False
 
-                slide_paragraph_count += 1
-
-            # 後續行：只縮排內容，不再有前綴，也不粗體
+            # 後續行：不帶前綴，純縮排
             else:
-                text = "　" + chunk  # 全形空白縮排
+                run_body = p.add_run()
+                run_body.text = "　" + wrapped[0] + (
+                    "\n" + "\n".join("　" + ln for ln in wrapped[1:]) if len(wrapped) > 1 else ""
+                )
+                run_body.font.size = Pt(20)
+                run_body.font.bold = False
 
-                if slide_paragraph_count >= max_paragraphs_per_slide:
-                    slide, tf = add_new_content_slide()
-                    slide_paragraph_count = 0
-                    first_para = True
-
-                if first_para:
-                    p = tf.paragraphs[0]
-                    first_para = False
-                    p.text = ""
-                else:
-                    p = tf.add_paragraph()
-
-                p.text = text
-                p.level = 0
-                disable_bullet(p)
-
-                for run in p.runs:
-                    run.font.size = Pt(20)
-                    run.font.bold = False
-
-                slide_paragraph_count += 1
+            current_lines += need_lines
 
     bio = BytesIO()
     prs.save(bio)
@@ -439,8 +452,6 @@ def export_pptx(req: ChatRequest):
 
     return StreamingResponse(
         bio,
-        media_type=(
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": 'attachment; filename="bone_report.pptx"'},
     )
