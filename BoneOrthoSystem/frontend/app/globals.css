@@ -4,16 +4,16 @@
    顏色變數：預設柔和淺色
 ============================ */
 :root {
-  /* 🔹 背景 / 字色 */
+  /* 背景 / 字色 */
   --background: #f5f7fa;
   --foreground: #1e293b;
 
-  /* 🔹 文字清晰層級 */
+  /* 文字層級 */
   --text-strong: #0f172a;
   --text-medium: #1f2835;
   --text-weak: #212831;
 
-  /* 🔹 Navbar */
+  /* Navbar */
   --navbar-bg: rgba(255, 255, 255, 0.85);
   --navbar-border: #d3d7de;
   --navbar-text: #0f172a;
@@ -24,28 +24,37 @@
   --navbar-icon-bg: #e2e8f0;
   --navbar-icon-text: #0f172a;
 
-  /* 🔹 Link hover（柔藍） */
+  /* Link */
   --link-hover: #0ea5e9;
 
-  /* 🔹 卡片背景（新增補強） */
+  /* Card */
   --card-bg: #ffffff;
-  --card-inner-bg: #f1f5f9;   /* ⭐ 新增：卡片內襯背景 */
-  --card-border: #d1d5db;    /* ⭐ 新增：卡片邊框 */
-  --card-gradient: linear-gradient(135deg, rgba(56,189,248,0.10), transparent 40%, #ffffff);
+  --card-inner-bg: #f1f5f9;
+  --card-border: #d1d5db;
+  --card-gradient: linear-gradient(
+    135deg,
+    rgba(56, 189, 248, 0.1),
+    transparent 40%,
+    #ffffff
+  );
 
-  /* 🔹 chip（未選） */
+  /* Chip */
   --chip-bg: #e2e8f0;
   --chip-text: #1e293b;
   --chip-hover: #d1d9e3;
-
-  /* 🔹 chip（選中） */
   --chip-active-bg: #06b6d4;
   --chip-active-text: #0f172a;
+
+  /* Chat（淺色） */
+  --chat-user-bg: #ddeBff;
+  --chat-user-text: #1e293b;
+  --chat-assistant-bg: #e8edf7;
+  --chat-assistant-text: #1e293b;
 
   color-scheme: light;
 }
 
-/* Tailwind 顏色引用 */
+/* Tailwind theme bridge */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -54,7 +63,7 @@
 }
 
 /* ============================
-   深色模式
+   深色模式（X 光霓虹）
 ============================ */
 html.dark {
   --background: #020617;
@@ -68,39 +77,52 @@ html.dark {
   --navbar-border: #1f2937;
   --navbar-text: #e5e7eb;
 
-  --navbar-logo-bg: #22d3ee;
-  --navbar-logo-text: #020617;
-
   --navbar-icon-bg: #111827;
   --navbar-icon-text: #e5e7eb;
 
   --link-hover: #67e8f9;
 
-  /* ⭐ 深色卡片補強 */
   --card-bg: #0f172a;
   --card-inner-bg: #020617;
   --card-border: #1e293b;
-  --card-gradient: linear-gradient(135deg, rgba(6,182,212,0.08), transparent 40%, #0f172a);
+  --card-gradient: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.08),
+    transparent 40%,
+    #0f172a
+  );
 
-  /* 深色 chip */
   --chip-bg: #1e293b;
   --chip-text: #e5e7eb;
   --chip-hover: #334155;
-
   --chip-active-bg: #06b6d4;
   --chip-active-text: #020617;
+
+  --chat-user-bg: #06b6d4;
+  --chat-user-text: #01111a;
+  --chat-assistant-bg: #323a5b;
+  --chat-assistant-text: #e2e8f0;
+
+  --neon-cyan-soft: rgba(56, 189, 248, 0.35);
+  --neon-cyan-strong: rgba(56, 189, 248, 0.85);
 
   color-scheme: dark;
 }
 
 /* ============================
-   全站 body
+   Body / 全站
 ============================ */
+html,
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+
+body * {
+  transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease;
 }
 
 /* ============================
@@ -114,7 +136,7 @@ body {
 }
 
 /* ============================
-   共用卡片
+   Card
 ============================ */
 .card {
   background: var(--card-bg);
@@ -125,10 +147,8 @@ body {
 }
 
 /* ============================
-   灰字 Light / Dark 調整
+   灰字修正
 ============================ */
-
-/* 淺色模式：灰字要深一些 */
 html:not(.dark) .text-slate-600,
 html:not(.dark) .text-slate-500 {
   color: var(--text-medium) !important;
@@ -141,7 +161,6 @@ html:not(.dark) .text-slate-100 {
   color: var(--text-weak) !important;
 }
 
-/* 深色模式 */
 html.dark .text-slate-600,
 html.dark .text-slate-500 {
   color: var(--text-medium) !important;
@@ -153,10 +172,8 @@ html.dark .text-slate-200 {
 }
 
 /* ============================
-   chip
+   Chip
 ============================ */
-
-/* 未選中 chip */
 html:not(.dark) .bg-slate-800 {
   background-color: var(--chip-bg) !important;
 }
@@ -166,8 +183,6 @@ html:not(.dark) .hover\:bg-slate-700:hover {
 html:not(.dark) .text-slate-100 {
   color: var(--chip-text) !important;
 }
-
-/* 已選中 chip */
 html:not(.dark) .text-slate-900 {
   color: var(--chip-active-text) !important;
 }
@@ -183,20 +198,51 @@ html:not(.dark) .text-slate-900 {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.05);
-  border-radius: 9999px;
-  opacity: 0;
-  transition: background 0.2s ease, opacity 0.2s ease;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.45);
-}
-*::-webkit-scrollbar-thumb:active,
-*:hover::-webkit-scrollbar-thumb {
-  opacity: 1;
   background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
 }
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+
+/* ============================
+   Chat bubble + 霓虹
+============================ */
+.chat-bubble {
+  position: relative;
+  padding: 0.45rem 0.8rem;
+}
+
+.chat-bubble-user::after,
+.chat-bubble-assistant::after {
+  content: none !important;
+}
+
+html.dark .chat-bubble-user,
+html.dark .chat-bubble-assistant {
+  box-shadow:
+    0 0 10px var(--neon-cyan-soft),
+    0 0 22px var(--neon-cyan-soft),
+    0 0 40px rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--neon-cyan-strong);
+}
+
+html.dark .chat-bubble-user {
+  background: radial-gradient(
+      circle at 30% 0%,
+      rgba(248, 250, 252, 0.35),
+      transparent 55%
+    ),
+    var(--chat-user-bg);
+}
+
+/* 右側主畫面 X 光漸層 */
+html.dark .llm-main-shell {
+  background: radial-gradient(
+    circle at top,
+    rgba(15, 23, 42, 0.9) 0%,
+    #020617 50%,
+    #000000 100%
+  );
 }

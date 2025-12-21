@@ -534,7 +534,7 @@ export default function BoneVisionPage() {
                             : "需要 /predict 回傳 image_case_id 才能使用"
                         }
                       >
-                        了解更多（galabone）
+                        了解更多
                       </button>
 
                       <div className="mt-3">

@@ -15,14 +15,14 @@ export default function Home() {
       <section className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-10 px-8">
         <div className="max-w-xl space-y-5">
           <h1 className="text-3xl lg:text-4xl font-bold leading-tight">
-            讓骨科影像
+            讓骨科資訊
             <span className="text-cyan-400"> 更直覺、好理解</span>
           </h1>
 
           <p className="text-slate-300 text-sm lg:text-base">
-            GalaBone 結合 YOLOv8-OBB 與多模態 AI，
-            幫助你在 X 光中快速找出骨骼、理解位置與臨床意義，
-            未來也會支援互動式教學與自動化教材生成。
+           GalaBone整合 YOLO 與多模態 AI，
+           快速在 X 光中定位骨骼並生成資料庫導向的解說，
+           搭配互動標註與 3D 模型展示，讓判讀與教學一站完成。
           </p>
 
           <div className="flex flex-wrap gap-3">
@@ -38,7 +38,7 @@ export default function Home() {
           </div>
 
           <div className="text-xs text-slate-500">
-            前端：Next.js + Tailwind CSS．後端：FastAPI + YOLOv8-OBB（稍後串接）
+           
           </div>
         </div>
 
