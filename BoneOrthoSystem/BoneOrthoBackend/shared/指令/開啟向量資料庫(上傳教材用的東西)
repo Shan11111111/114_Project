@@ -1,5 +1,0 @@
-cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend\s2_agent\vectordb
-docker-compose up -d
-
-開啟 http://127.0.0.1:8000/docs 上傳教材，點Try it out
-

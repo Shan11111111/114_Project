@@ -1,0 +1,19 @@
+cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend\s2_agent\vectordb
+第一次才要:
+docker-compose up -d
+
+
+建立colleection
+curl -s -X PUT http://127.0.0.1:6333/collections/bone_edu_docs -H "Content-Type: application/json" -d "{\"vectors\":{\"size\":1536,\"distance\":\"Cosine\"}}"
+成功後檢查
+curl -s http://127.0.0.1:6333/collections
+curl -s http://127.0.0.1:6333/collections/bone_edu_docs
+
+
+
+開啟 http://127.0.0.1:8000/docs 上傳教材，點Try it out
+
+
+//資料寫入向量資料庫
+$env:PYTHONPATH="."
+.\.venv\Scripts\python s2_agent\vectordb\ingest_materials.py

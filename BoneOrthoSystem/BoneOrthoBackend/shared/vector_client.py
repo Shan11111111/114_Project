@@ -1,3 +1,4 @@
+# BoneOrthoBackend/shared/vector_client.py
 import os
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
@@ -16,6 +17,13 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "bone_edu_docs")
 VECTOR_SIZE = int(os.getenv("EMBEDDING_DIM", "1536"))
+
+# === 新增：可用環境變數調參（放在 VECTOR_SIZE 那附近） ===
+DEFAULT_SCORE_THRESHOLD = float(os.getenv("QDRANT_SCORE_THRESHOLD", "0.15"))
+DEFAULT_QUERY_SCORE_THRESHOLD = float(os.getenv("QDRANT_QUERY_SCORE_THRESHOLD", "0.15"))
+DEFAULT_ENABLE_GIBBERISH_FILTER = os.getenv("QDRANT_ENABLE_GIBBERISH_FILTER", "0") == "1"
+DEFAULT_EXCLUDE_PLACEHOLDERS = os.getenv("QDRANT_EXCLUDE_PLACEHOLDERS", "1") == "1"
+DEFAULT_DEBUG = os.getenv("QDRANT_DEBUG", "0") == "1"
 
 
 def is_gibberish(text: str) -> bool:
@@ -116,9 +124,10 @@ class VectorStore:
         bone_id: Optional[int] = None,
         small_bone_id: Optional[int] = None,
         bone_small_id: Optional[int] = None,  # alias 防呆
-        score_threshold: float = 0.25,
-        enable_gibberish_filter: bool = True,
-        exclude_placeholders: bool = True,
+        score_threshold: float = DEFAULT_SCORE_THRESHOLD,
+        enable_gibberish_filter: bool = DEFAULT_ENABLE_GIBBERISH_FILTER,
+        exclude_placeholders: bool = DEFAULT_EXCLUDE_PLACEHOLDERS,
+        debug: bool = DEFAULT_DEBUG,
     ) -> List[Any]:
         """
         回傳 Qdrant 原生 hit points（每個點有 .score / .payload）
@@ -193,11 +202,14 @@ class VectorStore:
         query_text: str,
         embed_fn,
         top_k: int = 5,
-        score_threshold: float = 0.32,
+        score_threshold: float = DEFAULT_QUERY_SCORE_THRESHOLD,
         bone_id: Optional[int] = None,
         small_bone_id: Optional[int] = None,
-        enable_gibberish_filter: bool = True,
+        enable_gibberish_filter: bool = DEFAULT_ENABLE_GIBBERISH_FILTER,
+        exclude_placeholders: bool = DEFAULT_EXCLUDE_PLACEHOLDERS,
+        debug: bool = DEFAULT_DEBUG,
     ) -> List[Dict[str, Any]]:
+
         """
         直接給文字 query → embedding → search → 回傳 dict list（方便 rag_tool 用）
         """
@@ -209,7 +221,14 @@ class VectorStore:
             small_bone_id=small_bone_id,
             score_threshold=score_threshold,
             enable_gibberish_filter=enable_gibberish_filter,
+            exclude_placeholders=exclude_placeholders,
+            debug=debug,
         )
+
+        if debug:
+            print(f"[QDRANT] kept_hits={len(raw)} threshold={score_threshold} gibberish={enable_gibberish_filter} exclude_placeholders={exclude_placeholders}")
+
+
 
         hits: List[Dict[str, Any]] = []
         for p in raw:
