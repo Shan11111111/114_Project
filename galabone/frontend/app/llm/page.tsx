@@ -1,5 +1,7 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
+
 import {
   FormEvent,
   KeyboardEvent,
@@ -63,33 +65,57 @@ function fakeLLMReply(prompt: string): string {
 const MIN_HEIGHT = 28;
 const MAX_HEIGHT = 120;
 
+const WELCOME_TEXT = `嗨，我是 GalaBone LLM。
+
+你可以直接問，我會用你已建好的向量資料庫做 RAG，並盡量附上來源。
+
+依據：本次未提供可追溯來源
+（你可以要求後端「必回傳 sources/citations」才算合格 RAG。）`;
+
 // ==============================
 // ✅ 後端 API（只加邏輯，不影響 UI）
+// ==============================
+// ==============================
+// ✅ 後端 API（搬 C 的連線；不影響 D 的 UI）
 // ==============================
 const API_BASE = (
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_BASE ||
-  ""
+  "http://127.0.0.1:8000"
 ).replace(/\/+$/, "");
 
-const S2X_UPLOAD_URL = `${API_BASE}/s2x/upload`;
-const S2X_CHAT_URL = `${API_BASE}/s2x/agent/chat`;
-const S2X_EXPORT_PDF_URL = `${API_BASE}/s2x/export/pdf`;
-const S2X_EXPORT_PPTX_URL = `${API_BASE}/s2x/export/pptx`;
+const S2X_BASE = `${API_BASE}/s2x`;
+
+// ✅ C 裡的 bootstrap（S1 -> S2）
+const BOOT_URL = `${API_BASE}/s2/agent/bootstrap-from-s1`;
+
+// ✅ C 裡集中管理的 API endpoints（conversations 也一起帶過來）
+const API = {
+  health: `${S2X_BASE}/health`,
+  upload: `${S2X_BASE}/upload`,
+  chat: `${S2X_BASE}/agent/chat`,
+  exportPdf: `${S2X_BASE}/export/pdf`,
+  exportPptx: `${S2X_BASE}/export/pptx`,
+  listConvs: `${S2X_BASE}/agent/conversations`,
+  getMsgs: (cid: string) => `${S2X_BASE}/agent/conversations/${cid}/messages`,
+};
 
 function getUserIdFallback() {
   return "guest";
+}
+
+function safeJsonParse(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 function toAbsUrl(maybeUrl?: string) {
   if (!maybeUrl) return "";
   if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://"))
     return maybeUrl;
-  const API_BASE = (
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    process.env.NEXT_PUBLIC_API_BASE ||
-    "http://127.0.0.1:8000"
-  ).replace(/\/+$/, "");
 
   const path = maybeUrl.startsWith("/") ? maybeUrl : `/${maybeUrl}`;
   // 常見：後端回傳 /uploads/xxx
@@ -98,41 +124,34 @@ function toAbsUrl(maybeUrl?: string) {
 }
 
 async function uploadOneFileToBackend(file: File) {
-  if (!API_BASE) throw new Error("尚未設定 NEXT_PUBLIC_BACKEND_URL");
-
   const fd = new FormData();
   fd.append("file", file);
 
-  const res = await fetch(S2X_UPLOAD_URL, { method: "POST", body: fd });
-  const ct = res.headers.get("content-type") || "";
+  const res = await fetch(API.upload, { method: "POST", body: fd });
   const raw = await res.text();
+  const data = safeJsonParse(raw);
 
-  if (!res.ok) throw new Error(`上傳失敗 ${res.status}：${raw.slice(0, 300)}`);
-  if (!ct.includes("application/json")) {
-    throw new Error(`上傳回傳非 JSON：${raw.slice(0, 200)}`);
+  if (!res.ok || !data) {
+    throw new Error(`上傳失敗 ${res.status}：${raw.slice(0, 300)}`);
   }
-
-  const data = JSON.parse(raw) as any;
   return data;
 }
 
 async function postChatToBackend(payload: any) {
-  if (!API_BASE) throw new Error("尚未設定 NEXT_PUBLIC_BACKEND_URL");
-
-  const res = await fetch(S2X_CHAT_URL, {
+  const res = await fetch(API.chat, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
-  const ct = res.headers.get("content-type") || "";
   const raw = await res.text();
+  const data = safeJsonParse(raw);
 
-  if (!res.ok) throw new Error(`Chat 失敗 ${res.status}：${raw.slice(0, 300)}`);
-
-  if (ct.includes("application/json")) return JSON.parse(raw);
-  // 萬一後端直接回文字
-  return { reply: raw };
+  if (!res.ok || !data) {
+    // 保留原始 raw，方便你 debug 422/500
+    throw new Error(`Chat 失敗 ${res.status}：${raw.slice(0, 300)}`);
+  }
+  return data;
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -146,14 +165,12 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-// ✅ 改成與舊版檔案B一致：export 送 session_id/user_id/messages
+// ✅ export：沿用 D 現在的 UI，但 endpoint 改用 C 的 API.exportPdf/exportPptx
 async function exportToBackend(
   type: "pdf" | "pptx",
   payload: { session_id: string; user_id: string; messages: any[] }
 ) {
-  if (!API_BASE) throw new Error("尚未設定 NEXT_PUBLIC_BACKEND_URL");
-
-  const url = type === "pdf" ? S2X_EXPORT_PDF_URL : S2X_EXPORT_PPTX_URL;
+  const url = type === "pdf" ? API.exportPdf : API.exportPptx;
 
   const res = await fetch(url, {
     method: "POST",
@@ -745,6 +762,144 @@ const HistoryOverlay = memo(function HistoryOverlay({
 });
 
 export default function LLMPage() {
+  const searchParams = useSearchParams();
+  const bootOnceRef = useRef(false);
+
+  useEffect(() => {
+    // 1) 正常：從 URL query 取得 caseId
+    // 2) 兼容：caseld / caseid（歷史拼字）
+    // 3) 保底：若是從「辨識頁」導過來但 query 沒帶到，改用 localStorage 接棒
+    let caseIdStr =
+      searchParams.get("caseId") ??
+      searchParams.get("caseld") ?? // 兼容之前拼錯
+      searchParams.get("caseid") ??
+      "";
+
+    // 👉 路由沒帶 query 時的保底（避免你說的「分析結果遷不進來」）
+    if (!caseIdStr && typeof window !== "undefined") {
+      caseIdStr = localStorage.getItem("gab_last_case_id") || "";
+    }
+
+    if (!caseIdStr) return;
+
+    // 只要成功讀到 caseId，就把它存起來，方便下一次導頁失敗時還能接回
+    if (typeof window !== "undefined") {
+      localStorage.setItem("gab_last_case_id", String(caseIdStr));
+    }
+    if (bootOnceRef.current) return;
+    bootOnceRef.current = true;
+
+    const caseId = Number(caseIdStr);
+    if (!Number.isFinite(caseId) || caseId <= 0) return;
+
+    (async () => {
+      try {
+        const r = await fetch(BOOT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_case_id: caseId }),
+        });
+
+        const raw = await r.text();
+        const data = safeJsonParse(raw);
+
+        if (!r.ok || !data) {
+          throw new Error(`bootstrap 失敗 ${r.status}：${raw.slice(0, 250)}`);
+        }
+
+        const bootSession = data.session_id ? String(data.session_id) : "";
+        if (bootSession) setSessionId(bootSession);
+
+        const seedText = Array.isArray(data.seed_messages)
+          ? String(
+              data.seed_messages.find(
+                (m: any) => m?.type === "text" && (m?.content ?? "").trim()
+              )?.content ?? ""
+            )
+          : "";
+
+        // ✅ 把「辨識頁」那張圖也一併帶進來（不改 UI：用既有的 msg.files 區塊顯示縮圖）
+        const imgRel = Array.isArray(data.seed_messages)
+          ? String(
+              data.seed_messages.find(
+                (m: any) => m?.type === "image" && m?.url
+              )?.url ?? ""
+            )
+          : "";
+
+        const imgAbs = toAbsUrl(imgRel);
+        const seedFiles: UploadedFile[] = imgAbs
+          ? [
+              {
+                id: `seed_${caseId}`,
+                name: `ImageCase_${caseId}.png`,
+                size: 0,
+                type: "image/png",
+                url: imgAbs,
+              },
+            ]
+          : [];
+
+        const question =
+          seedText.trim() || `請解釋這個 caseId=${caseId} 的影像偵測結果`;
+        // 直接走你現有 sendMessage 流程會牽涉到 draftText，最穩做法是直接呼叫 postChatToBackend：
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            role: "user",
+            content: question,
+            files: seedFiles.length ? seedFiles : undefined,
+          },
+        ]);
+
+        const payload = {
+          session_id: (bootSession || sessionId || "").trim(),
+          user_id: (userId || "guest").trim(),
+          messages: [{ role: "user", type: "text", content: question }],
+        };
+
+        const resp = await postChatToBackend(payload);
+
+        let answerText = "";
+        if (resp?.answer || resp?.content || resp?.message) {
+          answerText = String(resp.answer ?? resp.content ?? resp.message);
+        } else {
+          answerText =
+            String(
+              resp?.reply ??
+                (Array.isArray(resp?.messages)
+                  ? [...resp.messages]
+                      .reverse()
+                      .find((m: any) => m?.role === "assistant")?.content ??
+                    resp.messages[resp.messages.length - 1]?.content ??
+                    ""
+                  : "")
+            ) || "";
+        }
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 1,
+            role: "assistant",
+            content: String(answerText),
+          },
+        ]);
+      } catch (e: any) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 2,
+            role: "assistant",
+            content: `bootstrap 失敗：${e?.message ?? String(e)}`,
+          },
+        ]);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // ===== navbar 狀態 =====
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -766,8 +921,7 @@ export default function LLMPage() {
     {
       id: 1,
       role: "assistant",
-      content:
-        "嗨，我是 GalaBone LLM Demo。在這裡輸入你的問題，我會用骨科知識與多模態概念幫你解釋。",
+      content: WELCOME_TEXT,
     },
   ]);
 
@@ -959,8 +1113,7 @@ export default function LLMPage() {
         {
           id: 1,
           role: "assistant",
-          content:
-            "嗨，我是 GalaBone LLM Demo。在這裡輸入你的問題，我會用骨科知識與多模態概念幫你解釋。",
+          content: WELCOME_TEXT,
         },
       ];
     }
@@ -1005,8 +1158,7 @@ export default function LLMPage() {
       {
         id: Date.now(),
         role: "assistant",
-        content:
-          "嗨，我是 GalaBone LLM Demo。在這裡輸入你的問題，我會用骨科知識與多模態概念幫你解釋。",
+        content: WELCOME_TEXT,
       },
     ]);
 
@@ -1092,6 +1244,7 @@ export default function LLMPage() {
       raw: file,
     }));
 
+    // ✅ 只更新待上傳檔案清單（不動 messages / UI 結構）
     setPendingFiles((prev) => [...prev, ...newFiles]);
     e.target.value = "";
   }
@@ -1178,7 +1331,7 @@ export default function LLMPage() {
 
       // 2) 呼叫 chat
       const userId = getUserIdFallback();
-      const conversation_id = activeThreadId || `t-${Date.now()}`;
+      const _conversation_id = activeThreadId || `t-${Date.now()}`;
 
       const finalPrompt =
         (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
@@ -1188,30 +1341,31 @@ export default function LLMPage() {
       const payload = {
         session_id: (sessionId || "").trim(),
         user_id: (userId || "guest").trim(),
-        rag_mode: ragMode, // rag_mode
-        // ragMode: ragMode,        // 
         messages: [{ role: "user", type: "text", content: finalPrompt }],
       };
 
       const data = await postChatToBackend(payload);
 
-      // ✅ 支援後端回 { messages: [...] } 的格式
-      const answerText =
-        data?.reply ??
-        data?.answer ??
-        data?.content ??
-        data?.message ??
-        (Array.isArray(data?.messages)
-          ? String(
-              [...data.messages]
-                .reverse()
-                .find((m: any) => m?.role === "assistant")?.content ??
-                data.messages[data.messages.length - 1]?.content ??
-                ""
-            )
-          : null) ??
-        (typeof data === "string" ? data : null) ??
-        `⚠️ chat 回傳格式看不懂：${JSON.stringify(data).slice(0, 200)}`;
+      // ✅ C版判斷：優先吃 answer/content/message（最常見的後端回覆欄位）
+      let answerText = "";
+      if (data?.answer || data?.content || data?.message) {
+        answerText = String(data.answer ?? data.content ?? data.message);
+      } else {
+        // 其他相容格式：reply / messages array / 直接回字串
+        answerText =
+          String(
+            data?.reply ??
+              (Array.isArray(data?.messages)
+                ? [...data.messages]
+                    .reverse()
+                    .find((m: any) => m?.role === "assistant")?.content ??
+                  data.messages[data.messages.length - 1]?.content ??
+                  ""
+                : "")
+          ) ||
+          (typeof data === "string" ? data : "") ||
+          `⚠️ chat 回傳格式看不懂：${JSON.stringify(data).slice(0, 200)}`;
+      }
 
       const botMessage: ChatMessage = {
         id: Date.now() + 1,
