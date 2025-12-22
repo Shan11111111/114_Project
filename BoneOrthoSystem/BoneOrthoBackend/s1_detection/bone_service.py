@@ -11,8 +11,13 @@ MODEL_TO_DB_BONE_EN: Dict[str, str] = {
     "Thoracic_Vertebrae": "Thoracic vertebrae",
     "Lumbar_Vertebrae": "Lumbar vertebrae",
     "Phalanges_Hand": "Phalanges",
-    "Lumbar_Vertebrae": "Lumbar vertebrae",
-    "Lumbar_Vertebrae": "Lumbar vertebrae",
+    "Ulna": "Ulnae",
+    "Humerus": "Humeri",
+    "Radius": "Radii",
+    "Femur": "Femora",
+    "Tibia": "Tibiae",
+    "Fibula": "Fibulae",
+    "Scapula": "Scapulae",
     # 有需要可以在這裡繼續補
 }
 
