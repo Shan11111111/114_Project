@@ -27,14 +27,15 @@ class Action(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str
+    user_id: str | None = None
+    conversation_id: str | None = None   
+    messages: list[ChatMessage]
 
-    # ✅ 新增：避免 main.py 取不到 req.user_id 造成 500
-    # 前端沒送也沒關係，會是 "guest"
-    user_id: str = "guest"
-
-    messages: List[ChatMessage]
 
 
 class ChatResponse(BaseModel):
-    messages: List[ChatMessage]
-    actions: List[Action] = []
+    messages: list[ChatMessage]
+    actions: list[Action] = []
+    session_id: str | None = None         # ✅ 新增（回給前端）
+    conversation_id: str | None = None    # ✅ 新增（回給前端）
+    answer: str | None = None             # 可選：你前端會吃 answer/content/message

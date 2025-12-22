@@ -222,40 +222,48 @@ def agent_chat(req: ChatRequest):
     if not req.messages:
         raise HTTPException(status_code=400, detail="messages is empty")
 
-    # 你 models.py 沒有 user_id；所以這裡只用 fallback（不會再 AttributeError）
-    user_id = "guest"
+    user_id = (getattr(req, "user_id", None) or "guest").strip() or "guest"
+    session_id = req.session_id.strip()
 
-    # ✅ deterministic: session_id -> GUID
-    conv_id = session_to_conversation_uuid(req.session_id)
+    # ✅ 1) 先用前端給的永久 GUID（conversation_id）
+    # ✅ 2) 沒給才 fallback：用 session_id 轉 deterministic GUID（兼容舊行為）
+    raw_cid = (getattr(req, "conversation_id", None) or "").strip()
+    if raw_cid:
+        conversation_id = session_to_conversation_uuid(raw_cid)  # GUID normalize
+    else:
+        conversation_id = session_to_conversation_uuid(session_id)
 
-    # ✅ 先確保 Conversation 存在且 UserId = guest（避免你 DB 被亂寫成 GUID）
-    ensure_conversation_exists(conv_id, user_id=user_id, source="s2x")
+    # ✅ 確保 DB Conversation 存在 & UserId 正確
+    ensure_conversation_exists(conversation_id, user_id=user_id, source="s2x")
 
-    # session memory
-    session = get_session(conv_id)
-    append_messages(session, req.messages)
+    # ✅ session memory key 用 conversation_id（GUID）
+    session = get_session(conversation_id)
+    append_messages(session, [req.messages[-1]])
 
-    # 先存 user messages（原文照存，RAG query 另外 clean）
-    for msg in req.messages:
+    # ✅ 寫入 user messages（記得把 user_id 傳進 add_message）
+    # ✅ 只存最新一則 user 訊息，避免重複寫入
+    last_in = req.messages[-1]
+    if last_in.role == "user":
         attachments_json = None
-        if msg.type == "image" and msg.url:
-            attachments_json = json.dumps({"url": msg.url, "filetype": msg.filetype}, ensure_ascii=False)
+        if last_in.type == "image" and last_in.url:
+            attachments_json = json.dumps({"url": last_in.url, "filetype": last_in.filetype}, ensure_ascii=False)
 
         add_message(
-            conversation_id=conv_id,
-            role=msg.role,
-            content=msg.content or "",
+            conversation_id=conversation_id,
+            role=last_in.role,
+            content=last_in.content or "",
             attachments_json=attachments_json,
             sources=None,
-        )
+            user_id=user_id,
+            source="s2x",
+    )
 
     last = req.messages[-1]
     actions: list[Action] = []
 
-    # image: no yolo
+    # image
     if last.type == "image" and last.role == "user":
         session["current_image_url"] = last.url
-
         tip = (
             "✅ 我收到圖片了。\n"
             "這裡不做 S2 YOLO（我們只信 S1 偵測）。\n"
@@ -266,44 +274,62 @@ def agent_chat(req: ChatRequest):
         session["messages"].append(reply)
 
         add_message(
-            conversation_id=conv_id,
+            conversation_id=conversation_id,
             role="assistant",
             content=tip,
             attachments_json=None,
             sources=None,
+            user_id=user_id,
+            source="s2x",
         )
 
-        return ChatResponse(messages=session["messages"], actions=[])
+        return ChatResponse(
+            messages=session["messages"],
+            actions=[],
+            session_id=session_id,
+            conversation_id=conversation_id,
+            answer=tip,  # 可選
+        )
 
-    # text: RAG
+    # text
     if last.type == "text" and last.role == "user":
         raw_q = (last.content or "").strip()
         if not raw_q:
             raise HTTPException(status_code=400, detail="empty text message")
 
         clean_q = _extract_question(raw_q)
-
         ans_text, sources = answer_with_rag(clean_q, session)
-
-        # ✅ 先用文字把 sources 附上（你 models.py 還沒加 Action.items 前的保底）
         ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
 
         reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
         session["messages"].append(reply)
 
         add_message(
-            conversation_id=conv_id,
+            conversation_id=conversation_id,
             role="assistant",
             content=ans_text_out,
             attachments_json=None,
             sources=sources,
+            user_id=user_id,
+            source="s2x",
         )
 
-        set_conversation_title_if_empty(conv_id, _title_seed(clean_q, 80))
+        set_conversation_title_if_empty(conversation_id, _title_seed(clean_q, 80))
 
-        return ChatResponse(messages=session["messages"], actions=actions)
+        return ChatResponse(
+            messages=session["messages"],
+            actions=actions,
+            session_id=session_id,
+            conversation_id=conversation_id,
+            answer=ans_text_out,  # 可選
+        )
 
-    return ChatResponse(messages=session["messages"], actions=actions)
+    return ChatResponse(
+        messages=session["messages"],
+        actions=actions,
+        session_id=session_id,
+        conversation_id=conversation_id,
+    )
 
 
 # =========================================================
@@ -335,9 +361,16 @@ def api_update_conversation_title(conversation_id: str, payload: ConversationTit
 
 @app.post("/agent/conversations")
 def api_create_conversation(payload: ConversationCreate):
-    conv_id = create_conversation(payload.user_id, payload.title)
-    title = payload.title or "新的對話"
-    return {"conversation_id": conv_id, "title": title}
+    uid = (payload.user_id or "guest").strip() or "guest"
+    title = (payload.title or "新對話").strip() or "新對話"
+
+    # ✅ 永久 GUID（已寫入 agent.Conversation）
+    conv_id = create_conversation(uid, title=title, source="s2x")
+
+    # ✅ 暫時 session_id（不寫 DB，前端自己存 mapping）
+    sid = f"{uid}::{uuid.uuid4().hex}"
+
+    return {"conversation_id": conv_id, "session_id": sid, "title": title}
 
 
 @app.get("/agent/conversations/{conversation_id}/messages", response_model=ChatResponse)
@@ -346,9 +379,9 @@ def api_get_conversation_messages(conversation_id: str):
 
     messages: list[ChatMessage] = []
     for r in rows:
-        role = r.get("role") or r.get("Role")
-        content = r.get("content") or r.get("Content")
-        attachments_json = r.get("attachments_json") or r.get("AttachmentsJson") or r.get("attachments")
+        role = r.get("Role") or r.get("role")
+        content = r.get("Content") or r.get("content")
+        attachments_json = r.get("AttachmentsJson") or r.get("attachments_json") or r.get("attachments")
 
         msg_type = "text"
         url = None
@@ -371,11 +404,11 @@ def api_get_conversation_messages(conversation_id: str):
 
         messages.append(m)
 
-    sess_id = session_to_conversation_uuid(str(conversation_id))
-    session = get_session(sess_id)
+    cid = session_to_conversation_uuid(str(conversation_id))  # ✅ normalize GUID
+    session = get_session(cid)
     session["messages"] = messages
 
-    return ChatResponse(messages=messages, actions=[])
+    return ChatResponse(messages=messages, actions=[], conversation_id=cid)
 
 
 @app.delete("/agent/conversations/{conversation_id}")
