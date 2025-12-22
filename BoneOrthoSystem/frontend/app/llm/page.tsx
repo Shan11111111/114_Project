@@ -1,8 +1,8 @@
 "use client";
 
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 
-import {
+import React, {
   FormEvent,
   KeyboardEvent,
   ChangeEvent,
@@ -178,7 +178,7 @@ async function postChatToBackend(payload: any) {
   const data = safeJsonParse(raw);
 
   if (!res.ok || !data) {
-    // 保留原始 raw，(方便你 debug 422/500)
+    // 保留原始 raw，方便你 debug 422/500
     throw new Error(`Chat 失敗 ${res.status}：${raw.slice(0, 300)}`);
   }
   return data;
@@ -217,17 +217,72 @@ async function exportToBackend(
 }
 
 // ==============================
+// ✅ LocalStorage 快取（方案 A）
+// ==============================
+const LS_NS = "gab_llm_v1";
+
+function lsKey(uid: string) {
+  const safe = (uid || "guest").trim() || "guest";
+  return `${LS_NS}::${safe}`;
+}
+
+function lsRead(uid: string): any | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(lsKey(uid));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function lsWrite(uid: string, value: any) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(lsKey(uid), JSON.stringify(value));
+  } catch {
+    // ignore quota / privacy mode
+  }
+}
+
+function lsSafeNow() {
+  try {
+    return new Date().toLocaleString();
+  } catch {
+    return "";
+  }
+}
+
+function getUserIdFromLS() {
+  if (typeof window === "undefined") return "guest";
+  try {
+    const KEY = "tmp_user_id";
+    const existing = localStorage.getItem(KEY);
+    if (existing && existing.trim()) return existing.trim();
+
+    const uid =
+      typeof crypto !== "undefined" &&
+      "randomUUID" in crypto &&
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    localStorage.setItem(KEY, uid);
+    return uid;
+  } catch {
+    return "guest";
+  }
+}
+
+// ==============================
 // ✅ Detection Viewer（最小侵入：只加一張卡片，不動你現有聊天 UI）
-// - 標籤不顯示信心值
-// - 優先顯示 bone_zh；沒有就 fallback label41 對照中文；再沒有就 label41=xx
-// - 有 poly / PolyJson / P1~P4 就畫旋轉框；否則用 bbox 畫正框
 // ==============================
 
 const LABEL41_ZH: Record<number, string> = {
   10: "掌骨",
   14: "手指骨",
   16: "腕骨",
-  // 其他 41 類你要補齊也可以放這裡（不影響 UI）
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -256,7 +311,6 @@ function formatDetName(d: Detection) {
 }
 
 function parsePolyFromDetection(d: Detection): [number, number][] | null {
-  // 1) direct poly
   if (Array.isArray(d.poly) && d.poly.length >= 4) {
     const pts = d.poly
       .map((p) => [toNum(p?.[0]), toNum(p?.[1])] as any)
@@ -265,7 +319,6 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
     if (pts.length >= 4) return pts;
   }
 
-  // 2) PolyJson
   const pj = (d as any).polyJson ?? d.PolyJson;
   if (typeof pj === "string" && pj.trim()) {
     const obj = safeJsonParse(pj.trim());
@@ -276,7 +329,6 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
         .map((p) => [p[0] as number, p[1] as number]);
       if (pts.length >= 4) return pts;
     }
-    // 也有人存成 {poly:[[x,y]...]}
     if (obj && Array.isArray(obj.poly) && obj.poly.length >= 4) {
       const pts = obj.poly
         .map((p: any) => [toNum(p?.[0]), toNum(p?.[1])] as any)
@@ -286,7 +338,6 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
     }
   }
 
-  // 3) P1~P4
   const p1x = toNum(d.P1X),
     p1y = toNum(d.P1Y);
   const p2x = toNum(d.P2X),
@@ -314,7 +365,6 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
     ];
   }
 
-  // 4) fallback bbox -> poly
   const bb = d.bbox;
   if (Array.isArray(bb) && bb.length === 4) {
     const x1 = toNum(bb[0]),
@@ -335,7 +385,6 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
 }
 
 function isLikelyNormalized(pts: [number, number][]) {
-  // 粗略判斷：如果有任何點 > 2，當成像素座標（非 normalized）
   return pts.every(([x, y]) => Math.abs(x) <= 2 && Math.abs(y) <= 2);
 }
 
@@ -401,7 +450,7 @@ function DetectionViewer({
             1
           )}-${minY.toFixed(1)}`,
           pointsStr,
-          label: formatDetName(d), // ✅ 不含 conf
+          label: formatDetName(d),
           labelX: minX,
           labelY: minY,
         };
@@ -514,7 +563,6 @@ function DetectionViewer({
                     strokeWidth={3}
                     strokeLinejoin="round"
                   />
-                  {/* label */}
                   <foreignObject
                     x={clamp(it.labelX, 0, imgWidth - 10)}
                     y={clamp(it.labelY - 28, 0, imgHeight - 10)}
@@ -549,8 +597,7 @@ function DetectionViewer({
         </div>
 
         <div className="mt-2 text-[11px] opacity-70">
-          Tip：後端若回傳 poly / PolyJson / P1~P4 會畫旋轉框；否則用 bbox
-          畫正框。
+          Tip：後端若回傳 poly / PolyJson / P1~P4 會畫旋轉框；否則用 bbox 畫正框。
         </div>
       </div>
     </div>
@@ -606,7 +653,6 @@ function ThreadMoreMenu({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  // 點外面自動關閉
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
@@ -710,12 +756,10 @@ const HistoryOverlay = memo(function HistoryOverlay({
   const [query, setQuery] = useState<string>(persistedQueryRef.current || "");
   const [isPending, startTransition] = useTransition();
 
-  // ✅ inline rename state (最小侵入)
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 建 index（一次）
   const threadContentIndex = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of historyMessages) {
@@ -733,7 +777,6 @@ const HistoryOverlay = memo(function HistoryOverlay({
   }
 
   const filteredThreads = useMemo(() => {
-    // 組字中不 filter（避免 IME 卡頓）
     if (composingRef.current) return historyThreads;
 
     const q = (query || "").trim().toLowerCase();
@@ -750,7 +793,6 @@ const HistoryOverlay = memo(function HistoryOverlay({
     requestAnimationFrame(() => historyInputRef.current?.focus());
   }
 
-  // 打開時：把 ref 值塞回 input（避免視覺「被清空」）
   useEffect(() => {
     if (!isOpen) return;
     const id = requestAnimationFrame(() => {
@@ -762,7 +804,6 @@ const HistoryOverlay = memo(function HistoryOverlay({
     return () => cancelAnimationFrame(id);
   }, [isOpen]);
 
-  // ESC 關閉（rename 時按 Esc 會被 input 自己吃掉，不影響）
   useEffect(() => {
     if (!isOpen) return;
     function onKey(e: globalThis.KeyboardEvent) {
@@ -772,7 +813,6 @@ const HistoryOverlay = memo(function HistoryOverlay({
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, onClose]);
 
-  // ===== inline rename helpers（只作用在右側標題）=====
   function beginRename() {
     const t = historyThreads.find((x) => x.id === activeThreadId);
     setRenameValue(t?.title ?? "");
@@ -826,7 +866,6 @@ const HistoryOverlay = memo(function HistoryOverlay({
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* header */}
           <div
             className="px-4 py-3 border-b flex items-center justify-between"
             style={{ borderColor: "rgba(148,163,184,0.20)" }}
@@ -858,9 +897,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
             </div>
           </div>
 
-          {/* content */}
           <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 p-4">
-            {/* left */}
             <div
               className="col-span-12 md:col-span-4 min-h-0 rounded-2xl border overflow-hidden flex flex-col"
               style={{ borderColor: "rgba(148,163,184,0.20)" }}
@@ -984,7 +1021,6 @@ const HistoryOverlay = memo(function HistoryOverlay({
               </div>
             </div>
 
-            {/* right */}
             <div
               className="col-span-12 md:col-span-8 min-h-0 rounded-2xl border overflow-hidden flex flex-col"
               style={{ borderColor: "rgba(148,163,184,0.20)" }}
@@ -1116,27 +1152,9 @@ const HistoryOverlay = memo(function HistoryOverlay({
   );
 });
 
-function getOrCreateUserId() {
-  if (typeof window === "undefined") return "guest"; // SSR 防呆
-
-  const KEY = "tmp_user_id";
-  const existing = localStorage.getItem(KEY);
-  if (existing && existing.trim()) return existing.trim();
-
-  // 有 crypto.randomUUID 就用，沒有就 fallback
-  const uid =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-  localStorage.setItem(KEY, uid);
-  return uid;
-}
-
 export default function LLMPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const pathname = usePathname();
 
   // ✅✅ 改動 1：由 boolean 改成記錄最後 boot 的 caseId（避免重複 boot）
   const bootOnceRef = useRef<string>("");
@@ -1194,14 +1212,126 @@ export default function LLMPage() {
   const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([]);
   const [historyMessages, setHistoryMessages] = useState<HistoryMessage[]>([]);
 
-  const [activeThreadId, setActiveThreadId] = useState<string>("t-001");
+  // ✅✅ 改動：不要用 t-001 當預設，避免一直送到假 thread
+  const [activeThreadId, setActiveThreadId] = useState<string>("");
 
-  const [sessionId, setSessionId] = useState<string>(activeThreadId || "");
-  const [userId, setUserId] = useState<string>(() => getOrCreateUserId());
+  const activeThreadIdRef = useRef<string>(activeThreadId);
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId;
+  }, [activeThreadId]);
+
+  const [sessionId, setSessionId] = useState<string>("");
+
+  // ✅✅ 重要：避免初始化階段直接碰 localStorage/crypto（防空白/奇怪錯）
+  const [userId, setUserId] = useState<string>("guest");
 
   // ✅ 統一 hover/active 顏色
   const NAV_ACTIVE_BG = "rgba(148,163,184,0.16)";
   const NAV_HOVER_BG = "rgba(148,163,184,0.10)";
+
+  // ==============================
+  // ✅ LocalStorage：初始化載入 + 持久化
+  // ==============================
+  const didHydrateRef = useRef(false);
+
+  useEffect(() => {
+    // 1) 先確定 userId
+    const uid = getUserIdFromLS();
+    setUserId(uid);
+
+    // 2) 載入快取
+    const cached = lsRead(uid);
+    if (cached && typeof cached === "object") {
+      // 這裡只載入「不影響 UI」的資料
+      const cRag: RagMode | undefined = cached.ragMode;
+      const cThreads: HistoryThread[] | undefined = cached.historyThreads;
+      const cMsgs: HistoryMessage[] | undefined = cached.historyMessages;
+      const cActive: string | undefined = cached.activeThreadId;
+      const cSession: string | undefined = cached.sessionId;
+      const cMain: ChatMessage[] | undefined = cached.messages;
+
+      if (cRag) setRagMode(cRag);
+      if (Array.isArray(cThreads)) setHistoryThreads(cThreads);
+      if (Array.isArray(cMsgs)) setHistoryMessages(cMsgs);
+
+      if (typeof cSession === "string") setSessionId(cSession);
+
+      // 主畫面訊息（刷新不消失的重點）
+      if (Array.isArray(cMain) && cMain.length > 0) {
+        // 避免 pendingFiles 的 blob URL 被存進去（只保留純文本 + serverUrl）
+        const safeMain = cMain.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          files: Array.isArray(m.files)
+            ? m.files.map((f) => ({
+                id: f.id,
+                name: f.name,
+                size: f.size,
+                type: f.type,
+                // 注意：如果是本地 blob:，刷新會失效；只保留 serverUrl 或 http(s)
+                url:
+                  (f.serverUrl && f.serverUrl.startsWith("http"))
+                    ? f.serverUrl
+                    : (f.url && (f.url.startsWith("http") || f.url.startsWith("/")))
+                    ? f.url
+                    : "",
+                serverUrl: f.serverUrl,
+              }))
+            : undefined,
+        }));
+        setMessages(safeMain);
+      }
+
+      if (typeof cActive === "string") setActiveThreadId(cActive);
+    }
+
+    didHydrateRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!didHydrateRef.current) return;
+    const uid = (userId || "guest").trim() || "guest";
+
+    // 不存 pendingFiles（blob）+ 不存 seed 圖（可能很大/也可能是臨時）
+    const payload = {
+      version: 1,
+      savedAt: lsSafeNow(),
+      userId: uid,
+      ragMode,
+      sessionId,
+      activeThreadId,
+      historyThreads,
+      historyMessages,
+      messages,
+    };
+
+    lsWrite(uid, payload);
+  }, [
+    userId,
+    ragMode,
+    sessionId,
+    activeThreadId,
+    historyThreads,
+    historyMessages,
+    messages,
+  ]);
+
+  // ✅✅ 新增：reset seed + 清除 URL 的 caseId（不動 UI）
+  function resetSeedAndCaseIdInUrl() {
+    bootOnceRef.current = "";
+    setSeedImageUrl("");
+    setSeedDetections([]);
+
+    const hasCase =
+      !!searchParams.get("caseId") ||
+      !!searchParams.get("caseld") ||
+      !!searchParams.get("caseid");
+
+    if (hasCase) {
+      router.replace("/llm"); // 只改 URL，不改 UI
+    }
+  }
 
   // ✅ rename：只更新 title（最小改動）
   function renameThread(threadId: string, nextTitle: string) {
@@ -1213,19 +1343,16 @@ export default function LLMPage() {
     );
   }
 
-  // ✅ delete：刪除 thread（UI 直接消失）
   function deleteThread(threadId: string) {
     if (!confirm("確定要刪除這個對話嗎？")) return;
 
     setHistoryThreads((prev) => {
       const next = prev.filter((t) => t.id !== threadId);
 
-      // 若刪到目前 active，切到第一個（或清空）
-      if (activeThreadId === threadId) {
+      if (activeThreadIdRef.current === threadId) {
         const fallbackId = next[0]?.id ?? "";
         setActiveThreadId(fallbackId);
 
-        // 若有 fallback，就同步載入到主畫面
         if (fallbackId) {
           loadThreadToMain(fallbackId);
         } else {
@@ -1235,16 +1362,19 @@ export default function LLMPage() {
 
       return next;
     });
+
+    // 也把 messages 清掉（避免 UI 顯示已刪除 thread 的訊息）
+    setHistoryMessages((prev) => prev.filter((m) => m.threadId !== threadId));
   }
 
-  // ✅ share：先用 clipboard（可換成你後端分享連結）
   function shareThread(threadId: string) {
     const url = `${location.origin}/llm?thread=${encodeURIComponent(threadId)}`;
     navigator.clipboard.writeText(url);
     alert("已複製分享連結");
   }
-  async function apiFetchConversations(userId: string) {
-    const res = await fetch(API.listConvs(userId), { method: "GET" }); // 重要：一定要帶 userId
+
+  async function apiFetchConversations(uid: string) {
+    const res = await fetch(API.listConvs(uid), { method: "GET" });
     const raw = await res.text();
     const data = safeJsonParse(raw);
 
@@ -1267,12 +1397,12 @@ export default function LLMPage() {
         ),
         preview: String(c.preview ?? c.last_message ?? ""),
         messageCount: Number(c.messageCount ?? c.message_count ?? 0),
-        sessionId: String(c.session_id ?? c.sessionId ?? ""), // ✅ 新增
+        sessionId: String(c.session_id ?? c.sessionId ?? ""),
       }))
       .filter((t: any) => t.id);
   }
+
   async function apiCreateConversation(uid: string) {
-    // 後端待會才做：先把前端呼叫準備好
     const res = await fetch(`${S2X_BASE}/agent/conversations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1293,7 +1423,6 @@ export default function LLMPage() {
     };
   }
 
-  // 取得單一 conversation 的 messages
   async function fetchConversationMessages(cid: string) {
     const res = await fetch(API.getMsgs(cid), { method: "GET" });
     const raw = await res.text();
@@ -1320,9 +1449,6 @@ export default function LLMPage() {
     return mapped;
   }
 
-  // =========================
-  // thread → 主畫面 messages
-  // =========================
   function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
     const threadMsgs = historyMessages
       .filter((m) => m.threadId === threadId)
@@ -1358,6 +1484,8 @@ export default function LLMPage() {
   }
 
   function loadThreadToMain(threadId: string) {
+    resetSeedAndCaseIdInUrl(); // ✅ 切對話也清掉 seed / caseId
+
     const t = historyThreads.find((x) => x.id === threadId);
     if (t?.sessionId) setSessionId(t.sessionId);
 
@@ -1371,35 +1499,173 @@ export default function LLMPage() {
       return [];
     });
 
-    // ✅ seed card 不清空（你要清也可以），這裡保持最小侵入：不動
     setIsHistoryOpen(false);
     setTimeout(() => inputRef.current?.focus(), 60);
   }
 
+  function nowText() {
+    return new Date().toLocaleString();
+  }
+
+  function ensureThreadExists(
+    threadId: string,
+    patch?: Partial<HistoryThread>
+  ) {
+    setHistoryThreads((prev) => {
+      const idx = prev.findIndex((t) => t.id === threadId);
+
+      if (idx >= 0) {
+        const updated = { ...prev[idx], ...(patch || {}) };
+        const rest = prev.filter((_, i) => i !== idx);
+        return [updated, ...rest];
+      }
+
+      const created: HistoryThread = {
+        id: threadId,
+        title: patch?.title ?? "新對話",
+        updatedAt: patch?.updatedAt ?? nowText(),
+        preview: patch?.preview ?? "",
+        messageCount: patch?.messageCount ?? 0,
+        sessionId: patch?.sessionId,
+      };
+      return [created, ...prev];
+    });
+  }
+
+  function bumpThreadOnMessage(
+    threadId: string,
+    lastText: string,
+    deltaCount = 1
+  ) {
+    if (!threadId) return;
+
+    setHistoryThreads((prev) => {
+      const idx = prev.findIndex((t) => t.id === threadId);
+      const updatedAt = nowText();
+
+      if (idx < 0) {
+        const created: HistoryThread = {
+          id: threadId,
+          title: "新對話",
+          updatedAt,
+          preview: lastText,
+          messageCount: deltaCount,
+        };
+        return [created, ...prev];
+      }
+
+      const t = prev[idx];
+      const next: HistoryThread = {
+        ...t,
+        updatedAt,
+        preview: lastText || t.preview,
+        messageCount: Math.max(0, Number(t.messageCount || 0) + deltaCount),
+      };
+
+      const rest = prev.filter((_, i) => i !== idx);
+      return [next, ...rest];
+    });
+  }
+
+  // ✅✅ 新增：自動把「新對話」改成第一句（像 GPT）
+  function maybeAutoTitle(threadId: string, userText: string) {
+    const title = (userText || "").trim().replace(/\s+/g, " ");
+    if (!title) return;
+
+    setHistoryThreads((prev) => {
+      const idx = prev.findIndex((t) => t.id === threadId);
+      if (idx < 0) return prev;
+
+      const t = prev[idx];
+      if ((t.title || "").trim() !== "新對話") return prev; // 避免蓋掉你手動改名
+
+      const nextTitle = title.slice(0, 18);
+      const updated = { ...t, title: nextTitle };
+      const rest = prev.filter((_, i) => i !== idx);
+      return [updated, ...rest];
+    });
+  }
+
+  function replaceThreadId(
+    oldId: string,
+    newId: string,
+    sessionIdMaybe?: string
+  ) {
+    if (!newId || oldId === newId) {
+      if (sessionIdMaybe) {
+        setHistoryThreads((prev) =>
+          prev.map((t) =>
+            t.id === oldId ? { ...t, sessionId: sessionIdMaybe } : t
+          )
+        );
+      }
+      return;
+    }
+
+    setHistoryThreads((prev) => {
+      const old = prev.find((t) => t.id === oldId);
+      const withoutOld = prev.filter((t) => t.id !== oldId);
+
+      const existingIdx = withoutOld.findIndex((t) => t.id === newId);
+      if (existingIdx >= 0) {
+        const merged: HistoryThread = {
+          ...withoutOld[existingIdx],
+          ...(old || {}),
+          id: newId,
+          sessionId:
+            sessionIdMaybe ??
+            withoutOld[existingIdx].sessionId ??
+            old?.sessionId,
+        };
+        const rest = withoutOld.filter((_, i) => i !== existingIdx);
+        return [merged, ...rest];
+      }
+
+      const created: HistoryThread = {
+        ...(old || {
+          title: "新對話",
+          updatedAt: nowText(),
+          preview: "",
+          messageCount: 0,
+        }),
+        id: newId,
+        sessionId: sessionIdMaybe ?? old?.sessionId,
+      };
+
+      return [created, ...withoutOld];
+    });
+
+    // ✅ 歷史訊息也把 threadId 一起換掉（不然切換會空）
+    setHistoryMessages((prev) =>
+      prev.map((m) => (m.threadId === oldId ? { ...m, threadId: newId } : m))
+    );
+
+    setActiveThreadId(newId);
+  }
+
   async function newThread() {
+    resetSeedAndCaseIdInUrl(); // ✅ 新對話就不該保留 seed / caseId
+
     const uid = (userId || "guest").trim() || "guest";
 
-    // ✅ 先準備「暫時 threadId」：後端沒上線時也能用
     const localThreadId = `t-${Date.now()}`;
     const localSessionId = `${uid}::${
+      // @ts-ignore
       crypto?.randomUUID?.() ?? `tmp-${Date.now()}`
     }`;
 
-    try {
-      // ✅ 後端上線後：會在這裡拿到真正 conversation_id / session_id
-      const created = await apiCreateConversation(uid);
-
-      setActiveThreadId(String(created.conversation_id));
-      setSessionId(
-        String(created.session_id ?? `${uid}::${created.conversation_id}`)
-      );
-    } catch {
-      // ✅ 後端還沒好：先用本地規則撐住（仍符合 uid::token）
-      setActiveThreadId(localThreadId);
-      setSessionId(localSessionId);
-    }
-
     setActiveView("llm");
+    setActiveThreadId(localThreadId);
+    setSessionId(localSessionId);
+
+    ensureThreadExists(localThreadId, {
+      title: "新對話",
+      updatedAt: nowText(),
+      preview: "",
+      messageCount: 0,
+      sessionId: localSessionId,
+    });
+
     setMessages([
       {
         id: Date.now(),
@@ -1417,7 +1683,33 @@ export default function LLMPage() {
 
     setIsHistoryOpen(false);
     setTimeout(() => inputRef.current?.focus(), 60);
+
+    try {
+      const created = await apiCreateConversation(uid);
+      const realId = String(created.conversation_id || "");
+      const realSession = String(created.session_id || "");
+
+      if (realId) {
+        replaceThreadId(localThreadId, realId, realSession || localSessionId);
+      } else if (realSession) {
+        setSessionId(realSession);
+        ensureThreadExists(localThreadId, { sessionId: realSession });
+      }
+    } catch {
+      // 後端沒好：維持本地即可
+    }
   }
+
+  const bootNewThreadOnceRef = useRef(false);
+  useEffect(() => {
+    if (bootNewThreadOnceRef.current) return;
+    bootNewThreadOnceRef.current = true;
+
+    if (!activeThreadIdRef.current) {
+      newThread();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function autoResizeTextarea() {
     const el = inputRef.current;
@@ -1462,7 +1754,6 @@ export default function LLMPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftText, isMultiLine]);
 
-  // 點外面自動關 tool menu
   useEffect(() => {
     function onDown(e: MouseEvent) {
       const target = e.target as HTMLElement;
@@ -1473,7 +1764,6 @@ export default function LLMPage() {
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
-  // ===== 檔案處理 =====
   function handleUploadClick() {
     fileInputRef.current?.click();
   }
@@ -1491,7 +1781,6 @@ export default function LLMPage() {
       raw: file,
     }));
 
-    // ✅ 只更新待上傳檔案清單（不動 messages / UI 結構）
     setPendingFiles((prev) => [...prev, ...newFiles]);
     e.target.value = "";
   }
@@ -1504,12 +1793,13 @@ export default function LLMPage() {
     });
   }
 
-  // ===== 送出訊息 =====
   async function sendMessage(e?: FormEvent) {
     if (e) e.preventDefault();
 
     const text = draftText.trim();
     if ((!text && pendingFiles.length === 0) || loading) return;
+
+    const threadIdAtSend = activeThreadIdRef.current;
 
     const userMessage: ChatMessage = {
       id: Date.now(),
@@ -1519,8 +1809,9 @@ export default function LLMPage() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    bumpThreadOnMessage(threadIdAtSend, text || "（已上傳檔案）", 1);
+    maybeAutoTitle(threadIdAtSend, text || "（已上傳檔案）"); // ✅ 自動標題
 
-    // 把要上傳的檔案先留住（因為下面會清 pendingFiles + revoke）
     const filesToUpload = pendingFiles.slice();
 
     resetMainInputBox();
@@ -1533,7 +1824,6 @@ export default function LLMPage() {
     setLoading(true);
 
     try {
-      // ✅ 沒設定後端就退回 demo（避免你開發時一直炸）
       if (!API_BASE) {
         const answerText = fakeLLMReply(text || "（已上傳檔案）");
         const botMessage: ChatMessage = {
@@ -1542,15 +1832,15 @@ export default function LLMPage() {
           content: answerText,
         };
         setMessages((prev) => [...prev, botMessage]);
+        bumpThreadOnMessage(threadIdAtSend, String(answerText).slice(0, 80), 1);
+
         setLoading(false);
         return;
       }
 
-      // ✅ RAG 模式（只改 prompt，不動 UI）
       const wantFile = ragMode !== "vector_only";
       const wantVector = ragMode !== "file_only";
 
-      // 1) 先上傳檔案（若有 & wantFile）
       let fileContextText = "";
       if (wantFile) {
         for (const f of filesToUpload) {
@@ -1558,14 +1848,12 @@ export default function LLMPage() {
 
           const up = await uploadOneFileToBackend(f.raw);
 
-          // 後端可能回：{ url, filename, text, summary, ... }
           const fn = String(up?.filename ?? up?.name ?? f.name);
           const summary = String(up?.summary ?? "");
           const txt = String(up?.text ?? "");
-          const urlRel = String(up?.url ?? up?.path ?? "");
+          const urlRel = String(up?.legacy_url ?? up?.url ?? up?.path ?? "");
           const abs = toAbsUrl(urlRel);
 
-          // 若你想記 serverUrl（不影響 UI）
           f.serverUrl = abs || urlRel;
 
           if (summary.trim()) {
@@ -1581,16 +1869,14 @@ export default function LLMPage() {
         }
       }
 
-      // 2) vector hint（只影響 prompt，不影響 UI）
       const vectorHint = wantVector
         ? `\n\n---\n【RAG】請先用既有教材向量庫檢索後回答，並附 sources/citations（檔名/頁碼或chunk/score）。找不到就說找不到。`
         : "";
 
-      // 3) 呼叫 chat
       const uid = (userId || "guest").trim() || "guest";
       const sid =
         (sessionId || "").trim() ||
-        `${uid}::${(activeThreadId || `t-${Date.now()}`).trim()}`; // uid::token
+        `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}`;
 
       const basePrompt =
         (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
@@ -1600,15 +1886,21 @@ export default function LLMPage() {
       const payload = {
         session_id: sid,
         user_id: uid,
+        conversation_id: threadIdAtSend,
         messages: [{ role: "user", type: "text", content: basePrompt }],
       };
 
       const data = await postChatToBackend(payload);
-      console.log("chat resp =", data);
 
-      const cid = String(data?.conversation_id ?? data?.session_id ?? "");
-      if (cid) setActiveThreadId(cid);
-      // ✅ C版判斷：優先吃 answer/content/message
+      const cid = String(data?.conversation_id ?? "");
+      const sidFromServer = String(data?.session_id ?? "");
+
+      if (sidFromServer) setSessionId(sidFromServer);
+
+      if (cid) {
+        replaceThreadId(threadIdAtSend, cid, sidFromServer || sessionId);
+      }
+
       let answerText = "";
       if (data?.answer || data?.content || data?.message) {
         answerText = String(data.answer ?? data.content ?? data.message);
@@ -1635,22 +1927,31 @@ export default function LLMPage() {
       };
 
       setMessages((prev) => [...prev, botMessage]);
+
+      bumpThreadOnMessage(
+        activeThreadIdRef.current || threadIdAtSend,
+        String(answerText).slice(0, 80),
+        1
+      );
     } catch (err: any) {
+      const msg = `⚠️ 後端呼叫失敗：${err?.message ?? String(err)}`;
+
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now() + 2,
           role: "assistant",
-          content: `⚠️ 後端呼叫失敗：${err?.message ?? String(err)}`,
+          content: msg,
         },
       ]);
+
+      bumpThreadOnMessage(activeThreadIdRef.current || threadIdAtSend, msg, 1);
     } finally {
       setLoading(false);
     }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    // IME 組字中不要送出
     // @ts-ignore
     if (e.nativeEvent?.isComposing) return;
 
@@ -1660,7 +1961,6 @@ export default function LLMPage() {
     }
   }
 
-  // ✅ 跟檔案B一致：把目前 messages 轉成後端需要的 messages[]
   function toBackendMessages(uiMsgs: ChatMessage[]) {
     return uiMsgs.map((m) => ({
       role: m.role,
@@ -1703,7 +2003,6 @@ export default function LLMPage() {
     }
   }
 
-  // ===== Tool menu =====
   function ToolMenuItem({
     iconClass,
     label,
@@ -1777,7 +2076,6 @@ export default function LLMPage() {
     );
   }
 
-  // ===== message files =====
   function renderMessageFiles(files?: UploadedFile[]) {
     if (!files || files.length === 0) return null;
 
@@ -1793,6 +2091,7 @@ export default function LLMPage() {
               style={{ borderColor: "rgba(148,163,184,0.25)" }}
             >
               {isImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={file.url}
                   alt={file.name}
@@ -1816,7 +2115,6 @@ export default function LLMPage() {
     );
   }
 
-  // ===== Sidebar UI =====
   function SideIconButton({
     iconClass,
     label,
@@ -1936,7 +2234,17 @@ export default function LLMPage() {
     try {
       const uid = userId || "guest";
       const threads = await apiFetchConversations(uid);
-      setHistoryThreads(threads);
+
+      // ✅ 不覆蓋本地：合併（避免刷新後本地快取被清空）
+      setHistoryThreads((prev) => {
+        const map = new Map<string, HistoryThread>();
+        for (const t of prev) map.set(t.id, t);
+        for (const t of threads) map.set(t.id, { ...map.get(t.id), ...t });
+        return Array.from(map.values()).sort((a, b) =>
+          String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+        );
+      });
+
       setIsHistoryOpen(true);
     } catch (e: any) {
       alert(String(e?.message || e));
@@ -1961,16 +2269,15 @@ export default function LLMPage() {
   }
 
   // =========================
-  // ✅✅ 改動 2：Bootstrap-from-S1（只認 URL caseId；沒有就清 seed，避免直接開 /llm 也 bootstrap）
+  // ✅✅ Bootstrap-from-S1（保持你原邏輯；但 seed 只有帶 caseId 才出現）
   // =========================
   useEffect(() => {
     const caseIdStr =
       searchParams.get("caseId") ??
-      searchParams.get("caseld") ?? // 兼容之前拼錯
+      searchParams.get("caseld") ??
       searchParams.get("caseid") ??
       "";
 
-    // ✅ 沒有 caseId → 不是從偵測頁導入：清 seed 卡，並允許之後帶 caseId 時再 boot
     if (!caseIdStr) {
       bootOnceRef.current = "";
       setSeedImageUrl("");
@@ -1978,17 +2285,42 @@ export default function LLMPage() {
       return;
     }
 
-    // ✅ 同 caseId 不重複 boot（StrictMode / rerender 防雙打）
     if (bootOnceRef.current === caseIdStr) return;
     bootOnceRef.current = caseIdStr;
 
     const caseId = Number(caseIdStr);
     if (!Number.isFinite(caseId) || caseId <= 0) return;
 
-    // 你要留著也行（不再讀它就不會造成「直接開 /llm 也 bootstrap」）
     if (typeof window !== "undefined") {
       localStorage.setItem("gab_last_case_id", String(caseIdStr));
     }
+
+    const ensureThreadIdForBoot = () => {
+      if (activeThreadIdRef.current) return activeThreadIdRef.current;
+
+      const uid = (userId || "guest").trim() || "guest";
+      const localThreadId = `t-${Date.now()}`;
+      const localSessionId = `${uid}::${
+        // @ts-ignore
+        crypto?.randomUUID?.() ?? `tmp-${Date.now()}`
+      }`;
+
+      setActiveView("llm");
+      setActiveThreadId(localThreadId);
+      setSessionId(localSessionId);
+
+      ensureThreadExists(localThreadId, {
+        title: "新對話",
+        updatedAt: nowText(),
+        preview: "",
+        messageCount: 0,
+        sessionId: localSessionId,
+      });
+
+      return localThreadId;
+    };
+
+    const threadIdAtBoot = ensureThreadIdForBoot();
 
     (async () => {
       try {
@@ -2025,7 +2357,6 @@ export default function LLMPage() {
 
         const imgAbs = toAbsUrl(imgRel);
 
-        // ✅ seed 卡片（不影響 UI：只是多顯示一張）
         if (imgAbs) setSeedImageUrl(imgAbs);
         const dets = Array.isArray(data.detections)
           ? (data.detections as Detection[])
@@ -2056,14 +2387,25 @@ export default function LLMPage() {
             files: seedFiles.length ? seedFiles : undefined,
           },
         ]);
+        bumpThreadOnMessage(threadIdAtBoot, String(question).slice(0, 80), 1);
+        maybeAutoTitle(threadIdAtBoot, question); // ✅ bootstrap 的第一句也會自動標題
 
         const payload = {
-          session_id: (bootSession || "").trim(),
+          session_id: (bootSession || sessionId || "").trim(),
           user_id: (userId || "guest").trim(),
+          conversation_id: threadIdAtBoot,
           messages: [{ role: "user", type: "text", content: question }],
         };
 
         const resp = await postChatToBackend(payload);
+
+        const cid = String(resp?.conversation_id ?? "");
+        const sidFromServer = String(resp?.session_id ?? "");
+        if (sidFromServer) setSessionId(sidFromServer);
+
+        if (cid) {
+          replaceThreadId(threadIdAtBoot, cid, sidFromServer || bootSession);
+        }
 
         let answerText = "";
         if (resp?.answer || resp?.content || resp?.message) {
@@ -2090,20 +2432,31 @@ export default function LLMPage() {
             content: String(answerText),
           },
         ]);
+
+        bumpThreadOnMessage(
+          activeThreadIdRef.current || threadIdAtBoot,
+          String(answerText).slice(0, 80),
+          1
+        );
       } catch (e: any) {
+        const msg = `bootstrap 失敗：${e?.message ?? String(e)}`;
         setMessages((prev) => [
           ...prev,
           {
             id: Date.now() + 2,
             role: "assistant",
-            content: `bootstrap 失敗：${e?.message ?? String(e)}`,
+            content: msg,
           },
         ]);
+        bumpThreadOnMessage(activeThreadIdRef.current || threadIdAtBoot, msg, 1);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // =========================
+  // ✅ 下面 return UI：完全不動（你原本的 JSX 그대로）
+  // =========================
   return (
     <div
       className="h-[calc(100vh-4rem)] flex overflow-hidden transition-colors duration-500 relative"
@@ -2122,7 +2475,11 @@ export default function LLMPage() {
           setActiveThreadId(id);
           try {
             const msgs = await fetchConversationMessages(id);
-            setHistoryMessages(msgs);
+
+            setHistoryMessages((prev) => {
+              const withoutThis = prev.filter((m) => m.threadId !== id);
+              return [...withoutThis, ...msgs];
+            });
           } catch (e: any) {
             console.error(e);
             alert(e?.message || "讀取對話內容失敗");
@@ -2352,8 +2709,8 @@ export default function LLMPage() {
                   <SideRow
                     iconClass="fa-solid fa-folder-tree"
                     label="資源管理"
-                    active={pathname.startsWith("/llm/materials")}
-                    onClick={() => router.push("/llm/materials")}
+                    active={activeView === "assets"}
+                    onClick={() => setActiveView("assets")}
                   />
                   <SideRow
                     iconClass="fa-regular fa-clock"
@@ -2404,8 +2761,8 @@ export default function LLMPage() {
                 <SideIconButton
                   iconClass="fa-solid fa-folder-tree"
                   label="資源管理"
-                  active={pathname.startsWith("/llm/materials")}
-                  onClick={() => router.push("/llm/materials")}
+                  active={activeView === "assets"}
+                  onClick={() => setActiveView("assets")}
                 />
                 <SideIconButton
                   iconClass="fa-regular fa-clock"
@@ -2603,7 +2960,6 @@ export default function LLMPage() {
             >
               <div className="w-full flex justify-center">
                 <div className="w-full max-w-3xl pr-1">
-                  {/* ✅ 只加這塊：不改你原本 message bubble 的結構 */}
                   {seedImageUrl && (
                     <DetectionViewer
                       imageUrl={seedImageUrl}
