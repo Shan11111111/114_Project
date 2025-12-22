@@ -39,6 +39,7 @@ type HistoryThread = {
   updatedAt: string;
   preview: string;
   messageCount: number;
+  sessionId?: string; // ✅ 新增：不顯示，只用於繼續聊天
 };
 
 type HistoryMessage = {
@@ -128,13 +129,10 @@ const API = {
   chat: `${S2X_BASE}/agent/chat`,
   exportPdf: `${S2X_BASE}/export/pdf`,
   exportPptx: `${S2X_BASE}/export/pptx`,
-  listConvs: `${S2X_BASE}/agent/conversations`,
+  listConvs: (uid: string) =>
+    `${S2X_BASE}/agent/conversations?user_id=${encodeURIComponent(uid)}`,
   getMsgs: (cid: string) => `${S2X_BASE}/agent/conversations/${cid}/messages`,
 };
-
-function getUserIdFallback() {
-  return "guest";
-}
 
 function safeJsonParse(raw: string) {
   try {
@@ -237,7 +235,8 @@ function clamp(n: number, min: number, max: number) {
 }
 
 function toNum(v: any): number | null {
-  const n = typeof v === "number" ? v : v === null || v === undefined ? NaN : Number(v);
+  const n =
+    typeof v === "number" ? v : v === null || v === undefined ? NaN : Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -288,16 +287,24 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
   }
 
   // 3) P1~P4
-  const p1x = toNum(d.P1X), p1y = toNum(d.P1Y);
-  const p2x = toNum(d.P2X), p2y = toNum(d.P2Y);
-  const p3x = toNum(d.P3X), p3y = toNum(d.P3Y);
-  const p4x = toNum(d.P4X), p4y = toNum(d.P4Y);
+  const p1x = toNum(d.P1X),
+    p1y = toNum(d.P1Y);
+  const p2x = toNum(d.P2X),
+    p2y = toNum(d.P2Y);
+  const p3x = toNum(d.P3X),
+    p3y = toNum(d.P3Y);
+  const p4x = toNum(d.P4X),
+    p4y = toNum(d.P4Y);
 
   if (
-    p1x !== null && p1y !== null &&
-    p2x !== null && p2y !== null &&
-    p3x !== null && p3y !== null &&
-    p4x !== null && p4y !== null
+    p1x !== null &&
+    p1y !== null &&
+    p2x !== null &&
+    p2y !== null &&
+    p3x !== null &&
+    p3y !== null &&
+    p4x !== null &&
+    p4y !== null
   ) {
     return [
       [p1x, p1y],
@@ -310,7 +317,10 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
   // 4) fallback bbox -> poly
   const bb = d.bbox;
   if (Array.isArray(bb) && bb.length === 4) {
-    const x1 = toNum(bb[0]), y1 = toNum(bb[1]), x2 = toNum(bb[2]), y2 = toNum(bb[3]);
+    const x1 = toNum(bb[0]),
+      y1 = toNum(bb[1]),
+      x2 = toNum(bb[2]),
+      y2 = toNum(bb[3]);
     if (x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
       return [
         [x1, y1],
@@ -339,7 +349,10 @@ function DetectionViewer({
   const [imgWidth, setImgWidth] = useState<number>(420);
   const [imgHeight, setImgHeight] = useState<number>(260);
   const [showDetections, setShowDetections] = useState(true);
-  const [natural, setNatural] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
+  const [natural, setNatural] = useState<{ w: number; h: number }>({
+    w: 1,
+    h: 1,
+  });
 
   useEffect(() => {
     let alive = true;
@@ -361,33 +374,39 @@ function DetectionViewer({
   const inc = () => setImgWidth((v) => clamp(v + 40, 320, 760));
 
   const renderItems = useMemo(() => {
-    return (detections || []).map((d, idx) => {
-      const pts = parsePolyFromDetection(d);
-      if (!pts || pts.length < 4) return null;
+    return (detections || [])
+      .map((d, idx) => {
+        const pts = parsePolyFromDetection(d);
+        if (!pts || pts.length < 4) return null;
 
-      const norm = isLikelyNormalized(pts);
+        const norm = isLikelyNormalized(pts);
 
-      const scaled = pts.map(([x, y]) => {
-        const xx = norm ? x * imgWidth : (x / natural.w) * imgWidth;
-        const yy = norm ? y * imgHeight : (y / natural.h) * imgHeight;
-        return [xx, yy] as [number, number];
-      });
+        const scaled = pts.map(([x, y]) => {
+          const xx = norm ? x * imgWidth : (x / natural.w) * imgWidth;
+          const yy = norm ? y * imgHeight : (y / natural.h) * imgHeight;
+          return [xx, yy] as [number, number];
+        });
 
-      const xs = scaled.map((p) => p[0]);
-      const ys = scaled.map((p) => p[1]);
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
+        const xs = scaled.map((p) => p[0]);
+        const ys = scaled.map((p) => p[1]);
+        const minX = Math.min(...xs);
+        const minY = Math.min(...ys);
 
-      const pointsStr = scaled.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+        const pointsStr = scaled
+          .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
+          .join(" ");
 
-      return {
-        key: `det-${idx}-${String(d.label41 ?? "")}-${minX.toFixed(1)}-${minY.toFixed(1)}`,
-        pointsStr,
-        label: formatDetName(d), // ✅ 不含 conf
-        labelX: minX,
-        labelY: minY,
-      };
-    }).filter(Boolean) as {
+        return {
+          key: `det-${idx}-${String(d.label41 ?? "")}-${minX.toFixed(
+            1
+          )}-${minY.toFixed(1)}`,
+          pointsStr,
+          label: formatDetName(d), // ✅ 不含 conf
+          labelX: minX,
+          labelY: minY,
+        };
+      })
+      .filter(Boolean) as {
       key: string;
       pointsStr: string;
       label: string;
@@ -407,7 +426,7 @@ function DetectionViewer({
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="text-[12px] font-semibold opacity-80">
           圖片寬度：{imgWidth}px<span className="opacity-60"> ｜ </span>
-          偵測框：{(detections?.length ?? 0)}
+          偵測框：{detections?.length ?? 0}
         </div>
 
         <div className="flex items-center gap-2">
@@ -530,7 +549,8 @@ function DetectionViewer({
         </div>
 
         <div className="mt-2 text-[11px] opacity-70">
-          Tip：後端若回傳 poly / PolyJson / P1~P4 會畫旋轉框；否則用 bbox 畫正框。
+          Tip：後端若回傳 poly / PolyJson / P1~P4 會畫旋轉框；否則用 bbox
+          畫正框。
         </div>
       </div>
     </div>
@@ -1096,9 +1116,28 @@ const HistoryOverlay = memo(function HistoryOverlay({
   );
 });
 
+function getOrCreateUserId() {
+  if (typeof window === "undefined") return "guest"; // SSR 防呆
+
+  const KEY = "tmp_user_id";
+  const existing = localStorage.getItem(KEY);
+  if (existing && existing.trim()) return existing.trim();
+
+  // 有 crypto.randomUUID 就用，沒有就 fallback
+  const uid =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  localStorage.setItem(KEY, uid);
+  return uid;
+}
+
 export default function LLMPage() {
   const searchParams = useSearchParams();
-  const bootOnceRef = useRef(false);
+
+  // ✅✅ 改動 1：由 boolean 改成記錄最後 boot 的 caseId（避免重複 boot）
+  const bootOnceRef = useRef<string>("");
 
   // ✅ seed card（不動原排版：只在聊天區最上方插一張卡）
   const [seedImageUrl, setSeedImageUrl] = useState<string>("");
@@ -1149,110 +1188,14 @@ export default function LLMPage() {
 
   const [ragOpen, setRagOpen] = useState(false);
 
-  // ✅ 假的 thread 清單（改成可更新：只為了 rename / delete，不影響其他行為）
-  const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([
-    {
-      id: "t-001",
-      title: "骨折分類與處置",
-      updatedAt: "今天 21:10",
-      preview: "骨折就是骨頭出現裂痕或斷裂…",
-      messageCount: 8,
-    },
-    {
-      id: "t-002",
-      title: "L/R Mark 與左右判斷",
-      updatedAt: "昨天 17:42",
-      preview: "手部 X 光只有一隻手時，可以用…",
-      messageCount: 12,
-    },
-    {
-      id: "t-003",
-      title: "資料庫 Bone_Info 對應規則",
-      updatedAt: "12/10 13:05",
-      preview: "Cervical_Vertebrae → Cervical vertebrae…",
-      messageCount: 6,
-    },
-  ]);
-
-  // ✅ 假的 messages
-  const [historyMessages] = useState<HistoryMessage[]>([
-    // t-001
-    {
-      id: "m-001",
-      threadId: "t-001",
-      role: "user",
-      content: "骨折是什麼？會怎麼治療？",
-      createdAt: "21:08",
-    },
-    {
-      id: "m-002",
-      threadId: "t-001",
-      role: "assistant",
-      content:
-        "骨折是骨頭出現裂痕或斷裂，嚴重程度可從細小裂縫到完全斷開。常用 X 光判斷位置與型態，治療可能包含固定、石膏或手術。",
-      createdAt: "21:09",
-    },
-    {
-      id: "m-003",
-      threadId: "t-001",
-      role: "user",
-      content: "那粉碎性骨折跟一般骨折差在哪？",
-      createdAt: "21:09",
-    },
-    {
-      id: "m-004",
-      threadId: "t-001",
-      role: "assistant",
-      content:
-        "粉碎性骨折通常代表骨頭裂成多塊，穩定性更差，常需要更積極的固定方式（例如手術內固定）才能恢復對位與功能。",
-      createdAt: "21:10",
-    },
-
-    // t-002
-    {
-      id: "m-005",
-      threadId: "t-002",
-      role: "user",
-      content: "很多手部 X 光只有一隻手，怎麼判斷左右？",
-      createdAt: "17:40",
-    },
-    {
-      id: "m-006",
-      threadId: "t-002",
-      role: "assistant",
-      content:
-        "最穩的做法是把片上的 L/R Marker 當成 meta 訊息；若沒有 marker，可再搭配解剖特徵（例如拇指方向、尺橈骨相對位置）做 fallback。",
-      createdAt: "17:41",
-    },
-
-    // t-003
-    {
-      id: "m-007",
-      threadId: "t-003",
-      role: "user",
-      content: "辨識出的名字跟資料庫不一樣怎麼辦？",
-      createdAt: "13:03",
-    },
-    {
-      id: "m-008",
-      threadId: "t-003",
-      role: "assistant",
-      content:
-        "可以做一層 mapping（dictionary / table），把 YOLO class 名稱標準化成 DB 的 bone_en（例如底線換空白、大小寫、特例對應）。",
-      createdAt: "13:04",
-    },
-  ]);
+  // ✅ thread清單  聊天紀錄
+  const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([]);
+  const [historyMessages, setHistoryMessages] = useState<HistoryMessage[]>([]);
 
   const [activeThreadId, setActiveThreadId] = useState<string>("t-001");
 
   const [sessionId, setSessionId] = useState<string>(activeThreadId || "");
-  const [userId, setUserId] = useState<string>(getUserIdFallback());
-
-  useEffect(() => {
-    // 後端還沒做對話紀錄的情況下，用 activeThreadId 當 session 先撐著
-    console.log("🔁 session sync effect ran:", activeThreadId);
-    setSessionId(activeThreadId);
-  }, [activeThreadId]);
+  const [userId, setUserId] = useState<string>(() => getOrCreateUserId());
 
   // ✅ 統一 hover/active 顏色
   const NAV_ACTIVE_BG = "rgba(148,163,184,0.16)";
@@ -1298,6 +1241,82 @@ export default function LLMPage() {
     navigator.clipboard.writeText(url);
     alert("已複製分享連結");
   }
+  async function apiFetchConversations(userId: string) {
+    const res = await fetch(API.listConvs(userId), { method: "GET" }); // 重要：一定要帶 userId
+    const raw = await res.text();
+    const data = safeJsonParse(raw);
+
+    if (!res.ok || !data) {
+      throw new Error(`listConvs 失敗 ${res.status}: ${raw.slice(0, 200)}`);
+    }
+
+    const items = Array.isArray((data as any)?.conversations)
+      ? (data as any).conversations
+      : Array.isArray(data)
+      ? data
+      : [];
+
+    return items
+      .map((c: any) => ({
+        id: String(c.id ?? c.conversation_id ?? c.conversationId ?? ""),
+        title: String(c.title ?? c.name ?? "未命名對話"),
+        updatedAt: String(
+          c.updatedAt ?? c.updated_at ?? c.createdAt ?? c.created_at ?? ""
+        ),
+        preview: String(c.preview ?? c.last_message ?? ""),
+        messageCount: Number(c.messageCount ?? c.message_count ?? 0),
+        sessionId: String(c.session_id ?? c.sessionId ?? ""), // ✅ 新增
+      }))
+      .filter((t: any) => t.id);
+  }
+  async function apiCreateConversation(uid: string) {
+    // 後端待會才做：先把前端呼叫準備好
+    const res = await fetch(`${S2X_BASE}/agent/conversations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: uid, title: "新對話" }),
+    });
+
+    const raw = await res.text();
+    const data = safeJsonParse(raw);
+    if (!res.ok || !data) {
+      throw new Error(
+        `createConversation 失敗 ${res.status}: ${raw.slice(0, 200)}`
+      );
+    }
+    return data as {
+      conversation_id: string;
+      session_id?: string;
+      title?: string;
+    };
+  }
+
+  // 取得單一 conversation 的 messages
+  async function fetchConversationMessages(cid: string) {
+    const res = await fetch(API.getMsgs(cid), { method: "GET" });
+    const raw = await res.text();
+    const data = safeJsonParse(raw);
+
+    if (!res.ok || !data) {
+      throw new Error(`getMsgs 失敗 ${res.status}: ${raw.slice(0, 200)}`);
+    }
+
+    const items = Array.isArray((data as any)?.messages)
+      ? (data as any).messages
+      : Array.isArray(data)
+      ? data
+      : [];
+
+    const mapped: HistoryMessage[] = items.map((m: any, idx: number) => ({
+      id: String(m.id ?? `${cid}-${idx}`),
+      threadId: cid,
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: String(m.content ?? m.message ?? ""),
+      createdAt: String(m.createdAt ?? m.created_at ?? m.time ?? ""),
+    }));
+
+    return mapped;
+  }
 
   // =========================
   // thread → 主畫面 messages
@@ -1337,10 +1356,12 @@ export default function LLMPage() {
   }
 
   function loadThreadToMain(threadId: string) {
+    const t = historyThreads.find((x) => x.id === threadId);
+    if (t?.sessionId) setSessionId(t.sessionId);
+
     setActiveThreadId(threadId);
     setActiveView("llm");
     setMessages(buildChatMessagesFromThread(threadId));
-
     resetMainInputBox();
 
     setPendingFiles((prev) => {
@@ -1353,11 +1374,30 @@ export default function LLMPage() {
     setTimeout(() => inputRef.current?.focus(), 60);
   }
 
-  function newThread() {
-    const newId = `t-${Date.now()}`;
-    setActiveThreadId(newId);
-    setActiveView("llm");
+  async function newThread() {
+    const uid = (userId || "guest").trim() || "guest";
 
+    // ✅ 先準備「暫時 threadId」：後端沒上線時也能用
+    const localThreadId = `t-${Date.now()}`;
+    const localSessionId = `${uid}::${
+      crypto?.randomUUID?.() ?? `tmp-${Date.now()}`
+    }`;
+
+    try {
+      // ✅ 後端上線後：會在這裡拿到真正 conversation_id / session_id
+      const created = await apiCreateConversation(uid);
+
+      setActiveThreadId(String(created.conversation_id));
+      setSessionId(
+        String(created.session_id ?? `${uid}::${created.conversation_id}`)
+      );
+    } catch {
+      // ✅ 後端還沒好：先用本地規則撐住（仍符合 uid::token）
+      setActiveThreadId(localThreadId);
+      setSessionId(localSessionId);
+    }
+
+    setActiveView("llm");
     setMessages([
       {
         id: Date.now(),
@@ -1373,7 +1413,6 @@ export default function LLMPage() {
       return [];
     });
 
-    // ✅ seed card 不清空（最小侵入）
     setIsHistoryOpen(false);
     setTimeout(() => inputRef.current?.focus(), 60);
   }
@@ -1546,8 +1585,10 @@ export default function LLMPage() {
         : "";
 
       // 3) 呼叫 chat
-      const sid = (sessionId || activeThreadId || `t-${Date.now()}`).trim();
-      const uid = (userId || "guest").trim();
+      const uid = (userId || "guest").trim() || "guest";
+      const sid =
+        (sessionId || "").trim() ||
+        `${uid}::${(activeThreadId || `t-${Date.now()}`).trim()}`; // uid::token
 
       const basePrompt =
         (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
@@ -1561,7 +1602,10 @@ export default function LLMPage() {
       };
 
       const data = await postChatToBackend(payload);
+      console.log("chat resp =", data);
 
+      const cid = String(data?.conversation_id ?? data?.session_id ?? "");
+      if (cid) setActiveThreadId(cid);
       // ✅ C版判斷：優先吃 answer/content/message
       let answerText = "";
       if (data?.answer || data?.content || data?.message) {
@@ -1886,8 +1930,15 @@ export default function LLMPage() {
     );
   }
 
-  function openHistory() {
-    setIsHistoryOpen(true);
+  async function openHistory() {
+    try {
+      const uid = userId || "guest";
+      const threads = await apiFetchConversations(uid);
+      setHistoryThreads(threads);
+      setIsHistoryOpen(true);
+    } catch (e: any) {
+      alert(String(e?.message || e));
+    }
   }
 
   function PlaceholderView({ title }: { title: string }) {
@@ -1908,29 +1959,34 @@ export default function LLMPage() {
   }
 
   // =========================
-  // ✅ Bootstrap-from-S1（保留你原本邏輯，另外把 image + detections 存成 seed 卡）
+  // ✅✅ 改動 2：Bootstrap-from-S1（只認 URL caseId；沒有就清 seed，避免直接開 /llm 也 bootstrap）
   // =========================
   useEffect(() => {
-    let caseIdStr =
+    const caseIdStr =
       searchParams.get("caseId") ??
       searchParams.get("caseld") ?? // 兼容之前拼錯
       searchParams.get("caseid") ??
       "";
 
-    if (!caseIdStr && typeof window !== "undefined") {
-      caseIdStr = localStorage.getItem("gab_last_case_id") || "";
+    // ✅ 沒有 caseId → 不是從偵測頁導入：清 seed 卡，並允許之後帶 caseId 時再 boot
+    if (!caseIdStr) {
+      bootOnceRef.current = "";
+      setSeedImageUrl("");
+      setSeedDetections([]);
+      return;
     }
 
-    if (!caseIdStr) return;
-
-    if (typeof window !== "undefined") {
-      localStorage.setItem("gab_last_case_id", String(caseIdStr));
-    }
-    if (bootOnceRef.current) return;
-    bootOnceRef.current = true;
+    // ✅ 同 caseId 不重複 boot（StrictMode / rerender 防雙打）
+    if (bootOnceRef.current === caseIdStr) return;
+    bootOnceRef.current = caseIdStr;
 
     const caseId = Number(caseIdStr);
     if (!Number.isFinite(caseId) || caseId <= 0) return;
+
+    // 你要留著也行（不再讀它就不會造成「直接開 /llm 也 bootstrap」）
+    if (typeof window !== "undefined") {
+      localStorage.setItem("gab_last_case_id", String(caseIdStr));
+    }
 
     (async () => {
       try {
@@ -1969,7 +2025,9 @@ export default function LLMPage() {
 
         // ✅ seed 卡片（不影響 UI：只是多顯示一張）
         if (imgAbs) setSeedImageUrl(imgAbs);
-        const dets = Array.isArray(data.detections) ? (data.detections as Detection[]) : [];
+        const dets = Array.isArray(data.detections)
+          ? (data.detections as Detection[])
+          : [];
         setSeedDetections(dets);
 
         const seedFiles: UploadedFile[] = imgAbs
@@ -2058,7 +2116,16 @@ export default function LLMPage() {
         historyThreads={historyThreads}
         historyMessages={historyMessages}
         activeThreadId={activeThreadId}
-        onSelectThread={(id) => setActiveThreadId(id)}
+        onSelectThread={async (id) => {
+          setActiveThreadId(id);
+          try {
+            const msgs = await fetchConversationMessages(id);
+            setHistoryMessages(msgs);
+          } catch (e: any) {
+            console.error(e);
+            alert(e?.message || "讀取對話內容失敗");
+          }
+        }}
         onLoadThreadToMain={(id) => loadThreadToMain(id)}
         onNewThread={() => newThread()}
         onRenameThread={renameThread}
