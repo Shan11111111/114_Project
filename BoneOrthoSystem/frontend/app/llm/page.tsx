@@ -1,6 +1,6 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 
 import {
   FormEvent,
@@ -178,7 +178,7 @@ async function postChatToBackend(payload: any) {
   const data = safeJsonParse(raw);
 
   if (!res.ok || !data) {
-    // 保留原始 raw，方便你 debug 422/500
+    // 保留原始 raw，(方便你 debug 422/500)
     throw new Error(`Chat 失敗 ${res.status}：${raw.slice(0, 300)}`);
   }
   return data;
@@ -1135,6 +1135,8 @@ function getOrCreateUserId() {
 
 export default function LLMPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
 
   // ✅✅ 改動 1：由 boolean 改成記錄最後 boot 的 caseId（避免重複 boot）
   const bootOnceRef = useRef<string>("");
@@ -2350,8 +2352,8 @@ export default function LLMPage() {
                   <SideRow
                     iconClass="fa-solid fa-folder-tree"
                     label="資源管理"
-                    active={activeView === "assets"}
-                    onClick={() => setActiveView("assets")}
+                    active={pathname.startsWith("/llm/materials")}
+                    onClick={() => router.push("/llm/materials")}
                   />
                   <SideRow
                     iconClass="fa-regular fa-clock"
@@ -2402,8 +2404,8 @@ export default function LLMPage() {
                 <SideIconButton
                   iconClass="fa-solid fa-folder-tree"
                   label="資源管理"
-                  active={activeView === "assets"}
-                  onClick={() => setActiveView("assets")}
+                  active={pathname.startsWith("/llm/materials")}
+                  onClick={() => router.push("/llm/materials")}
                 />
                 <SideIconButton
                   iconClass="fa-regular fa-clock"
