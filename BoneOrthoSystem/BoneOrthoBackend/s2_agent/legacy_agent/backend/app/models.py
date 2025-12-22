@@ -30,7 +30,7 @@ class ChatRequest(BaseModel):
 
     # ✅ 新增：避免 main.py 取不到 req.user_id 造成 500
     # 前端沒送也沒關係，會是 "guest"
-    user_id: str = "guest"
+    user_id: str | None = None   # ✅ 新增
 
     messages: List[ChatMessage]
 
