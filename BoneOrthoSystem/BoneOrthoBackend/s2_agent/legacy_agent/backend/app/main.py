@@ -413,9 +413,9 @@ def api_get_conversation_messages(conversation_id: str):
 
 @app.delete("/agent/conversations/{conversation_id}")
 def api_delete_conversation(conversation_id: str):
-    delete_conversation(conversation_id)
-    return {"conversation_id": conversation_id, "deleted": True}
-
+    cid = session_to_conversation_uuid(str(conversation_id))
+    delete_conversation(cid)
+    return {"conversation_id": cid, "deleted": True}
 
 # =========================================================
 # bone image
