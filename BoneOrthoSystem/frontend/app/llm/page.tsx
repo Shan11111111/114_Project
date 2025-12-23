@@ -132,6 +132,13 @@ const API = {
   listConvs: (uid: string) =>
     `${S2X_BASE}/agent/conversations?user_id=${encodeURIComponent(uid)}`,
   getMsgs: (cid: string) => `${S2X_BASE}/agent/conversations/${cid}/messages`,
+
+  // ✅✅ 修正：後端正確的 title endpoint（你 main.py 是 /agent/conversations/{id}/title）
+  updateConvTitle: (cid: string) =>
+    `${S2X_BASE}/agent/conversations/${cid}/title`,
+
+  // ✅ 兼容：有些後端可能做在 /agent/conversations/{id}
+  updateConvTitleFallback: (cid: string) => `${S2X_BASE}/agent/conversations/${cid}`,
 };
 
 function safeJsonParse(raw: string) {
@@ -182,6 +189,38 @@ async function postChatToBackend(payload: any) {
     throw new Error(`Chat 失敗 ${res.status}：${raw.slice(0, 300)}`);
   }
   return data;
+}
+
+async function apiUpdateConversationTitle(conversationId: string, title: string) {
+  // ✅✅ 先打 /title；如果後端沒有這條路，再 fallback /{id}
+  const body = JSON.stringify({ title });
+
+  // 1) /title
+  const r1 = await fetch(API.updateConvTitle(conversationId), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+  if (r1.ok) {
+    const raw = await r1.text().catch(() => "");
+    return safeJsonParse(raw) ?? raw;
+  }
+
+  // 2) fallback /{id}（有些人寫成 /agent/conversations/{id}）
+  const r2 = await fetch(API.updateConvTitleFallback(conversationId), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+  const raw2 = await r2.text().catch(() => "");
+  const data2 = safeJsonParse(raw2);
+
+  if (!r2.ok) {
+    throw new Error(`update title 失敗 ${r2.status}: ${raw2.slice(0, 200)}`);
+  }
+  return data2 ?? raw2;
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -1237,8 +1276,14 @@ export default function LLMPage() {
   const didHydrateRef = useRef(false);
   const [hydrated, setHydrated] = useState(false);
 
+  // ✅✅ 新增：確保「讀取快取完成」後才允許 auto-newThread（避免覆蓋快取）
+  const cacheLoadedRef = useRef(false);
+
   // ✅ 防連點：避免短時間連續 newThread 造成側邊一直洗牌/狂打後端
   const creatingThreadRef = useRef(false);
+
+  // ✅✅ 新增：避免同一個 conversation 重複 PATCH title
+  const autoTitledSetRef = useRef<Set<string>>(new Set());
 
   // ✅ 判斷目前 thread 是否仍是「空白新對話」（尚未有 user 訊息）
   function isBlankNewThread(threadId: string) {
@@ -1306,6 +1351,7 @@ export default function LLMPage() {
       if (typeof cActive === "string") setActiveThreadId(cActive);
     }
 
+    cacheLoadedRef.current = true; // ✅✅ 新增：快取讀取完成
     didHydrateRef.current = true;
     setHydrated(true);
   }, []);
@@ -1378,14 +1424,57 @@ export default function LLMPage() {
     ]);
   }
 
-  // ✅ rename：只更新 title（最小改動）
+  // ✅✅ 新增：用第一句生成 title（跟你 UI 現在的 18 字一致）
+  function makeAutoTitleFromText(userText: string) {
+    const t = (userText || "").trim().replace(/\s+/g, " ");
+    if (!t) return "";
+    return t.slice(0, 18);
+  }
+
+  // ✅✅ 新增：只在「新對話」時，對真 conversation_id 做一次 PATCH title
+  async function ensureBackendAutoTitleOnce(
+    conversationId: string,
+    userText: string
+  ) {
+    if (!conversationId) return;
+    if (conversationId.startsWith("t-")) return;
+    if (autoTitledSetRef.current.has(conversationId)) return;
+
+    const nextTitle = makeAutoTitleFromText(userText);
+    if (!nextTitle) return;
+
+    const t = historyThreads.find((x) => x.id === conversationId);
+    const titleIsNew = (t?.title || "").trim() === "新對話";
+    if (!titleIsNew) return;
+
+    autoTitledSetRef.current.add(conversationId);
+    try {
+      await apiUpdateConversationTitle(conversationId, nextTitle);
+    } catch (e) {
+      // 不影響 UI；後端不支援就算了
+      console.error(e);
+    }
+  }
+
+  // ✅✅ rename：先更新本地，再嘗試同步後端（不影響 UI）
   function renameThread(threadId: string, nextTitle: string) {
     const title = nextTitle.trim();
     if (!title) return;
 
+    // 1) 先更新前端（立即看到）
     setHistoryThreads((prev) =>
       prev.map((t) => (t.id === threadId ? { ...t, title } : t))
     );
+
+    // 2) 同步後端：只有「真的 conversation_id」才打
+    (async () => {
+      try {
+        if (!threadId || threadId.startsWith("t-")) return;
+        await apiUpdateConversationTitle(threadId, title);
+      } catch (e: any) {
+        console.error(e);
+      }
+    })();
   }
 
   function deleteThread(threadId: string) {
@@ -1447,10 +1536,12 @@ export default function LLMPage() {
   }
 
   async function apiCreateConversation(uid: string) {
+    // ✅✅ 關鍵：後端 title 不要傳「新對話」→ 讓 db.py 的 if_empty 有機會運作
+    // （UI 仍然顯示新對話，因為前端自己 title=新對話）
     const res = await fetch(`${S2X_BASE}/agent/conversations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: uid, title: "新對話" }),
+      body: JSON.stringify({ user_id: uid, title: "" }),
     });
 
     const raw = await res.text();
@@ -1787,10 +1878,11 @@ export default function LLMPage() {
     }
   }
 
-  // ✅✅ 修掉「hydrate 還沒完成就 newThread 覆蓋快取」的 bug
+  // ✅✅ 修掉「hydrate 還沒完成就 newThread 覆蓋快取」的 bug（最重要）
   const bootNewThreadOnceRef = useRef(false);
   useEffect(() => {
     if (!hydrated) return;
+    if (!cacheLoadedRef.current) return; // ✅✅ 新增：快取還沒讀完，不要 auto-newThread
     if (bootNewThreadOnceRef.current) return;
     bootNewThreadOnceRef.current = true;
 
@@ -1889,6 +1981,7 @@ export default function LLMPage() {
     if ((!text && pendingFiles.length === 0) || loading) return;
 
     const threadIdAtSend = ensureActiveThreadIdForSend();
+    const firstUserText = text || "（已上傳檔案）";
 
     const userMessage: ChatMessage = {
       id: Date.now(),
@@ -1898,10 +1991,10 @@ export default function LLMPage() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    pushHistoryMessage(threadIdAtSend, "user", text || "（已上傳檔案）");
+    pushHistoryMessage(threadIdAtSend, "user", firstUserText);
 
-    bumpThreadOnMessage(threadIdAtSend, text || "（已上傳檔案）", 1);
-    maybeAutoTitle(threadIdAtSend, text || "（已上傳檔案）");
+    bumpThreadOnMessage(threadIdAtSend, firstUserText, 1);
+    maybeAutoTitle(threadIdAtSend, firstUserText);
 
     const filesToUpload = pendingFiles.slice();
 
@@ -1916,7 +2009,7 @@ export default function LLMPage() {
 
     try {
       if (!API_BASE) {
-        const answerText = fakeLLMReply(text || "（已上傳檔案）");
+        const answerText = fakeLLMReply(firstUserText);
         const botMessage: ChatMessage = {
           id: Date.now() + 1,
           role: "assistant",
@@ -1992,6 +2085,13 @@ export default function LLMPage() {
 
       if (cid) {
         replaceThreadId(threadIdAtSend, cid, sidFromServer || sessionId);
+
+        // ✅✅ 這行是你要的重點：拿到「真 cid」後，補一次 PATCH title（不改 db.py）
+        // 只有當 thread title 仍是「新對話」才會動
+        // （replaceThreadId 會把本地 title/preview 帶過去，所以 UI 不變）
+        setTimeout(() => {
+          ensureBackendAutoTitleOnce(cid, firstUserText);
+        }, 0);
       }
 
       let answerText = "";
@@ -2490,6 +2590,11 @@ export default function LLMPage() {
 
         if (cid) {
           replaceThreadId(threadIdAtBoot, cid, sidFromServer || bootSession);
+
+          // ✅✅ 同步 title（只在新對話時做一次）
+          setTimeout(() => {
+            ensureBackendAutoTitleOnce(cid, question);
+          }, 0);
         }
 
         let answerText = "";
