@@ -17,3 +17,9 @@ curl -s http://127.0.0.1:6333/collections/bone_edu_docs
 //資料寫入向量資料庫
 $env:PYTHONPATH="."
 .\.venv\Scripts\python s2_agent\vectordb\ingest_materials.py
+
+
+//查筆數
+curl -s -X POST "http://127.0.0.1:6333/collections/bone_edu_docs/points/count" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"exact\":true}" | python -m json.tool

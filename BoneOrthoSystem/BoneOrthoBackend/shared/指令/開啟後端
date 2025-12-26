@@ -20,6 +20,7 @@ pip install PyPDF2
 pip install pdfplumber
 pip install docx
 pip install exceptions
+pip install openai python-dotenv qdrant-client
 
 pip uninstall -y docx
 pip install -U python-docx
@@ -30,6 +31,7 @@ pip install reportlab
 pip install python-docx python-pptx pymupdf
 
 
+pip install -U qdrant-client
 
 
 # 啟動後端服務

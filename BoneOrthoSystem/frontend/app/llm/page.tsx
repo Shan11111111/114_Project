@@ -302,8 +302,8 @@ function getUserIdFromLS() {
 
     const uid =
       typeof crypto !== "undefined" &&
-      "randomUUID" in crypto &&
-      typeof crypto.randomUUID === "function"
+        "randomUUID" in crypto &&
+        typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -354,8 +354,9 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
     const pts = d.poly
       .map((p) => [toNum(p?.[0]), toNum(p?.[1])] as any)
       .filter((p) => p[0] !== null && p[1] !== null)
-      .map((p) => [p[0] as number, p[1] as number]);
-    if (pts.length >= 4) return pts;
+      .map((p) => [p[0] as number, p[1] as number] as [number, number]);
+    if (pts.length >= 4) 
+      return pts;
   }
 
   const pj = (d as any).polyJson ?? d.PolyJson;
@@ -365,14 +366,14 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
       const pts = obj
         .map((p: any) => [toNum(p?.[0]), toNum(p?.[1])] as any)
         .filter((p) => p[0] !== null && p[1] !== null)
-        .map((p) => [p[0] as number, p[1] as number]);
+        .map((p) => [p[0] as number, p[1] as number] as [number, number]);
       if (pts.length >= 4) return pts;
     }
     if (obj && Array.isArray(obj.poly) && obj.poly.length >= 4) {
       const pts = obj.poly
         .map((p: any) => [toNum(p?.[0]), toNum(p?.[1])] as any)
         .filter((p) => p[0] !== null && p[1] !== null)
-        .map((p) => [p[0] as number, p[1] as number]);
+        .map((p) => [p[0] as number, p[1] as number] as [number, number]);
       if (pts.length >= 4) return pts;
     }
   }
@@ -495,12 +496,12 @@ function DetectionViewer({
         };
       })
       .filter(Boolean) as {
-      key: string;
-      pointsStr: string;
-      label: string;
-      labelX: number;
-      labelY: number;
-    }[];
+        key: string;
+        pointsStr: string;
+        label: string;
+        labelX: number;
+        labelY: number;
+      }[];
   }, [detections, imgWidth, imgHeight, natural.w, natural.h]);
 
   return (
@@ -1152,9 +1153,8 @@ const HistoryOverlay = memo(function HistoryOverlay({
                     return (
                       <div
                         key={m.id}
-                        className={`flex ${
-                          isUser ? "justify-end" : "justify-start"
-                        }`}
+                        className={`flex ${isUser ? "justify-end" : "justify-start"
+                          }`}
                       >
                         <div
                           className="max-w-[min(78%,65ch)] rounded-2xl px-4 py-3 text-sm leading-relaxed"
@@ -1331,18 +1331,18 @@ export default function LLMPage() {
           content: m.content,
           files: Array.isArray(m.files)
             ? m.files.map((f) => ({
-                id: f.id,
-                name: f.name,
-                size: f.size,
-                type: f.type,
-                url:
-                  f.serverUrl && f.serverUrl.startsWith("http")
-                    ? f.serverUrl
-                    : f.url && (f.url.startsWith("http") || f.url.startsWith("/"))
+              id: f.id,
+              name: f.name,
+              size: f.size,
+              type: f.type,
+              url:
+                f.serverUrl && f.serverUrl.startsWith("http")
+                  ? f.serverUrl
+                  : f.url && (f.url.startsWith("http") || f.url.startsWith("/"))
                     ? f.url
                     : "",
-                serverUrl: f.serverUrl,
-              }))
+              serverUrl: f.serverUrl,
+            }))
             : undefined,
         }));
         setMessages(safeMain);
@@ -1518,8 +1518,8 @@ export default function LLMPage() {
     const items = Array.isArray((data as any)?.conversations)
       ? (data as any).conversations
       : Array.isArray(data)
-      ? data
-      : [];
+        ? data
+        : [];
 
     return items
       .map((c: any) => ({
@@ -1570,8 +1570,8 @@ export default function LLMPage() {
     const items = Array.isArray((data as any)?.messages)
       ? (data as any).messages
       : Array.isArray(data)
-      ? data
-      : [];
+        ? data
+        : [];
 
     const mapped: HistoryMessage[] = items.map((m: any, idx: number) => ({
       id: String(m.id ?? `${cid}-${idx}`),
@@ -1782,7 +1782,7 @@ export default function LLMPage() {
     const localSessionId = `${uid}::${
       // @ts-ignore
       crypto?.randomUUID?.() ?? `tmp-${Date.now()}`
-    }`;
+      }`;
 
     setActiveView("llm");
     setActiveThreadId(localThreadId);
@@ -1825,7 +1825,7 @@ export default function LLMPage() {
       const localSessionId = `${uid}::${
         // @ts-ignore
         crypto?.randomUUID?.() ?? `tmp-${Date.now()}`
-      }`;
+        }`;
 
       setActiveView("llm");
       setActiveThreadId(localThreadId);
@@ -1966,6 +1966,10 @@ export default function LLMPage() {
     e.target.value = "";
   }
 
+
+
+
+
   function removePendingFile(id: string) {
     setPendingFiles((prev) => {
       const t = prev.find((f) => f.id === id);
@@ -1973,6 +1977,23 @@ export default function LLMPage() {
       return prev.filter((f) => f.id !== id);
     });
   }
+
+
+  function appendAssistantMessage(threadId: string, text: string) {
+    const content = String(text ?? "");
+    if (!content.trim()) return;
+
+    const msg: ChatMessage = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      role: "assistant",
+      content,
+    };
+
+    setMessages((prev) => [...prev, msg]);
+    pushHistoryMessage(threadId, "assistant", content);
+    bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
+  }
+
 
   async function sendMessage(e?: FormEvent) {
     if (e) e.preventDefault();
@@ -1986,7 +2007,7 @@ export default function LLMPage() {
     const userMessage: ChatMessage = {
       id: Date.now(),
       role: "user",
-      content: text,
+      content: text || "（已上傳檔案）",
       files: pendingFiles.length ? pendingFiles : undefined,
     };
 
@@ -2028,6 +2049,8 @@ export default function LLMPage() {
       const wantVector = ragMode !== "file_only";
 
       let fileContextText = "";
+      let summaryForUI = ""; // ✅ 新增：給聊天室看的摘要
+
       if (wantFile) {
         for (const f of filesToUpload) {
           if (!f.raw) continue;
@@ -2037,11 +2060,22 @@ export default function LLMPage() {
           const fn = String(up?.filename ?? up?.name ?? f.name);
           const summary = String(up?.summary ?? "");
           const txt = String(up?.text ?? "");
+          const warn = String(up?.extract_warning ?? "");
+
           const urlRel = String(up?.legacy_url ?? up?.url ?? up?.path ?? "");
           const abs = toAbsUrl(urlRel);
-
           f.serverUrl = abs || urlRel;
 
+          // ✅ 1) 聊天室立即顯示摘要
+          if (summary.trim()) {
+            summaryForUI += `\n\n【${fn}】摘要\n${summary.trim()}`;
+          } else if (warn.trim()) {
+            summaryForUI += `\n\n【${fn}】\n⚠️ 無法抽取文字/摘要：${warn.trim()}`;
+          } else {
+            summaryForUI += `\n\n【${fn}】\n⚠️ 這份檔案沒有回傳摘要（可能是掃描檔或無可抽取文字）`;
+          }
+
+          // ✅ 2) 仍保留你原本：把摘要/節錄塞進 prompt（供後續 RAG 用）
           if (summary.trim()) {
             fileContextText += `\n\n---\n[檔案：${fn}]\n摘要：\n${summary.trim()}\n`;
           }
@@ -2053,7 +2087,16 @@ export default function LLMPage() {
             )}${txt.length > maxChars ? "\n(…略)" : ""}\n`;
           }
         }
+
+        // ✅ 3) 上傳完成後，立刻丟一則 assistant 訊息（你要的效果）
+        if (summaryForUI.trim()) {
+          appendAssistantMessage(
+            threadIdAtSend,
+            `✅ 已解析上傳檔案：${filesToUpload.length} 份\n${summaryForUI.trim()}`
+          );
+        }
       }
+
 
       const vectorHint = wantVector
         ? `\n\n---\n【RAG】請先用既有教材向量庫檢索後回答，並附 sources/citations（檔名/頁碼或chunk/score）。找不到就說找不到。`
@@ -2101,13 +2144,13 @@ export default function LLMPage() {
         answerText =
           String(
             data?.reply ??
-              (Array.isArray(data?.messages)
-                ? [...data.messages]
-                    .reverse()
-                    .find((m: any) => m?.role === "assistant")?.content ??
-                  data.messages[data.messages.length - 1]?.content ??
-                  ""
-                : "")
+            (Array.isArray(data?.messages)
+              ? [...data.messages]
+                .reverse()
+                .find((m: any) => m?.role === "assistant")?.content ??
+              data.messages[data.messages.length - 1]?.content ??
+              ""
+              : "")
           ) ||
           (typeof data === "string" ? data : "") ||
           `⚠️ chat 回傳格式看不懂：${JSON.stringify(data).slice(0, 200)}`;
@@ -2524,17 +2567,17 @@ export default function LLMPage() {
 
         const seedText = Array.isArray(data.seed_messages)
           ? String(
-              data.seed_messages.find(
-                (m: any) => m?.type === "text" && (m?.content ?? "").trim()
-              )?.content ?? ""
-            )
+            data.seed_messages.find(
+              (m: any) => m?.type === "text" && (m?.content ?? "").trim()
+            )?.content ?? ""
+          )
           : "";
 
         const imgRel = Array.isArray(data.seed_messages)
           ? String(
-              data.seed_messages.find((m: any) => m?.type === "image" && m?.url)
-                ?.url ?? ""
-            )
+            data.seed_messages.find((m: any) => m?.type === "image" && m?.url)
+              ?.url ?? ""
+          )
           : "";
 
         const imgAbs = toAbsUrl(imgRel);
@@ -2547,14 +2590,14 @@ export default function LLMPage() {
 
         const seedFiles: UploadedFile[] = imgAbs
           ? [
-              {
-                id: `seed_${caseId}`,
-                name: `ImageCase_${caseId}.png`,
-                size: 0,
-                type: "image/png",
-                url: imgAbs,
-              },
-            ]
+            {
+              id: `seed_${caseId}`,
+              name: `ImageCase_${caseId}.png`,
+              size: 0,
+              type: "image/png",
+              url: imgAbs,
+            },
+          ]
           : [];
 
         const question =
@@ -2604,13 +2647,13 @@ export default function LLMPage() {
           answerText =
             String(
               resp?.reply ??
-                (Array.isArray(resp?.messages)
-                  ? [...resp.messages]
-                      .reverse()
-                      .find((m: any) => m?.role === "assistant")?.content ??
-                    resp.messages[resp.messages.length - 1]?.content ??
-                    ""
-                  : "")
+              (Array.isArray(resp?.messages)
+                ? [...resp.messages]
+                  .reverse()
+                  .find((m: any) => m?.role === "assistant")?.content ??
+                resp.messages[resp.messages.length - 1]?.content ??
+                ""
+                : "")
             ) || "";
         }
 
@@ -2712,9 +2755,8 @@ export default function LLMPage() {
       {/* Desktop sidebar */}
       <div className="hidden md:block">
         <aside
-          className={`h-full flex flex-col border-r transition-all duration-300 ease-out ${
-            isNavCollapsed ? "w-[72px]" : "w-64"
-          }`}
+          className={`h-full flex flex-col border-r transition-all duration-300 ease-out ${isNavCollapsed ? "w-[72px]" : "w-64"
+            }`}
           style={{
             backgroundColor: "rgba(148,163,184,0.06)",
             borderColor: "rgba(148,163,184,0.20)",
@@ -2723,11 +2765,10 @@ export default function LLMPage() {
         >
           {/* Header */}
           <div
-            className={`flex ${
-              isNavCollapsed
-                ? "justify-center items-center px-3 pt-3 pb-3"
-                : "items-start justify-between px-4 pt-4 pb-3"
-            }`}
+            className={`flex ${isNavCollapsed
+              ? "justify-center items-center px-3 pt-3 pb-3"
+              : "items-start justify-between px-4 pt-4 pb-3"
+              }`}
           >
             {!isNavCollapsed && (
               <div>
@@ -2755,9 +2796,8 @@ export default function LLMPage() {
               }
             >
               <i
-                className={`fa-solid ${
-                  isNavCollapsed ? "fa-angle-right" : "fa-angle-left"
-                } text-[13px] opacity-65 leading-none`}
+                className={`fa-solid ${isNavCollapsed ? "fa-angle-right" : "fa-angle-left"
+                  } text-[13px] opacity-65 leading-none`}
                 style={{ lineHeight: 1, transform: "translateY(0.5px)" }}
               />
             </button>
@@ -2765,9 +2805,8 @@ export default function LLMPage() {
 
           {/* Nav */}
           <nav
-            className={`flex-1 min-h-0 ${
-              isNavCollapsed ? "px-2 pt-3" : "px-3 pt-4"
-            }`}
+            className={`flex-1 min-h-0 ${isNavCollapsed ? "px-2 pt-3" : "px-3 pt-4"
+              }`}
           >
             {!isNavCollapsed ? (
               <div className="h-full min-h-0 flex flex-col gap-2 text-sm">
@@ -2819,9 +2858,8 @@ export default function LLMPage() {
                           </span>
 
                           <i
-                            className={`fa-solid fa-chevron-down mt-[2px] text-[11px] opacity-60 transition ${
-                              ragOpen ? "rotate-180" : ""
-                            }`}
+                            className={`fa-solid fa-chevron-down mt-[2px] text-[11px] opacity-60 transition ${ragOpen ? "rotate-180" : ""
+                              }`}
                           />
                         </button>
 
@@ -3175,9 +3213,8 @@ export default function LLMPage() {
                     return (
                       <div key={msg.id} className="mb-4">
                         <div
-                          className={`flex ${
-                            isUser ? "justify-end" : "justify-start"
-                          }`}
+                          className={`flex ${isUser ? "justify-end" : "justify-start"
+                            }`}
                         >
                           <div className="flex flex-col items-stretch max-w-[min(70%,60ch)]">
                             <div
@@ -3238,9 +3275,8 @@ export default function LLMPage() {
                   <div className="flex items-end gap-3 w-full max-w-3xl">
                     <div className="flex-1 relative">
                       <div
-                        className={`relative border px-4 py-2 shadow-lg backdrop-blur-sm ${
-                          isExpanded ? "rounded-2xl" : "rounded-full"
-                        } transition-colors duration-500 neon-shell`}
+                        className={`relative border px-4 py-2 shadow-lg backdrop-blur-sm ${isExpanded ? "rounded-2xl" : "rounded-full"
+                          } transition-colors duration-500 neon-shell`}
                         style={{
                           backgroundColor: "var(--navbar-bg)",
                           borderColor: "var(--navbar-border)",
@@ -3314,9 +3350,8 @@ export default function LLMPage() {
                               onKeyDown={handleKeyDown}
                               placeholder="提出任何問題⋯"
                               rows={1}
-                              className={`custom-scroll bg-transparent resize-none border-none outline-none text-sm leading-relaxed overflow-hidden placeholder:text-slate-500 ${
-                                isExpanded ? "w-full" : "flex-1"
-                              }`}
+                              className={`custom-scroll bg-transparent resize-none border-none outline-none text-sm leading-relaxed overflow-hidden placeholder:text-slate-500 ${isExpanded ? "w-full" : "flex-1"
+                                }`}
                               style={{
                                 color: "var(--foreground)",
                                 caretColor: "var(--foreground)",

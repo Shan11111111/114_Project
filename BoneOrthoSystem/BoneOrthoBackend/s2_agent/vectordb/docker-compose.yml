@@ -10,6 +10,9 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - ./qdrant_data:/qdrant/storage
+      - qdrant_bone_storage:/qdrant/storage
     environment:
       QDRANT__SERVICE__GRPC_PORT: 6334
+
+volumes:
+  qdrant_bone_storage:
