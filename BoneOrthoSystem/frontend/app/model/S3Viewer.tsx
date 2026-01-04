@@ -13,10 +13,37 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
  *  ========================= */
 
 function normalizeMeshName(meshName: string) {
-  let s = (meshName || '').replace(/_/g, ' ').trim();
-  if (s.length > 1 && (s.endsWith('L') || s.endsWith('R')) && !s.includes('.L') && !s.includes('.R')) {
-    s = s.slice(0, -1) + '.' + s.slice(-1);
+  let s = (meshName || '').trim();
+
+  // "_" -> " "
+  s = s.replace(/_/g, ' ').trim();
+
+  // 去掉結尾多餘的點：Temporal.L. -> Temporal.L
+  while (s.endsWith('.')) s = s.slice(0, -1).trim();
+
+  // ✅ 收斂點號：Temporal..L -> Temporal.L / Temporal...R -> Temporal.R
+  // 也順便把 " . " 周邊空白收掉
+  s = s.replace(/\s*\.\s*/g, '.');
+  s = s.replace(/\.+/g, '.');
+
+  // ✅ 收斂 duplicated side suffix
+  // ".L.L" or ".R.R" -> ".L" / ".R"
+  s = s.replace(/\.([LR])\.\1$/i, (_m, p1) => `.${String(p1).toUpperCase()}`);
+  // ".LL" or ".RR" -> ".L" / ".R"
+  s = s.replace(/\.([LR])\1$/i, (_m, p1) => `.${String(p1).toUpperCase()}`);
+  // "TemporalLL" or "TemporalRR" (no dot) -> "Temporal.L" / "Temporal.R"
+  s = s.replace(/^(.*?)(?:\.?)([LR])\2$/i, (_m, base, side) => `${base}.${String(side).toUpperCase()}`);
+
+  // TemporalL -> Temporal.L（但如果已經有 .L/.R 就別再補）
+  if (s.length > 1 && /[LR]$/i.test(s) && !/\.([LR])$/i.test(s)) {
+    s = s.slice(0, -1) + '.' + s.slice(-1).toUpperCase();
   }
+
+  // 再收一次點號（避免上面動作又產生 ..）
+  s = s.replace(/\s*\.\s*/g, '.');
+  s = s.replace(/\.+/g, '.');
+  while (s.endsWith('.')) s = s.slice(0, -1).trim();
+
   return s;
 }
 
@@ -67,50 +94,38 @@ function toRegionKey(region?: string | null): RegionKey {
   if (r.includes('spine') || r.includes('vertebra') || r.includes('脊椎')) return 'spine';
   if (r.includes('thorax') || r.includes('rib') || r.includes('stern') || r.includes('胸') || r.includes('肋'))
     return 'thorax';
-  if (
-    r.includes('upper') ||
-    r.includes('arm') ||
-    r.includes('humer') ||
-    r.includes('ulna') ||
-    r.includes('radius') ||
-    r.includes('上肢') ||
-    r.includes('手')
-  )
-    return 'upper';
-  if (
-    r.includes('lower') ||
-    r.includes('leg') ||
-    r.includes('femor') ||
-    r.includes('tibia') ||
-    r.includes('fibula') ||
-    r.includes('下肢') ||
-    r.includes('足')
-  )
-    return 'lower';
+  if (r.includes('upper') || r.includes('arm') || r.includes('上肢') || r.includes('手')) return 'upper';
+  if (r.includes('lower') || r.includes('leg') || r.includes('下肢') || r.includes('足')) return 'lower';
   if (r.includes('pelvis') || r.includes('hip') || r.includes('骨盆')) return 'pelvis';
   return 'other';
 }
 
 /** =========================
- *  Side / Base parsing
+ *  Side parsing
  *  ========================= */
 
 type SideKey = 'L' | 'R' | 'C';
 
+function _cleanBase(b: string) {
+  // ✅ 砍掉尾巴多餘點號：Temporal. -> Temporal
+  return (b || '').replace(/\.+$/g, '').trim();
+}
+
 function parseSide(meshName: string): { base: string; side: SideKey } {
   const norm = normalizeMeshName(meshName);
-  if (norm.endsWith('.L')) return { base: norm.slice(0, -2), side: 'L' };
-  if (norm.endsWith('.R')) return { base: norm.slice(0, -2), side: 'R' };
+
+  if (norm.endsWith('.L')) return { base: _cleanBase(norm.slice(0, -2)), side: 'L' };
+  if (norm.endsWith('.R')) return { base: _cleanBase(norm.slice(0, -2)), side: 'R' };
 
   const lower = norm.toLowerCase();
-  if (lower.endsWith(' left')) return { base: norm.slice(0, -5), side: 'L' };
-  if (lower.endsWith(' right')) return { base: norm.slice(0, -6), side: 'R' };
+  if (lower.endsWith(' left')) return { base: _cleanBase(norm.slice(0, -5)), side: 'L' };
+  if (lower.endsWith(' right')) return { base: _cleanBase(norm.slice(0, -6)), side: 'R' };
 
-  return { base: norm, side: 'C' };
+  return { base: _cleanBase(norm), side: 'C' };
 }
 
 /** =========================
- *  Pretty labels (指骨/趾骨/掌骨/蹠骨/肋骨/脊椎)
+ *  Pretty labels（指骨/趾骨/掌骨/蹠骨/肋骨/脊椎）
  *  ========================= */
 
 const HAND_DIGIT_ZH: Record<string, string> = {
@@ -147,7 +162,7 @@ function romanToInt(roman: string): number | null {
 }
 
 function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { zh: string; en: string; tag?: string } {
-  // 手指：Index_Middle, Thumb_Proximal...
+  // 手指
   {
     const m = base.match(/^(Thumb|Index|Middle|Ring|Little)_(Proximal|Middle|Distal)$/);
     if (m) {
@@ -159,7 +174,7 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 腳趾：Hallux_Distal, Second_Middle...
+  // 腳趾
   {
     const m = base.match(/^(Hallux|Second|Third|Fourth|Fifth|fifth)_(Proximal|Middle|Distal)$/);
     if (m) {
@@ -171,7 +186,7 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 掌骨：MetacarpalI~V
+  // 掌骨
   {
     const m = base.match(/^Metacarpal(I{1,3}|IV|V)$/i);
     if (m) {
@@ -180,7 +195,7 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 蹠骨：MetatarsalI~V
+  // 蹠骨
   {
     const m = base.match(/^Metatarsal(I{1,3}|IV|V)$/i);
     if (m) {
@@ -189,7 +204,7 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 肋骨：Rib1~Rib12
+  // 肋骨
   {
     const m = base.match(/^Rib(\d{1,2})$/i);
     if (m) {
@@ -198,7 +213,7 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 椎骨：C/T/L（單顆 fallback）
+  // 椎骨單顆
   if (/^C\d{1,2}$/.test(base)) return { zh: `頸椎 ${base}`, en: `Cervical vertebra ${base}` };
   if (/^T\d{1,2}$/.test(base)) return { zh: `胸椎 ${base}`, en: `Thoracic vertebra ${base}` };
   if (/^L\d{1,2}$/.test(base)) return { zh: `腰椎 ${base}`, en: `Lumbar vertebra ${base}` };
@@ -242,7 +257,7 @@ function SelectedEdges({
 
 type BoneModelProps = {
   url: string;
-  selectedNormSet: Set<string>; // ✅ 支援「多選」(例如整組頸椎)
+  selectedNormSet: Set<string>;
   onSelectMesh?: (meshName: string) => void;
   onRegistryReady?: (registry: Record<string, THREE.Mesh>) => void;
 };
@@ -251,7 +266,6 @@ function BoneModel({ url, selectedNormSet, onSelectMesh, onRegistryReady }: Bone
   const { scene } = useGLTF(url) as any;
   const [hovered, setHovered] = useState<string | null>(null);
 
-  // normalizedName -> actual mesh instance in scene
   const registryRef = useRef<Record<string, THREE.Mesh>>({});
 
   const meshes = useMemo(() => {
@@ -316,7 +330,6 @@ function BoneModel({ url, selectedNormSet, onSelectMesh, onRegistryReady }: Bone
               />
             </mesh>
 
-            {/* ✅ 多選也會畫線 */}
             {isSelected && <SelectedEdges geometry={mesh.geometry} position={pos} rotation={rot} scale={scl} />}
           </group>
         );
@@ -354,6 +367,7 @@ function Controls({
       enableRotate
       enableZoom
       enablePan
+      screenSpacePanning={true}
       mouseButtons={{
         LEFT: THREE.MOUSE.ROTATE,
         MIDDLE: THREE.MOUSE.DOLLY,
@@ -370,9 +384,15 @@ function Controls({
 type SeriesKind = 'cervical' | 'thoracic' | 'lumbar';
 
 function seriesMeta(series: SeriesKind) {
-  if (series === 'cervical') return { zh: '頸椎', en: 'Cervical vertebrae', order: ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7'] };
-  if (series === 'thoracic') return { zh: '胸椎', en: 'Thoracic vertebrae', order: ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'] };
-  return { zh: '腰椎', en: 'Lumbar vertebrae', order: ['L1','L2','L3','L4','L5'] };
+  if (series === 'cervical')
+    return { zh: '頸椎', en: 'Cervical vertebrae', order: ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7'] };
+  if (series === 'thoracic')
+    return {
+      zh: '胸椎',
+      en: 'Thoracic vertebrae',
+      order: ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12'],
+    };
+  return { zh: '腰椎', en: 'Lumbar vertebrae', order: ['L1', 'L2', 'L3', 'L4', 'L5'] };
 }
 
 function meshToSeries(norm: string): SeriesKind | null {
@@ -405,13 +425,12 @@ type SeriesCard = {
   displayZh: string;
   displayEn: string;
   order: string[];
-  items: Record<string, BoneListItem>; // key = "C1"
+  items: Record<string, BoneListItem>;
 };
 
 type Card = LRCard | SeriesCard;
 
 function buildCardsForRegion(items: BoneListItem[], regionKey: RegionKey): Card[] {
-  // spine => series cards
   let rest = items;
   const seriesCards: SeriesCard[] = [];
 
@@ -430,7 +449,7 @@ function buildCardsForRegion(items: BoneListItem[], regionKey: RegionKey): Card[
 
     rest = items.filter((it) => !meshToSeries(normalizeMeshName(it.mesh_name)));
 
-    (['cervical','thoracic','lumbar'] as SeriesKind[]).forEach((sk) => {
+    (['cervical', 'thoracic', 'lumbar'] as SeriesKind[]).forEach((sk) => {
       const meta = seriesMeta(sk);
       const dict = buckets[sk];
       const order = meta.order.filter((k) => !!dict[k]);
@@ -451,16 +470,14 @@ function buildCardsForRegion(items: BoneListItem[], regionKey: RegionKey): Card[
     });
   }
 
-  // LR group
   const m = new Map<string, LRCard>();
 
   for (const it of rest) {
     const { base, side } = parseSide(it.mesh_name);
-    const key = base;
 
-    if (!m.has(key)) {
+    if (!m.has(base)) {
       const pretty = prettyForBase(base, it.bone_zh, it.bone_en);
-      m.set(key, {
+      m.set(base, {
         kind: 'lr',
         regionKey,
         base,
@@ -470,7 +487,7 @@ function buildCardsForRegion(items: BoneListItem[], regionKey: RegionKey): Card[
       });
     }
 
-    const g = m.get(key)!;
+    const g = m.get(base)!;
     if (side === 'L') g.L = it;
     else if (side === 'R') g.R = it;
     else g.C = it;
@@ -500,15 +517,15 @@ export default function S3Viewer() {
 
   const [boneList, setBoneList] = useState<BoneListItem[]>([]);
   const [q, setQ] = useState('');
-  const [openGroup, setOpenGroup] = useState<RegionKey | null>('skull');
 
-  // 3D registry / focus
+  const [openGroups, setOpenGroups] = useState<RegionKey[]>(['skull']);
+  const openSet = useMemo(() => new Set(openGroups), [openGroups]);
+
   const meshRegistryRef = useRef<Record<string, THREE.Mesh>>({});
   const controlsRef = useRef<any>(null);
   const cameraRef = useRef<THREE.Camera | null>(null);
   const [registryTick, setRegistryTick] = useState(0);
 
-  // fetch bone list
   useEffect(() => {
     (async () => {
       try {
@@ -522,7 +539,6 @@ export default function S3Viewer() {
     })();
   }, []);
 
-  // focus on SINGLE mesh
   const focusOnMesh = useCallback((meshName: string) => {
     const norm = normalizeMeshName(meshName);
     const mesh = meshRegistryRef.current[norm];
@@ -544,16 +560,12 @@ export default function S3Viewer() {
     controls.update();
   }, []);
 
-  // focus on MULTI meshes (整組頸椎/胸椎/腰椎)
   const focusOnNormList = useCallback((norms: string[]) => {
     const controls = controlsRef.current;
     const camera = cameraRef.current as any;
     if (!controls || !camera) return;
 
-    const meshes = norms
-      .map((n) => meshRegistryRef.current[n])
-      .filter(Boolean) as THREE.Mesh[];
-
+    const meshes = norms.map((n) => meshRegistryRef.current[n]).filter(Boolean) as THREE.Mesh[];
     if (!meshes.length) return;
 
     const box = new THREE.Box3();
@@ -580,7 +592,6 @@ export default function S3Viewer() {
     [boneList]
   );
 
-  // Search filter
   const searched = useMemo(() => {
     const kw = q.trim().toLowerCase();
     if (!kw) return boneList;
@@ -590,7 +601,6 @@ export default function S3Viewer() {
     });
   }, [boneList, q]);
 
-  // Region -> cards
   const regionCards = useMemo(() => {
     const byRegion: Record<RegionKey, BoneListItem[]> = {
       skull: [],
@@ -620,7 +630,28 @@ export default function S3Viewer() {
     return result;
   }, [searched]);
 
-  // ✅ 取得某系列 (C/T/L) 的所有 norm key
+  const availableGroups = useMemo(() => {
+    return (Object.keys(regionCards) as RegionKey[]).filter((rk) => regionCards[rk].length > 0);
+  }, [regionCards]);
+
+  const allOpen = useMemo(() => {
+    if (!availableGroups.length) return false;
+    return availableGroups.every((rk) => openSet.has(rk));
+  }, [availableGroups, openSet]);
+
+  const toggleAllGroups = useCallback(() => {
+    setOpenGroups((prev) => {
+      const prevSet = new Set(prev);
+      const nextAllOpen = availableGroups.length > 0 && availableGroups.every((rk) => prevSet.has(rk));
+      if (nextAllOpen) return [];
+      return [...availableGroups];
+    });
+  }, [availableGroups]);
+
+  const toggleGroup = useCallback((rk: RegionKey) => {
+    setOpenGroups((prev) => (prev.includes(rk) ? prev.filter((x) => x !== rk) : [...prev, rk]));
+  }, []);
+
   const seriesNorms = useMemo(() => {
     const out: Record<SeriesKind, string[]> = { cervical: [], thoracic: [], lumbar: [] };
 
@@ -630,8 +661,7 @@ export default function S3Viewer() {
       if (s) out[s].push(norm);
     }
 
-    // 依順序排序
-    (['cervical','thoracic','lumbar'] as SeriesKind[]).forEach((sk) => {
+    (['cervical', 'thoracic', 'lumbar'] as SeriesKind[]).forEach((sk) => {
       const meta = seriesMeta(sk);
       const set = new Set(out[sk]);
       out[sk] = meta.order.filter((k) => set.has(k));
@@ -640,16 +670,13 @@ export default function S3Viewer() {
     return out;
   }, [boneList]);
 
-  // ✅ 目前要亮的 mesh (多選)
   const selectedNormSet = useMemo(() => {
     if (selectedMode.kind === 'mesh') return new Set([normalizeMeshName(selectedMode.meshName)]);
     if (selectedMode.kind === 'series') return new Set(seriesNorms[selectedMode.series]);
     return new Set<string>();
   }, [selectedMode, seriesNorms]);
 
-  // ✅ Outline selection objects（支援多選）
   const outlineSelection = useMemo(() => {
-    // 依 registryTick 重新取一次
     void registryTick;
     const objs: THREE.Object3D[] = [];
     selectedNormSet.forEach((norm) => {
@@ -659,38 +686,33 @@ export default function S3Viewer() {
     return objs;
   }, [selectedNormSet, registryTick]);
 
-  // ✅ 點「整組頸椎/胸椎/腰椎」：全部亮、鏡頭聚焦整組、左側保持在脊椎群組
   const selectSeries = useCallback(
     (series: SeriesKind) => {
-      setOpenGroup('spine');
+      setOpenGroups((prev) => (prev.includes('spine') ? prev : [...prev, 'spine']));
       setBoneInfo(null);
       setLoadingInfo(false);
       setSelectedMode({ kind: 'series', series });
 
-      // scroll 到這張總卡
       requestAnimationFrame(() => {
         const el = document.getElementById(`card-spine-${series}`);
         el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
       });
 
-      // focus 整組
       requestAnimationFrame(() => focusOnNormList(seriesNorms[series]));
     },
     [focusOnNormList, seriesNorms]
   );
 
-  // ✅ 點「單顆」：只亮該顆 + 拉資料 + 聚焦
   const selectByMeshName = useCallback(
     async (meshName: string) => {
       setSelectedMode({ kind: 'mesh', meshName });
       setLoadingInfo(true);
       setBoneInfo(null);
 
-      // 打開正確群組 + scroll
       const li = findListItemByMeshName(meshName);
       if (li) {
         const rk = toRegionKey(li.bone_region);
-        setOpenGroup(rk);
+        setOpenGroups((prev) => (prev.includes(rk) ? prev : [...prev, rk]));
 
         const norm = normalizeMeshName(li.mesh_name);
         const s = meshToSeries(norm);
@@ -703,25 +725,31 @@ export default function S3Viewer() {
       }
 
       try {
-        // 1) MeshName -> SmallBoneId
-        const meshRes = await fetch(`${API_BASE}/s3/mesh-map/${encodeURIComponent(meshName)}`);
+        // ✅ 用 normalized 名稱打 mesh-map（避免 Temporal..L / TemporalL 這種炸裂）
+        const queryName = normalizeMeshName(meshName);
+
+        const meshRes = await fetch(`${API_BASE}/s3/mesh-map/${encodeURIComponent(queryName)}`);
         if (!meshRes.ok) {
           console.error('mesh-map error:', await meshRes.text());
           return;
         }
         const meshJson = await meshRes.json();
-        const smallBoneId = meshJson.small_bone_id ?? meshJson.smallBoneId ?? meshJson.SmallBoneId;
+        const smallBoneId =
+          meshJson.small_bone_id ?? meshJson.smallBoneId ?? meshJson.SmallBoneId ?? meshJson.smallBoneID;
 
-        // 2) SmallBoneId -> BoneInfo
-        const boneRes = await fetch(`${API_BASE}/s3/bones/${smallBoneId}`);
+        if (!smallBoneId) {
+          console.error('mesh-map ok but smallBoneId missing:', meshJson);
+          return;
+        }
+
+        const boneRes = await fetch(`${API_BASE}/s3/bone-detail/${smallBoneId}`);
         if (!boneRes.ok) {
-          console.error('bones error:', await boneRes.text());
+          console.error('bone-detail error:', await boneRes.text());
           return;
         }
         const info = (await boneRes.json()) as BoneInfo;
         setBoneInfo(info);
 
-        // 3) focus
         requestAnimationFrame(() => focusOnMesh(meshName));
       } catch (err) {
         console.error('selectByMeshName failed:', err);
@@ -732,7 +760,6 @@ export default function S3Viewer() {
     [findListItemByMeshName, focusOnMesh]
   );
 
-  // ✅ 點 3D mesh：必須同步左側（如果是 C/T/L，會自動把脊椎總卡變 active）
   const onPickMeshFrom3D = useCallback(
     (meshName: string) => {
       selectByMeshName(meshName);
@@ -742,7 +769,6 @@ export default function S3Viewer() {
 
   function isActiveCard(card: Card) {
     if (card.kind === 'series') {
-      // 系列卡 active：當前是 series 模式 或 目前單顆選到這個系列內
       if (selectedSeries === card.series) return true;
       if (selectedMeshName) {
         const norm = normalizeMeshName(selectedMeshName);
@@ -751,7 +777,6 @@ export default function S3Viewer() {
       return false;
     }
 
-    // lr card active：任何 L/R/C 命中
     if (!selectedMeshName) return false;
     const sel = normalizeMeshName(selectedMeshName);
     const vars = [card.L?.mesh_name, card.R?.mesh_name, card.C?.mesh_name].filter(Boolean) as string[];
@@ -807,18 +832,6 @@ export default function S3Viewer() {
     fontWeight: 900,
   });
 
-  const sVariantBtnDisabled: React.CSSProperties = {
-    height: 34,
-    padding: '0 12px',
-    borderRadius: 10,
-    border: '1px solid #2a2a2a',
-    background: '#0f0f0f',
-    color: 'rgba(255,255,255,0.35)',
-    cursor: 'not-allowed',
-    fontWeight: 900,
-  };
-
-  // ✅ 系列卡「整組選取」按鈕（你要點頸椎就全亮，這個按鈕就是那件事）
   const sWholeBtn: React.CSSProperties = {
     height: 32,
     padding: '0 10px',
@@ -831,11 +844,27 @@ export default function S3Viewer() {
     opacity: 0.95,
   };
 
+  const sTopToggleBtn: React.CSSProperties = {
+    height: 34,
+    padding: '0 14px',
+    borderRadius: 12,
+    border: '1px solid #2a2a2a',
+    background: '#151515',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 900,
+  };
+
   return (
     <div style={{ display: 'flex', width: '100%', height: 'calc(100vh - 64px)' }}>
-      {/* 左側清單 */}
       <aside style={sAside}>
-        <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 10 }}>骨頭清單</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+          <div style={{ fontWeight: 900, fontSize: 16 }}>骨頭清單</div>
+
+          <button style={sTopToggleBtn} onClick={toggleAllGroups} title="切換：全部展開 / 全部收起">
+            {allOpen ? '一鍵收起' : '一鍵展開'}
+          </button>
+        </div>
 
         <input
           value={q}
@@ -857,11 +886,11 @@ export default function S3Viewer() {
           const cards = regionCards[rk];
           if (!cards.length) return null;
 
-          const isOpen = openGroup === rk;
+          const isOpen = openSet.has(rk);
 
           return (
             <div key={rk} style={{ marginBottom: 10 }}>
-              <button onClick={() => setOpenGroup((prev) => (prev === rk ? null : rk))} style={sGroupBtn(isOpen)}>
+              <button onClick={() => toggleGroup(rk)} style={sGroupBtn(isOpen)}>
                 <span>{REGION_LABEL[rk]}</span>
                 <span style={{ opacity: 0.75, fontSize: 12 }}>{cards.length}</span>
               </button>
@@ -870,7 +899,6 @@ export default function S3Viewer() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
                   {cards.map((card) => {
                     const active = isActiveCard(card);
-
                     const cardId =
                       card.kind === 'series'
                         ? `card-spine-${card.series}`
@@ -878,14 +906,12 @@ export default function S3Viewer() {
 
                     return (
                       <div id={cardId} key={cardId} style={sCard(active)}>
-                        {/* Header */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                           <div>
                             <div style={{ fontWeight: 900, fontSize: 15 }}>{card.displayZh}</div>
                             <div style={{ fontSize: 12, opacity: 0.82 }}>{card.displayEn}</div>
                           </div>
 
-                          {/* ✅ 重點：點「頸椎」→ 全部亮（這就是你要的） */}
                           {card.kind === 'series' ? (
                             <button style={sWholeBtn} onClick={() => selectSeries(card.series)} title="選取整組（全部亮）">
                               整組
@@ -893,55 +919,56 @@ export default function S3Viewer() {
                           ) : null}
                         </div>
 
-                        {'tag' in card && card.tag ? (
-                          <div style={{ fontSize: 12, opacity: 0.78, marginTop: 6 }}>{card.tag}</div>
+                        {'tag' in card && (card as any).tag ? (
+                          <div style={{ fontSize: 12, opacity: 0.78, marginTop: 6 }}>{(card as any).tag}</div>
                         ) : null}
 
-                        {/* Buttons */}
                         {card.kind === 'lr' ? (
                           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                             {card.L ? (
                               <button
                                 style={sVariantBtn(
-                                  !!selectedMeshName &&
-                                    normalizeMeshName(card.L.mesh_name) === normalizeMeshName(selectedMeshName)
+                                  !!selectedMeshName && normalizeMeshName(card.L.mesh_name) === normalizeMeshName(selectedMeshName)
                                 )}
                                 onClick={() => selectByMeshName(card.L!.mesh_name)}
                                 title={card.L.mesh_name}
                               >
                                 L
                               </button>
-                            ) : (
-                              <button style={sVariantBtnDisabled} disabled>
-                                L
-                              </button>
-                            )}
+                            ) : null}
 
                             {card.R ? (
                               <button
                                 style={sVariantBtn(
-                                  !!selectedMeshName &&
-                                    normalizeMeshName(card.R.mesh_name) === normalizeMeshName(selectedMeshName)
+                                  !!selectedMeshName && normalizeMeshName(card.R.mesh_name) === normalizeMeshName(selectedMeshName)
                                 )}
                                 onClick={() => selectByMeshName(card.R!.mesh_name)}
                                 title={card.R.mesh_name}
                               >
                                 R
                               </button>
-                            ) : (
-                              <button style={sVariantBtnDisabled} disabled>
-                                R
-                              </button>
-                            )}
+                            ) : null}
 
                             {!card.L && !card.R && card.C ? (
                               <button
                                 style={sVariantBtn(
-                                  !!selectedMeshName &&
-                                    normalizeMeshName(card.C.mesh_name) === normalizeMeshName(selectedMeshName)
+                                  !!selectedMeshName && normalizeMeshName(card.C.mesh_name) === normalizeMeshName(selectedMeshName)
                                 )}
                                 onClick={() => selectByMeshName(card.C!.mesh_name)}
                                 title={card.C.mesh_name}
+                              >
+                                選取
+                              </button>
+                            ) : null}
+
+                            {((!!card.L && !card.R) || (!card.L && !!card.R)) && !card.C ? (
+                              <button
+                                style={sVariantBtn(
+                                  !!selectedMeshName &&
+                                    normalizeMeshName((card.L ?? card.R)!.mesh_name) === normalizeMeshName(selectedMeshName)
+                                )}
+                                onClick={() => selectByMeshName((card.L ?? card.R)!.mesh_name)}
+                                title={(card.L ?? card.R)!.mesh_name}
                               >
                                 選取
                               </button>
@@ -968,11 +995,10 @@ export default function S3Viewer() {
                           </div>
                         )}
 
-                        {/* Mini line */}
                         {card.kind === 'lr' ? (
                           <div style={sMini}>
-                            {card.L ? `L: ${normalizeMeshName(card.L.mesh_name)}` : 'L: -'}{' '}
-                            {card.R ? `｜ R: ${normalizeMeshName(card.R.mesh_name)}` : '｜ R: -'}
+                            {card.L ? `L: ${normalizeMeshName(card.L.mesh_name)}` : ''}{' '}
+                            {card.R ? `｜ R: ${normalizeMeshName(card.R.mesh_name)}` : ''}
                             {card.C ? `｜ C: ${normalizeMeshName(card.C.mesh_name)}` : ''}
                           </div>
                         ) : (
@@ -981,7 +1007,6 @@ export default function S3Viewer() {
                           </div>
                         )}
 
-                        {/* Info: 只有在「單顆選取」且這張卡是 active 才顯示 */}
                         {active && selectedMeshName && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
                             {loadingInfo ? (
@@ -1013,7 +1038,6 @@ export default function S3Viewer() {
         })}
       </aside>
 
-      {/* 右側 3D */}
       <main style={{ flex: 1, background: '#111', position: 'relative' }}>
         <Canvas camera={{ position: [0, 1.5, 6], fov: 45 }} style={{ width: '100%', height: '100%' }}>
           <ambientLight intensity={0.4} />
@@ -1031,15 +1055,8 @@ export default function S3Viewer() {
             />
           </group>
 
-          {/* ✅ 真正的 silhouette outline：也支援多選 */}
           <EffectComposer multisampling={4}>
-            <Outline
-              selection={outlineSelection}
-              visibleEdgeColor={0xff8a00}
-              hiddenEdgeColor={0xff8a00}
-              edgeStrength={4}
-              width={1200}
-            />
+            <Outline selection={outlineSelection} visibleEdgeColor={0xff8a00} hiddenEdgeColor={0xff8a00} edgeStrength={4} width={1200} />
           </EffectComposer>
 
           <Controls controlsRef={controlsRef} cameraRef={cameraRef} />

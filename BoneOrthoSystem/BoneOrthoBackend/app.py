@@ -14,9 +14,10 @@ else:
     print("✅ OPENAI_API_KEY 已載入，長度 =", len(OPENAI_API_KEY))
 
 # 2) 再來才 import FastAPI / 各子系統 router
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 
 from s0_annotation import router as s0_router
@@ -54,19 +55,30 @@ app = FastAPI(
 DEV_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-
 ]
 
 
 # ✅ CORS
 app.add_middleware(
     CORSMiddleware,
-    #allow_origins=["*"],
+    # allow_origins=["*"],
     allow_origins=DEV_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ✅ DEV 用：把未處理的 500 變成 JSON（讓 CORS header 能正常回到前端）
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal Server Error",
+            "path": str(request.url.path),
+            "error": repr(exc),
+        },
+    )
 
 # ✅ 靜態檔案：讓 DB 存的 /public/... 真的能被打到
 PROJECT_ROOT = find_project_root("BoneOrthoSystem")
@@ -93,8 +105,6 @@ def root():
         "message": "BoneOrtho Backend running",
         "modules": ["s0", "s1", "s2", "s3"],
     }
-
-
 
 
 # =========================================================

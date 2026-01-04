@@ -1,183 +1,176 @@
-# BoneOrthoBackend/s3_viewer/router.py
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional
+import re
+from typing import Any, Dict, List, Optional
 
+from fastapi import APIRouter, HTTPException
 from db import get_connection
 
 router = APIRouter(prefix="/s3", tags=["S3 Viewer"])
 
 
-# ---------- 工具函式：把 GLB 的 mesh.name 轉成 DB 用的 MeshName ----------
+# =========================
+# SQL identifiers（你的 DB 真實狀況）
+# - 你的表不是 bone schema，而是 dbo schema 下「表名含點」的 bone.Bone_small
+# =========================
+T_BONE_INFO = "[dbo].[Bone_Info]"
+T_BONE_SMALL = "[dbo].[bone.Bone_small]"
+T_MESH_MAP = "[model].[BoneMeshMap]"
 
-def normalize_mesh_name(mesh_name: str) -> str:
-    """
-    把 GLB 裡的 mesh.name 正規化成資料庫 model.BoneMeshMap 的 MeshName：
 
-    1. '_' -> ' '（Frontal_bone -> Frontal bone）
-    2. 如果是 ...L / ...R 結尾，而且裡面沒有 .L/.R，就補上一個點：
-       - Fourth_DistalL  -> Fourth_Distal.L
-       - HumeriR         -> Humeri.R
-    """
-    s = mesh_name.replace("_", " ").strip()
+# =========================
+# MeshName normalize / candidates
+# =========================
+def _normalize_mesh_name(name: str) -> str:
+    s = (name or "").strip()
+    s = s.replace("_", " ").strip()
 
-    # 補上 .L / .R
-    if len(s) > 1 and s[-1] in ("L", "R") and ".L" not in s and ".R" not in s:
+    # 去掉結尾多餘的點：Temporal.L. -> Temporal.L
+    while s.endswith("."):
+        s = s[:-1].strip()
+
+    # 把 .LL/.RR 收斂成 .L/.R
+    s = re.sub(r"\.([LR])\1$", r".\1", s, flags=re.IGNORECASE)
+    # 把 .L.L / .R.R 收斂成 .L / .R
+    s = re.sub(r"\.([LR])\.\1$", r".\1", s, flags=re.IGNORECASE)
+
+    # TemporalL -> Temporal.L（但已經是 .L/.R 就不要再補）
+    if len(s) > 1 and re.search(r"[LR]$", s, flags=re.IGNORECASE) and not re.search(r"\.[LR]$", s, flags=re.IGNORECASE):
         s = s[:-1] + "." + s[-1]
 
     return s
 
 
-# ---------- 1. MeshName → SmallBoneId ----------
+def _mesh_candidates(mesh_name: str) -> List[str]:
+    raw = (mesh_name or "").strip()
+    n = _normalize_mesh_name(raw)
 
-@router.get("/mesh-map/{mesh_name}")
-def get_small_bone_id_by_mesh(mesh_name: str):
-    """
-    前端丟 GLB 裡的 mesh.name 進來 → 回傳 SmallBoneId。
-    來源表：model.BoneMeshMap (SmallBoneId, MeshName)
-    """
-    normalized = normalize_mesh_name(mesh_name)
+    cands = [raw, n]
 
-    # debug：先看一下正規化前後
-    print(f"[S3] mesh_name='{mesh_name}', normalized='{normalized}'")
+    # 版本差：Temporal.L <-> TemporalL
+    cands.append(n.replace(".", ""))
 
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT SmallBoneId, MeshName
-            FROM model.BoneMeshMap
-            WHERE LOWER(REPLACE(MeshName, '_', ' ')) = LOWER(?)
-            """,
-            normalized,
-        )
-        row = cur.fetchone()
+    # DB 如果真的存了 .LL/.RR（你目前就像）
+    if re.search(r"\.L$", n, flags=re.IGNORECASE):
+        cands.append(re.sub(r"\.L$", ".LL", n, flags=re.IGNORECASE))
+    if re.search(r"\.R$", n, flags=re.IGNORECASE):
+        cands.append(re.sub(r"\.R$", ".RR", n, flags=re.IGNORECASE))
 
-    if not row:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"MeshName '{mesh_name}' not found in model.BoneMeshMap; "
-                f"tried normalized='{normalized}'"
-            ),
-        )
+    # 也可能存成 Temporal.L.（多一個點）
+    cands.append(n + ".")
 
-    return {"mesh_name": row.MeshName, "small_bone_id": row.SmallBoneId}
+    # 去重（保序）
+    out: List[str] = []
+    seen = set()
+    for x in cands:
+        xx = (x or "").strip()
+        if not xx:
+            continue
+        if xx in seen:
+            continue
+        seen.add(xx)
+        out.append(xx)
+    return out
 
 
-# ---------- 2. SmallBoneId → 骨頭資訊 ----------
-
-class BoneInfo(BaseModel):
-    small_bone_id: int
-    bone_id: int
-    bone_zh: str
-    bone_en: str
-    bone_region: Optional[str] = None
-    bone_desc: Optional[str] = None
-
-
-@router.get("/bones/{small_bone_id}", response_model=BoneInfo)
-def get_bone_info(small_bone_id: int):
-    """
-    SmallBoneId → join bone.Bone_small + dbo.Bone_Info
-    拿到骨頭中英名稱 / 區域 / 描述。
-    """
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                s.small_bone_id,
-                s.bone_id,
-                COALESCE(s.small_bone_zh, b.bone_zh) AS bone_zh,
-                COALESCE(s.small_bone_en, b.bone_en) AS bone_en,
-                b.bone_region,
-                b.bone_desc
-                FROM [dbo].[bone.Bone_small] AS s
-                JOIN [dbo].[Bone_Info] AS b ON b.bone_id = s.bone_id
-                WHERE s.small_bone_id = ?
-            """,
-            small_bone_id,
-        )
-        row = cur.fetchone()
-
-    if not row:
-        raise HTTPException(
-            status_code=404,
-            detail=f"SmallBoneId {small_bone_id} not found",
-        )
-
-    return BoneInfo(
-        small_bone_id=row.small_bone_id,
-        bone_id=row.bone_id,
-        bone_zh=row.bone_zh,
-        bone_en=row.bone_en,
-        bone_region=row.bone_region,
-        bone_desc=row.bone_desc,
-    )
-
-
+# =========================
+# GET /s3/bone-list
+# =========================
 @router.get("/bone-list")
-def get_bone_list():
+def get_bone_list() -> List[Dict[str, Any]]:
     """
-    給前端左側清單用：
-    回傳「有 MeshMap 對應」的骨頭項目（避免清單點了沒反應）。
+    回傳給前端左側清單用：
+    mesh_name, small_bone_id, bone_id, bone_zh, bone_en, bone_region
     """
+    sql = f"""
+    SELECT
+        m.MeshName      AS mesh_name,
+        m.SmallBoneId   AS small_bone_id,
+        bi.bone_id      AS bone_id,
+        bi.bone_zh      AS bone_zh,
+        bi.bone_en      AS bone_en,
+        bi.bone_region  AS bone_region
+    FROM {T_MESH_MAP} AS m
+    INNER JOIN {T_BONE_SMALL} AS bs
+        ON bs.small_bone_id = m.SmallBoneId
+    INNER JOIN {T_BONE_INFO} AS bi
+        ON bi.bone_id = bs.bone_id
+    ORDER BY
+        bi.bone_region,
+        bi.bone_zh,
+        m.MeshName;
+    """
+
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                m.MeshName                    AS mesh_name,
-                m.SmallBoneId                 AS small_bone_id,
-
-                s.bone_id                     AS bone_id,
-                COALESCE(s.small_bone_zh, b.bone_zh) AS bone_zh,
-                COALESCE(s.small_bone_en, b.bone_en) AS bone_en,
-
-                b.bone_region                 AS bone_region
-            FROM [model].[BoneMeshMap] AS m
-            JOIN [dbo].[bone.Bone_small] AS s
-              ON s.small_bone_id = m.SmallBoneId
-            JOIN [dbo].[Bone_Info] AS b
-              ON b.bone_id = s.bone_id
-            ORDER BY b.bone_region, bone_zh, m.MeshName
-            """
-        )
-        rows = cur.fetchall()
-        cols = [d[0] for d in cur.description]
-
-    return [dict(zip(cols, r)) for r in rows]
+        cur.execute(sql)
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-
-
-
-
-
-
-
-
-
-
-# ---------- 3. 先留著 MR 用的 state sync ----------
-
-class MeshState(BaseModel):
-    meshName: str
-    smallBoneId: int
-    highlighted: bool
-
-
-class SyncStateRequest(BaseModel):
-    userId: str
-    sceneId: str
-    meshes: List[MeshState]
-
-
-@router.post("/state/sync")
-async def sync_viewer_state(req: SyncStateRequest):
+# =========================
+# GET /s3/bone-detail/{small_bone_id}
+# =========================
+@router.get("/bone-detail/{small_bone_id}")
+def get_bone_detail(small_bone_id: int) -> Dict[str, Any]:
     """
-    之後 MR / 多裝置同步場景狀態會用到。
-    現在先回傳 mesh 數量給前端測試。
+    你 swagger 上就是這條路由（不是 /s3/bones/{id}）
     """
-    return {"status": "ok", "meshCount": len(req.meshes)}
+    sql = f"""
+    SELECT TOP 1
+        bs.small_bone_id AS small_bone_id,
+        bs.bone_id       AS bone_id,
+        bi.bone_zh       AS bone_zh,
+        bi.bone_en       AS bone_en,
+        bi.bone_region   AS bone_region,
+        bi.bone_desc     AS bone_desc
+    FROM {T_BONE_SMALL} AS bs
+    INNER JOIN {T_BONE_INFO} AS bi
+        ON bi.bone_id = bs.bone_id
+    WHERE bs.small_bone_id = ?;
+    """
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, small_bone_id)
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail={"message": "SmallBoneId not found", "small_bone_id": small_bone_id})
+        cols = [c[0] for c in cur.description]
+        return dict(zip(cols, row))
+
+
+# =========================
+# GET /s3/mesh-map/{mesh_name}
+# =========================
+@router.get("/mesh-map/{mesh_name}")
+def get_mesh_map(mesh_name: str) -> Dict[str, Any]:
+    """
+    MeshName -> SmallBoneId
+    """
+    cands = _mesh_candidates(mesh_name)
+    placeholders = ",".join(["?"] * len(cands))
+
+    sql = f"""
+    SELECT TOP 1
+        SmallBoneId AS small_bone_id,
+        MeshName    AS mesh_name
+    FROM {T_MESH_MAP}
+    WHERE MeshName IN ({placeholders});
+    """
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, *cands)
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": "MeshName not found in [model].[BoneMeshMap]",
+                    "input": mesh_name,
+                    "normalized": _normalize_mesh_name(mesh_name),
+                    "candidates": cands,
+                },
+            )
+
+        cols = [c[0] for c in cur.description]
+        return dict(zip(cols, row))
