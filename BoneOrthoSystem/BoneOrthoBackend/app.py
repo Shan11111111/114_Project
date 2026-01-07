@@ -31,7 +31,7 @@ from s2_agent.ensure_title import router as ensure_title_router
 
 from s2_agent.legacy_agent.backend.app.main import app as s2_legacy_app
 
-
+from auth.router import router as auth_router
 # ==========================================
 #  跨主機通用：自動尋找 BoneOrthoSystem 根目錄
 #  目的：把 /public 掛到 BoneOrthoSystem/public（S1 存圖的位置）
@@ -163,6 +163,10 @@ app.include_router(s3_router)
 app.include_router(s0_bridge_router, prefix="/s2")
 app.include_router(s1_handoff_router)
 app.include_router(ensure_title_router)
+
+
+app.include_router(auth_router)
+
 
 # ✅ legacy S2（維持你原本行為）
 app.mount("/s2x", s2_legacy_app)

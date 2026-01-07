@@ -30,8 +30,11 @@ pip install reportlab
 
 pip install python-docx python-pptx pymupdf
 
-
 pip install -U qdrant-client
+
+pip install passlib[bcrypt] python-jose[cryptography]
+
+pip install "pydantic[email]"
 
 
 # 啟動後端服務
