@@ -1,3 +1,4 @@
+// frontend/app/auth/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +25,6 @@ const EP = {
   me: `${API_BASE}/auth/me`,
   logout: `${API_BASE}/auth/logout`,
   refresh: `${API_BASE}/auth/refresh`,
-  // 你們命名可能不同：我做 fallback
   sendVerify: [
     `${API_BASE}/auth/email/send`,
     `${API_BASE}/auth/send-verify`,
@@ -44,12 +44,8 @@ async function postWithFallback<T>(urls: string[], body: any): Promise<{ url: st
       return { url, data };
     } catch (e: any) {
       lastErr = e;
-      // 如果是 404 或 "Not Found" 之類，再試下一個
       const msg = String(e?.message || "");
-      if (msg.includes("404") || msg.toLowerCase().includes("not found") || msg.includes("Cannot POST")) {
-        continue;
-      }
-      // 不是 404：直接丟出（避免把真正錯誤吞掉）
+      if (msg.includes("404") || msg.toLowerCase().includes("not found") || msg.includes("Cannot POST")) continue;
       throw e;
     }
   }
@@ -57,18 +53,15 @@ async function postWithFallback<T>(urls: string[], body: any): Promise<{ url: st
 }
 
 /** =========================
- *  Helpers: 72 bytes password guard
+ *  Helpers
  *  ========================= */
 function utf8BytesLen(s: string) {
   return new TextEncoder().encode(s).length;
 }
-
 function truncateUtf8ToBytes(s: string, maxBytes: number) {
   const enc = new TextEncoder();
   const bytes = enc.encode(s);
   if (bytes.length <= maxBytes) return s;
-
-  // 逐步縮短（保守但穩）
   let lo = 0, hi = s.length;
   while (lo < hi) {
     const mid = Math.floor((lo + hi + 1) / 2);
@@ -78,23 +71,65 @@ function truncateUtf8ToBytes(s: string, maxBytes: number) {
   }
   return s.slice(0, lo);
 }
-
 function cx(...cls: Array<string | false | null | undefined>) {
   return cls.filter(Boolean).join(" ");
 }
 
 /** =========================
+ *  Small Hook: 3D tilt
+ *  ========================= */
+function useTilt<T extends HTMLElement>(ref: React.RefObject<T | null>, enabled = true) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled) return;
+
+    let raf = 0;
+    const onMove = (e: PointerEvent) => {
+      const r = el.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width;
+      const py = (e.clientY - r.top) / r.height;
+      const rx = (0.5 - py) * 8;
+      const ry = (px - 0.5) * 10;
+
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        el.style.setProperty("--rx", `${rx.toFixed(2)}deg`);
+        el.style.setProperty("--ry", `${ry.toFixed(2)}deg`);
+        el.style.setProperty("--mx", `${(px * 100).toFixed(2)}%`);
+        el.style.setProperty("--my", `${(py * 100).toFixed(2)}%`);
+      });
+    };
+
+    const onLeave = () => {
+      cancelAnimationFrame(raf);
+      el.style.setProperty("--rx", `0deg`);
+      el.style.setProperty("--ry", `0deg`);
+      el.style.setProperty("--mx", `50%`);
+      el.style.setProperty("--my", `50%`);
+    };
+
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerleave", onLeave);
+    return () => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerleave", onLeave);
+      cancelAnimationFrame(raf);
+    };
+  }, [ref, enabled]);
+}
+
+
+
+
+
+/** =========================
  *  Types
  *  ========================= */
 type Mode = "login" | "register" | "verify";
+type LoginOut = { access_token: string; refresh_token: string; token_type?: string };
+type Role = "user" | "student" | "teacher" | "doctor" | "assistant";
 
-type LoginOut = {
-  access_token: string;
-  refresh_token: string;
-  token_type?: string;
-};
-
-export default function AuthPage() {
+export default function Page() {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -103,54 +138,51 @@ export default function AuthPage() {
   const isRegister = mode === "register";
   const isVerify = mode === "verify";
 
-  // UI state
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ type: "ok" | "err" | "info"; msg: string } | null>(null);
 
-  // form state
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
-  const [roleWish, setRoleWish] = useState<"user" | "teacher" | "admin">("user");
-
+  const [role, setRole] = useState<Role>("user");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
 
-  // verify state
   const [code, setCode] = useState("");
   const [lastSentAt, setLastSentAt] = useState<number | null>(null);
   const [devCodeHint, setDevCodeHint] = useState<string | null>(null);
 
-  const bytes = useMemo(() => utf8BytesLen(pw), [pw]);
-  const bytes2 = useMemo(() => utf8BytesLen(pw2), [pw2]);
-  const pwOver = bytes > 72;
-  const pw2Over = bytes2 > 72;
+  const bookRef = useRef<HTMLDivElement>(null);
+  useTilt(bookRef, true);
 
-  // countdown for resend
+  const bytes = useMemo(() => utf8BytesLen(pw), [pw]);
+  const pwOver = bytes > 72;
+
   const resendLeft = useMemo(() => {
     if (!lastSentAt) return 0;
     const diff = Math.floor((Date.now() - lastSentAt) / 1000);
-    return Math.max(0, 30 - diff); // 30 秒冷卻
-  }, [lastSentAt, toast]); // toast 變動會促發重新 render
-
-  // tiny timer tick (for resend countdown)
-  useEffect(() => {
-    if (!lastSentAt) return;
-    const t = setInterval(() => {
-      // force rerender
-      setToast((x) => x ? { ...x } : x);
-    }, 1000);
-    return () => clearInterval(t);
+    return Math.max(0, 30 - diff);
   }, [lastSentAt]);
 
-  // clear toast after a while
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3800);
+    const t = setTimeout(() => setToast(null), 4200);
     return () => clearTimeout(t);
   }, [toast]);
 
+  useEffect(() => {
+    if (!lastSentAt) return;
+    const t = setInterval(() => setToast((x) => (x ? { ...x } : x)), 1000);
+    return () => clearInterval(t);
+  }, [lastSentAt]);
+
   function goto(next: Mode) {
     router.push(`/auth?mode=${next}`);
+  }
+
+  function onPwChange(v: string, which: "pw" | "pw2") {
+    const clipped = truncateUtf8ToBytes(v, 72);
+    if (which === "pw") setPw(clipped);
+    else setPw2(clipped);
   }
 
   async function handleRegister() {
@@ -169,12 +201,11 @@ export default function AuthPage() {
           username: username.trim(),
           email: email.trim(),
           password: pw,
-          // 你後端目前不會吃 roles，我保留讓你日後可升級
-          roles: roleWish,
+          role, // ✅ 你要的是 role（不是 roles）
         }),
       });
 
-      setToast({ type: "ok", msg: "註冊成功 ✅ 但還沒驗證 email，先去驗證。" });
+      setToast({ type: "ok", msg: "註冊成功 ✅ 但還沒驗證 email。下一步：寄驗證碼 → 輸入驗證碼。" });
       goto("verify");
     } catch (e: any) {
       setToast({ type: "err", msg: String(e?.message || e) });
@@ -198,21 +229,18 @@ export default function AuthPage() {
 
       setTokens(out.access_token, out.refresh_token);
 
-      // 拿 /me
       const me = await apiJSON<AuthUser>(EP.me, {
         method: "GET",
         headers: { Authorization: `Bearer ${out.access_token}` },
       });
       setUser(me);
 
-      setToast({ type: "ok", msg: "登入成功 ✅ 你現在是主角。" });
+      setToast({ type: "ok", msg: "登入成功 ✅（你終於不是訪客了）" });
       router.push("/");
     } catch (e: any) {
       const msg = String(e?.message || e);
-
-      // 後端擋未驗證：直接引導到 verify
-      if (msg.includes("尚未完成") || msg.includes("驗證")) {
-        setToast({ type: "info", msg: "你還沒驗證 email。先驗證，才讓你上車。" });
+      if (msg.includes("尚未完成") || msg.includes("驗證") || msg.includes("403")) {
+        setToast({ type: "info", msg: "你還沒驗證 Email。先驗證，系統才會放行。" });
         goto("verify");
       } else {
         setToast({ type: "err", msg });
@@ -230,15 +258,13 @@ export default function AuthPage() {
       if (!email.trim()) throw new Error("請先填 Email，才能寄驗證碼。");
 
       const { data, url } = await postWithFallback<any>(EP.sendVerify, { email: email.trim() });
-
-      // 開發模式可能回 dev_code
       const maybe = (data?.dev_code || data?.code || null) as string | null;
       if (maybe) setDevCodeHint(String(maybe));
 
       setLastSentAt(Date.now());
       setToast({
         type: "ok",
-        msg: `已送出驗證碼 ✅（用的是 ${url.replace(API_BASE, "")}）` + (maybe ? "（dev_code 已顯示在下方）" : ""),
+        msg: `已送出驗證碼 ✅（用 ${url.replace(API_BASE, "")}）` + (maybe ? "（dev_code 已顯示）" : ""),
       });
     } catch (e: any) {
       setToast({ type: "err", msg: String(e?.message || e) });
@@ -254,15 +280,9 @@ export default function AuthPage() {
       if (!email.trim()) throw new Error("請先填 Email");
       if (!code.trim()) throw new Error("請輸入驗證碼");
       const cleanCode = code.replace(/\s+/g, "");
-      if (cleanCode.length < 4) throw new Error("驗證碼太短（你真的有收到嗎…）");
 
-      const { url } = await postWithFallback<any>(EP.verify, {
-        email: email.trim(),
-        code: cleanCode,
-      });
-
-      setToast({ type: "ok", msg: `驗證成功 ✅（用的是 ${url.replace(API_BASE, "")}）可以登入了。` });
-      // 驗證成功 → 回登入
+      const { url } = await postWithFallback<any>(EP.verify, { email: email.trim(), code: cleanCode });
+      setToast({ type: "ok", msg: `驗證成功 ✅（用 ${url.replace(API_BASE, "")}）現在可以登入了。` });
       goto("login");
     } catch (e: any) {
       setToast({ type: "err", msg: String(e?.message || e) });
@@ -290,419 +310,331 @@ export default function AuthPage() {
     }
   }
 
-  // input handlers with 72 bytes clamp
-  function onPwChange(v: string, which: "pw" | "pw2") {
-    const clipped = truncateUtf8ToBytes(v, 72);
-    if (which === "pw") setPw(clipped);
-    else setPw2(clipped);
-  }
+  const step = isRegister ? 0 : isVerify ? 1 : 2;
 
   return (
-    <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-[980px]">
-        {/* Title strip */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-sm opacity-80">
-            <span className="inline-flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              {isLogin && "登入模式"}
-              {isRegister && "註冊模式"}
-              {isVerify && "Email 驗證"}
-            </span>
+    <div className="authRoot">
+      <div className="bgBlobs" aria-hidden="true" />
+
+      <div className="wrap">
+        <div className="topBar">
+          <div className="brand">
+            <span className="dot" />
+            <span className="title">GalaBone Auth</span>
+            <span className="sub">翻書登入・有點炫但不裝逼</span>
           </div>
 
-          <div className="text-xs opacity-70">
-            提示：<code className="px-2 py-1 rounded bg-black/5">/auth?mode=login</code>{" "}
-            <code className="px-2 py-1 rounded bg-black/5">/auth?mode=register</code>{" "}
-            <code className="px-2 py-1 rounded bg-black/5">/auth?mode=verify</code>
+          <div className="stepper" title="Register → Verify → Login">
+            {["Register", "Verify", "Login"].map((t, i) => (
+              <div key={t} className={cx("step", i <= step && "on")}>
+                <span className="n">{i + 1}</span>
+                <span className="t">{t}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Flip Book */}
-        <div className="relative">
-          <div className="bookShell">
-            <div className={cx("book", isRegister && "isFlipped")}>
-              {/* Left Page: Login */}
-              <section className="page pageLeft">
-                <div className="pagePad">
-                  <h1 className="text-4xl font-bold tracking-tight">登入</h1>
-                  <p className="mt-2 text-sm opacity-70">
-                    左頁登入 / 右頁註冊。想要翻書感？我給你翻到起飛 📚✨
-                  </p>
+        <div className="book3d" ref={bookRef}>
+          <div className={cx("book", isRegister && "flipR", isLogin && "flipL")}>
+            {/* LEFT: LOGIN */}
+            <section className="page left">
+              <div className="pad">
+                <h1>登入</h1>
+                <p className="hint">你可以很酷，但先登入。沒驗證的帳號會被擋（合理）。</p>
 
-                  <div className="mt-6 space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Email</label>
-                      <input
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="mt-1 w-full rounded-2xl border px-4 py-3 bg-white/70 outline-none focus:ring-2 focus:ring-cyan-400"
-                        placeholder="name@example.com"
-                        autoComplete="email"
-                      />
-                    </div>
+                <label className="lab">Email</label>
+                <input className="inp" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" />
 
-                    <div>
-                      <label className="text-sm font-medium">密碼</label>
-                      <div className="mt-1 relative">
-                        <input
-                          value={pw}
-                          onChange={(e) => onPwChange(e.target.value, "pw")}
-                          className="w-full rounded-2xl border px-4 py-3 bg-white/70 outline-none focus:ring-2 focus:ring-cyan-400"
-                          placeholder="輸入密碼"
-                          type="password"
-                          autoComplete="current-password"
-                        />
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs opacity-60">
-                          {utf8BytesLen(pw)}/72 bytes
-                        </div>
-                      </div>
-                      <div className="mt-2 text-xs opacity-70">
-                        bcrypt 上限 72 bytes（前端幫你卡住，避免後端 422）。
-                      </div>
-                    </div>
+                <label className="lab">密碼</label>
+                <div className="pwRow">
+                  <input className="inp" value={pw} onChange={(e) => onPwChange(e.target.value, "pw")} placeholder="輸入密碼" type="password" autoComplete="current-password" />
+                  <span className={cx("bytes", pwOver && "bad")}>{bytes}/72</span>
+                </div>
+                <div className="micro">bcrypt 上限 72 bytes：前端直接卡住，後端就不會再 422 你。</div>
 
+                <button className="btn main" disabled={busy} onClick={handleLogin}>
+                  {busy ? "處理中…" : "登入"}
+                </button>
+
+                <div className="row">
+                  <Link href="/" className="link">回首頁</Link>
+                  <button className="btn ghost" onClick={() => goto("register")} disabled={busy}>
+                    去註冊 →
+                  </button>
+                </div>
+
+                <button className="link tiny" onClick={handleLogout} disabled={busy}>
+                  （我已登入）點我登出
+                </button>
+              </div>
+            </section>
+
+            {/* RIGHT: REGISTER */}
+            <section className="page right">
+              <div className="pad">
+                <div className="headRow">
+                  <div>
+                    <h1>註冊</h1>
+                    <p className="hint">欄位你嫌少？這版把「username + role」都補齊。</p>
+                  </div>
+                  <button className="btn ghost" onClick={() => goto("login")} disabled={busy}>
+                    去登入 →
+                  </button>
+                </div>
+
+                <label className="lab">使用者名稱</label>
+                <input className="inp" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="user_name（dbo.users.username）" autoComplete="username" />
+
+                <label className="lab">角色（role → 寫入 DB roles）</label>
+                <div className="chips">
+                  {(["user", "student", "teacher", "doctor", "assistant"] as Role[]).map((r) => (
                     <button
+                      key={r}
+                      type="button"
+                      className={cx("chip", role === r && "on")}
+                      onClick={() => setRole(r)}
                       disabled={busy}
-                      onClick={handleLogin}
-                      className={cx(
-                        "w-full rounded-2xl py-3 font-semibold text-white shadow-lg",
-                        busy ? "opacity-60" : "hover:opacity-95",
-                        "bg-cyan-500"
-                      )}
+                      title={r === "teacher" || r === "doctor" ? "這種通常要審核，但你現在先存起來展示" : ""}
                     >
-                      {busy ? "處理中…" : "登入"}
+                      {r}
                     </button>
+                  ))}
+                </div>
+                <div className="micro">後端會白名單檢查：只允許 user/student/teacher/doctor/assistant。</div>
 
-                    <div className="flex items-center justify-between text-sm">
-                      <Link href="/" className="opacity-70 hover:opacity-100">
-                        回首頁
-                      </Link>
-                      <button
-                        onClick={() => goto("register")}
-                        className="inline-flex items-center gap-2 rounded-full px-4 py-2 bg-black/5 hover:bg-black/10"
-                      >
-                        沒帳號？去註冊 →
-                      </button>
-                    </div>
+                <label className="lab">Email</label>
+                <input className="inp" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" />
 
-                    <div className="pt-3">
-                      <button
-                        onClick={handleLogout}
-                        className="text-xs opacity-70 hover:opacity-100"
-                        disabled={busy}
-                        title="如果你目前已登入，這顆會登出"
-                      >
-                        （我已登入）點我登出
-                      </button>
+                <div className="grid2">
+                  <div>
+                    <label className="lab">密碼</label>
+                    <div className="pwRow">
+                      <input className="inp" value={pw} onChange={(e) => onPwChange(e.target.value, "pw")} placeholder="至少 8 碼" type="password" autoComplete="new-password" />
+                      <span className={cx("bytes", pwOver && "bad")}>{bytes}/72</span>
                     </div>
+                  </div>
+                  <div>
+                    <label className="lab">確認密碼</label>
+                    <input className="inp" value={pw2} onChange={(e) => onPwChange(e.target.value, "pw2")} placeholder="再打一次" type="password" autoComplete="new-password" />
+                    <div className="micro">{pw2 && pw !== pw2 ? <span className="badTxt">兩次密碼不一致</span> : <span>OK</span>}</div>
                   </div>
                 </div>
-              </section>
 
-              {/* Right Page: Register */}
-              <section className="page pageRight">
-                <div className="pagePad">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h1 className="text-4xl font-bold tracking-tight">註冊</h1>
-                      <p className="mt-2 text-sm opacity-70">
-                        我知道你想要「Figma 等級」的互動——先把流程做對，再來加煙火 🎆
-                      </p>
-                    </div>
+                <button className="btn main" disabled={busy} onClick={handleRegister}>
+                  {busy ? "建立中…" : "建立帳號"}
+                </button>
 
-                    <button
-                      onClick={() => goto("login")}
-                      className="inline-flex items-center gap-2 rounded-full px-4 py-2 bg-cyan-500 text-white hover:opacity-95"
-                    >
-                      去登入 →
-                    </button>
+                <button className="btn glow" disabled={busy} onClick={() => goto("verify")}>
+                  我已註冊，去驗證 →
+                </button>
+              </div>
+            </section>
+          </div>
+
+          {/* VERIFY MODAL */}
+          {isVerify && (
+            <div className="veil" role="dialog" aria-modal="true">
+              <div className="modal">
+                <div className="mHead">
+                  <div>
+                    <h2>Email 驗證</h2>
+                    <p>流程：先寄驗證碼 → 再輸入驗證碼。你如果跳步，系統不背鍋。</p>
                   </div>
-
-                  <div className="mt-6 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-medium">使用者名稱</label>
-                        <input
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value)}
-                          className="mt-1 w-full rounded-2xl border px-4 py-3 bg-white/70 outline-none focus:ring-2 focus:ring-cyan-400"
-                          placeholder="user_name（要寫進 dbo.users.username）"
-                          autoComplete="username"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-sm font-medium">期望角色（展示用）</label>
-                        <select
-                          value={roleWish}
-                          onChange={(e) => setRoleWish(e.target.value as any)}
-                          className="mt-1 w-full rounded-2xl border px-4 py-3 bg-white/70 outline-none focus:ring-2 focus:ring-cyan-400"
-                        >
-                          <option value="user">一般使用者 user</option>
-                          <option value="teacher">教學 / 教師 teacher（通常要審核）</option>
-                          <option value="admin">管理員 admin（需要邀請）</option>
-                        </select>
-                        <div className="mt-1 text-xs opacity-60">
-                          目前後端 create_user() 會固定 roles='user'；你要真的寫入 roles，需要後端一起改。
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium">Email</label>
-                      <input
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="mt-1 w-full rounded-2xl border px-4 py-3 bg-white/70 outline-none focus:ring-2 focus:ring-cyan-400"
-                        placeholder="name@example.com"
-                        autoComplete="email"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-medium">密碼</label>
-                        <div className="mt-1 relative">
-                          <input
-                            value={pw}
-                            onChange={(e) => onPwChange(e.target.value, "pw")}
-                            className="w-full rounded-2xl border px-4 py-3 bg-white/70 outline-none focus:ring-2 focus:ring-cyan-400"
-                            placeholder="至少 8 碼"
-                            type="password"
-                            autoComplete="new-password"
-                          />
-                          <div className={cx("absolute right-3 top-1/2 -translate-y-1/2 text-xs", pwOver ? "text-red-600" : "opacity-60")}>
-                            {utf8BytesLen(pw)}/72
-                          </div>
-                        </div>
-                        <div className="mt-2 text-xs opacity-70">
-                          72 bytes 限制：英文約 72 字；中文大約 24 字內。
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-sm font-medium">確認密碼</label>
-                        <div className="mt-1 relative">
-                          <input
-                            value={pw2}
-                            onChange={(e) => onPwChange(e.target.value, "pw2")}
-                            className="w-full rounded-2xl border px-4 py-3 bg-white/70 outline-none focus:ring-2 focus:ring-cyan-400"
-                            placeholder="再打一次"
-                            type="password"
-                            autoComplete="new-password"
-                          />
-                          <div className={cx("absolute right-3 top-1/2 -translate-y-1/2 text-xs", pw2Over ? "text-red-600" : "opacity-60")}>
-                            {utf8BytesLen(pw2)}/72
-                          </div>
-                        </div>
-
-                        <div className="mt-2 text-xs">
-                          {pw2 && pw !== pw2 ? (
-                            <span className="text-red-600">兩次密碼不一致</span>
-                          ) : (
-                            <span className="opacity-70">OK</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      disabled={busy}
-                      onClick={handleRegister}
-                      className={cx(
-                        "w-full rounded-2xl py-3 font-semibold text-white shadow-lg",
-                        busy ? "opacity-60" : "hover:opacity-95",
-                        "bg-cyan-500"
-                      )}
-                    >
-                      {busy ? "建立中…" : "建立帳號"}
-                    </button>
-
-                    <div className="text-xs opacity-70">
-                      註冊完成後會要求 Email 驗證；不驗證就不給登入（合理，安全、也比較像真的系統）。
-                    </div>
-                  </div>
+                  <button className="btn ghost" onClick={() => goto("login")} disabled={busy}>
+                    回登入
+                  </button>
                 </div>
-              </section>
-            </div>
 
-            {/* Verify overlay (same page, separate mode) */}
-            {isVerify && (
-              <div className="verifyOverlay">
-                <div className="verifyCard">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-2xl font-bold">Email 驗證</h2>
-                      <p className="mt-1 text-sm opacity-70">
-                        先「寄驗證碼」→ 再「輸入驗證碼」。<br />
-                        如果你連送碼都沒按就來驗證，當然會被拒絕（系統不是通靈王）。
-                      </p>
+                <div className="mGrid">
+                  <div>
+                    <label className="lab">Email</label>
+                    <input className="inp" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" />
+
+                    <div className="row2">
+                      <button className="btn ok" disabled={busy || resendLeft > 0} onClick={handleSendVerify}>
+                        {resendLeft > 0 ? `請稍等 ${resendLeft}s` : "寄驗證碼"}
+                      </button>
+                      <button className="btn ghost" disabled={busy} onClick={() => { setDevCodeHint(null); setCode(""); }}>
+                        清空
+                      </button>
                     </div>
-                    <button
-                      onClick={() => goto("login")}
-                      className="rounded-full px-4 py-2 bg-black/5 hover:bg-black/10"
-                    >
-                      回登入
-                    </button>
+
+                    {devCodeHint && (
+                      <div className="devHint">
+                        dev_code：<code>{devCodeHint}</code>
+                        <span>（正式上線要改成寄信，不回傳 code）</span>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium">Email</label>
-                      <input
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="mt-1 w-full rounded-2xl border px-4 py-3 bg-white outline-none focus:ring-2 focus:ring-cyan-400"
-                        placeholder="name@example.com"
-                        autoComplete="email"
-                      />
-                      <div className="mt-2 flex items-center gap-2">
-                        <button
-                          disabled={busy || resendLeft > 0}
-                          onClick={handleSendVerify}
-                          className={cx(
-                            "rounded-full px-4 py-2 text-sm font-semibold text-white",
-                            busy || resendLeft > 0 ? "opacity-60" : "hover:opacity-95",
-                            "bg-emerald-500"
-                          )}
-                        >
-                          {resendLeft > 0 ? `請稍等 ${resendLeft}s` : "寄驗證碼"}
-                        </button>
+                  <div>
+                    <label className="lab">驗證碼</label>
+                    <input className="inp code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="例如：123456" inputMode="numeric" />
 
-                        <button
-                          onClick={() => { setDevCodeHint(null); setCode(""); }}
-                          className="rounded-full px-4 py-2 text-sm bg-black/5 hover:bg-black/10"
-                          disabled={busy}
-                        >
-                          清空
-                        </button>
-                      </div>
+                    <button className="btn main" disabled={busy} onClick={handleVerify}>
+                      {busy ? "驗證中…" : "確認驗證"}
+                    </button>
 
-                      {devCodeHint && (
-                        <div className="mt-3 text-xs">
-                          <span className="opacity-70">dev_code：</span>
-                          <code className="px-2 py-1 rounded bg-black/5">{devCodeHint}</code>
-                          <span className="opacity-70">（正式上線要把 dev_code 拿掉，改寄信）</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium">驗證碼</label>
-                      <input
-                        value={code}
-                        onChange={(e) => setCode(e.target.value)}
-                        className="mt-1 w-full rounded-2xl border px-4 py-3 bg-white outline-none focus:ring-2 focus:ring-cyan-400 tracking-widest"
-                        placeholder="例如：123456"
-                        inputMode="numeric"
-                      />
-
-                      <button
-                        disabled={busy}
-                        onClick={handleVerify}
-                        className={cx(
-                          "mt-3 w-full rounded-2xl py-3 font-semibold text-white shadow-lg",
-                          busy ? "opacity-60" : "hover:opacity-95",
-                          "bg-cyan-500"
-                        )}
-                      >
-                        {busy ? "驗證中…" : "確認驗證"}
-                      </button>
-
-                      <div className="mt-2 text-xs opacity-70">
-                        若你一直看到「錯誤或過期」：請重新寄一次（你可能拿到舊碼了）。
-                      </div>
-                    </div>
+                    <div className="micro">如果一直說「錯誤或過期」：重寄一次，你可能拿到舊碼。</div>
                   </div>
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* Toast */}
-          {toast && (
-            <div
-              className={cx(
-                "mt-4 rounded-2xl border px-4 py-3 text-sm",
-                toast.type === "ok" && "border-emerald-200 bg-emerald-50 text-emerald-800",
-                toast.type === "err" && "border-red-200 bg-red-50 text-red-800",
-                toast.type === "info" && "border-cyan-200 bg-cyan-50 text-cyan-900"
-              )}
-            >
-              {toast.msg}
             </div>
           )}
         </div>
+
+        {toast && (
+          <div className={cx("toast", toast.type)}>
+            {toast.msg}
+          </div>
+        )}
       </div>
 
-      {/* Styles (no extra files needed) */}
       <style jsx global>{`
-        .bookShell {
-          position: relative;
+        .authRoot { min-height: calc(100vh - 64px); padding: 40px 16px; display: grid; place-items: center; position: relative; overflow: hidden; }
+        .bgBlobs {
+          position: absolute; inset: -40%;
+          background:
+            radial-gradient(closest-side at 20% 20%, rgba(56,189,248,0.35), transparent 60%),
+            radial-gradient(closest-side at 80% 30%, rgba(16,185,129,0.28), transparent 55%),
+            radial-gradient(closest-side at 40% 80%, rgba(168,85,247,0.22), transparent 60%);
+          filter: blur(14px);
+          animation: floaty 10s ease-in-out infinite alternate;
+          pointer-events: none;
+        }
+        @keyframes floaty { from { transform: translate3d(-10px,-12px,0) scale(1); } to { transform: translate3d(14px,10px,0) scale(1.04); } }
+
+        .wrap { width: min(1040px, 100%); position: relative; z-index: 2; }
+        .topBar { display: flex; gap: 14px; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+        .brand { display: flex; align-items: baseline; gap: 10px; }
+        .dot { width: 10px; height: 10px; border-radius: 999px; background: rgba(16,185,129,1); box-shadow: 0 0 0 6px rgba(16,185,129,0.15); }
+        .title { font-weight: 800; letter-spacing: -0.02em; }
+        .sub { opacity: .65; font-size: 12px; }
+
+        .stepper { display: flex; gap: 10px; }
+        .step { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 999px; border: 1px solid rgba(2,6,23,.10); background: rgba(255,255,255,.55); backdrop-filter: blur(8px); opacity: .65; }
+        .step.on { opacity: 1; }
+        .step .n { width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center; font-size: 12px; background: rgba(56,189,248,.18); }
+        .step .t { font-size: 12px; }
+
+        .book3d {
+          --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 50%;
           border-radius: 28px;
+          border: 1px solid rgba(2,6,23,.10);
+          box-shadow: 0 24px 90px rgba(2,6,23,.16);
+          background: linear-gradient(180deg, rgba(56,189,248,.14), rgba(255,255,255,.62));
           overflow: hidden;
-          box-shadow: 0 18px 60px rgba(2, 6, 23, 0.12);
-          background: linear-gradient(180deg, rgba(56,189,248,0.16), rgba(255,255,255,0.55));
-          border: 1px solid rgba(2, 6, 23, 0.08);
-        }
-
-        .book {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          transform-style: preserve-3d;
-          perspective: 1600px;
-          min-height: 560px;
+          transform: perspective(1200px) rotateX(var(--rx)) rotateY(var(--ry));
+          transition: transform .18s ease;
           position: relative;
         }
-
-        .page {
-          position: relative;
-          background: rgba(255,255,255,0.72);
-          backdrop-filter: blur(10px);
+        .book3d::after{
+          content:"";
+          position:absolute; inset:0;
+          background: radial-gradient(700px 300px at var(--mx) var(--my), rgba(255,255,255,.55), transparent 60%);
+          mix-blend-mode: overlay;
+          pointer-events:none;
+          opacity:.7;
         }
 
-        .pagePad {
-          padding: 28px;
-        }
+        .book { display: grid; grid-template-columns: 1fr 1fr; min-height: 620px; }
+        .page { background: rgba(255,255,255,.74); backdrop-filter: blur(10px); position: relative; }
+        .page.left { border-right: 1px solid rgba(2,6,23,.10); }
+        .page.right { border-left: 1px solid rgba(2,6,23,.10); }
+        .pad { padding: 28px; }
+        .page h1 { font-size: 36px; font-weight: 900; letter-spacing: -0.03em; margin: 0; }
+        .hint { margin-top: 6px; opacity: .7; font-size: 13px; }
 
-        .pageLeft {
-          border-right: 1px solid rgba(2, 6, 23, 0.08);
+        .lab { display:block; font-size: 12px; font-weight: 700; margin-top: 16px; opacity: .8; }
+        .inp {
+          width: 100%;
+          margin-top: 8px;
+          border-radius: 18px;
+          border: 1px solid rgba(2,6,23,.12);
+          background: rgba(255,255,255,.78);
+          padding: 12px 14px;
+          outline: none;
+          transition: box-shadow .15s ease, transform .15s ease;
         }
+        .inp:focus { box-shadow: 0 0 0 3px rgba(56,189,248,.25); transform: translateY(-1px); }
+        .inp.code { letter-spacing: .35em; font-weight: 800; text-align: center; }
 
-        .pageRight {
-          border-left: 1px solid rgba(2, 6, 23, 0.08);
-        }
+        .pwRow { position: relative; }
+        .bytes { position:absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 12px; opacity:.65; }
+        .bytes.bad { color: rgb(220,38,38); opacity: 1; }
 
-        /* Flip effect */
-        .book.isFlipped .pageLeft {
-          transform: rotateY(-6deg);
-          transform-origin: right center;
-        }
-        .book.isFlipped .pageRight {
-          transform: rotateY(6deg);
-          transform-origin: left center;
-        }
+        .micro { font-size: 12px; opacity: .7; margin-top: 8px; }
+        .badTxt { color: rgb(220,38,38); font-weight: 700; }
 
-        .verifyOverlay {
-          position: absolute;
-          inset: 0;
-          display: grid;
-          place-items: center;
-          background: rgba(2, 6, 23, 0.18);
-          backdrop-filter: blur(6px);
-          z-index: 20;
-          padding: 16px;
+        .btn {
+          border: 1px solid rgba(2,6,23,.12);
+          border-radius: 18px;
+          padding: 12px 14px;
+          font-weight: 900;
+          cursor: pointer;
+          transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+          user-select: none;
         }
+        .btn:disabled { opacity: .6; cursor: not-allowed; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(2,6,23,.10); }
+        .btn.main { width: 100%; margin-top: 18px; background: rgba(6,182,212,1); color: white; border-color: rgba(6,182,212,1); }
+        .btn.ghost { background: rgba(2,6,23,.04); }
+        .btn.ok { background: rgba(16,185,129,1); color: white; border-color: rgba(16,185,129,1); }
+        .btn.glow { width: 100%; margin-top: 10px; background: rgba(168,85,247,1); color: white; border-color: rgba(168,85,247,1); }
 
-        .verifyCard {
-          width: min(900px, 100%);
-          border-radius: 26px;
-          background: rgba(255, 255, 255, 0.88);
-          border: 1px solid rgba(2, 6, 23, 0.10);
-          box-shadow: 0 28px 90px rgba(2, 6, 23, 0.18);
-          padding: 22px;
+        .row { display:flex; justify-content: space-between; align-items:center; margin-top: 14px; gap: 10px; }
+        .row2 { display:flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+        .link { font-size: 13px; opacity: .75; }
+        .link:hover { opacity: 1; }
+        .link.tiny { margin-top: 14px; font-size: 12px; background: transparent; border: none; padding: 0; cursor: pointer; text-align:left; }
+
+        .headRow { display:flex; align-items:flex-start; justify-content: space-between; gap: 12px; }
+
+        .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 880px){ .book { grid-template-columns: 1fr; } .page.left{ border-right:none; border-bottom: 1px solid rgba(2,6,23,.10);} .page.right{ border-left:none; } .grid2{ grid-template-columns:1fr;} }
+
+        .chips { display:flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .chip {
+          border-radius: 999px; padding: 10px 12px;
+          border: 1px solid rgba(2,6,23,.12);
+          background: rgba(255,255,255,.65);
+          font-weight: 900; font-size: 12px;
+          transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
         }
+        .chip.on { background: rgba(56,189,248,.22); border-color: rgba(56,189,248,.35); }
+        .chip:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(2,6,23,.08); }
+
+        .veil { position:absolute; inset:0; background: rgba(2,6,23,.20); backdrop-filter: blur(8px); display:grid; place-items:center; padding: 16px; z-index: 30; }
+        .modal {
+          width: min(920px, 100%);
+          border-radius: 24px;
+          border: 1px solid rgba(2,6,23,.12);
+          background: rgba(255,255,255,.92);
+          box-shadow: 0 26px 90px rgba(2,6,23,.18);
+          padding: 18px;
+        }
+        .mHead { display:flex; justify-content: space-between; gap: 12px; align-items:flex-start; }
+        .mHead h2 { margin: 0; font-size: 22px; font-weight: 950; letter-spacing: -0.02em; }
+        .mHead p { margin: 6px 0 0; opacity: .72; font-size: 12px; }
+        .mGrid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+        @media (max-width: 880px){ .mGrid{ grid-template-columns:1fr; } }
+
+        .devHint { margin-top: 10px; font-size: 12px; display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+        .devHint code { padding: 6px 10px; border-radius: 999px; background: rgba(2,6,23,.06); font-weight: 950; }
+        .devHint span { opacity: .7; }
+
+        .toast {
+          margin-top: 14px;
+          border-radius: 18px;
+          border: 1px solid rgba(2,6,23,.10);
+          background: rgba(255,255,255,.70);
+          padding: 12px 14px;
+          font-size: 13px;
+          backdrop-filter: blur(8px);
+        }
+        .toast.ok { border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.10); }
+        .toast.err { border-color: rgba(220,38,38,.35); background: rgba(220,38,38,.10); }
+        .toast.info { border-color: rgba(6,182,212,.35); background: rgba(6,182,212,.10); }
       `}</style>
     </div>
   );

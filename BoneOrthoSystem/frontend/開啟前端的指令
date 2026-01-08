@@ -3,6 +3,8 @@ npm install          # 第一次才需要
 npm run dev
 
 
+安裝套件
+npm i framer-motion
 
 
 
