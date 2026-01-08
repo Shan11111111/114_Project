@@ -12,6 +12,7 @@ import React, {
   useState,
   useTransition,
   memo,
+  Suspense,
 } from "react";
 
 type UploadedFile = {
@@ -372,8 +373,9 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
     if (obj && Array.isArray(obj.poly) && obj.poly.length >= 4) {
       const pts = obj.poly
         .map((p: any) => [toNum(p?.[0]), toNum(p?.[1])] as any)
-        .filter((p) => p[0] !== null && p[1] !== null)
-        .map((p) => [p[0] as number, p[1] as number] as [number, number]);
+        .filter((p: [number | null, number | null]) => p[0] !== null && p[1] !== null)
+        .map((p: [number | null, number | null]) => [p[0] as number, p[1] as number] as [number, number]);
+
       if (pts.length >= 4) return pts;
     }
   }
@@ -610,7 +612,7 @@ function DetectionViewer({
                     height={32}
                   >
                     <div
-                      xmlns="http://www.w3.org/1999/xhtml"
+                      // xmlns="http://www.w3.org/1999/xhtml"
                       style={{
                         display: "inline-block",
                         maxWidth: "240px",
@@ -1191,7 +1193,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
   );
 });
 
-export default function LLMPage() {
+ function LLMClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -3452,3 +3454,13 @@ export default function LLMPage() {
     </div>
   );
 }
+
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="p-6 text-white/70">Loading…</div>}>
+      <LLMClient />
+    </Suspense>
+  );
+}
+
