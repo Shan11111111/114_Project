@@ -13,37 +13,15 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
  *  ========================= */
 
 function normalizeMeshName(meshName: string) {
-  let s = (meshName || '').trim();
+  let s = (meshName || '').replace(/_/g, ' ').trim();
 
-  // "_" -> " "
-  s = s.replace(/_/g, ' ').trim();
-
-  // 去掉結尾多餘的點：Temporal.L. -> Temporal.L
   while (s.endsWith('.')) s = s.slice(0, -1).trim();
 
-  // ✅ 收斂點號：Temporal..L -> Temporal.L / Temporal...R -> Temporal.R
-  // 也順便把 " . " 周邊空白收掉
-  s = s.replace(/\s*\.\s*/g, '.');
-  s = s.replace(/\.+/g, '.');
+  s = s.replace(/\.LL$/, '.L').replace(/\.RR$/, '.R');
 
-  // ✅ 收斂 duplicated side suffix
-  // ".L.L" or ".R.R" -> ".L" / ".R"
-  s = s.replace(/\.([LR])\.\1$/i, (_m, p1) => `.${String(p1).toUpperCase()}`);
-  // ".LL" or ".RR" -> ".L" / ".R"
-  s = s.replace(/\.([LR])\1$/i, (_m, p1) => `.${String(p1).toUpperCase()}`);
-  // "TemporalLL" or "TemporalRR" (no dot) -> "Temporal.L" / "Temporal.R"
-  s = s.replace(/^(.*?)(?:\.?)([LR])\2$/i, (_m, base, side) => `${base}.${String(side).toUpperCase()}`);
-
-  // TemporalL -> Temporal.L（但如果已經有 .L/.R 就別再補）
-  if (s.length > 1 && /[LR]$/i.test(s) && !/\.([LR])$/i.test(s)) {
-    s = s.slice(0, -1) + '.' + s.slice(-1).toUpperCase();
+  if (s.length > 1 && (s.endsWith('L') || s.endsWith('R')) && !s.endsWith('.L') && !s.endsWith('.R')) {
+    s = s.slice(0, -1) + '.' + s.slice(-1);
   }
-
-  // 再收一次點號（避免上面動作又產生 ..）
-  s = s.replace(/\s*\.\s*/g, '.');
-  s = s.replace(/\.+/g, '.');
-  while (s.endsWith('.')) s = s.slice(0, -1).trim();
-
   return s;
 }
 
@@ -70,6 +48,7 @@ type BoneListItem = {
   bone_zh: string;
   bone_en: string;
   bone_region?: string | null;
+  bone_desc?: string | null;
 };
 
 /** =========================
@@ -106,26 +85,21 @@ function toRegionKey(region?: string | null): RegionKey {
 
 type SideKey = 'L' | 'R' | 'C';
 
-function _cleanBase(b: string) {
-  // ✅ 砍掉尾巴多餘點號：Temporal. -> Temporal
-  return (b || '').replace(/\.+$/g, '').trim();
-}
-
 function parseSide(meshName: string): { base: string; side: SideKey } {
   const norm = normalizeMeshName(meshName);
 
-  if (norm.endsWith('.L')) return { base: _cleanBase(norm.slice(0, -2)), side: 'L' };
-  if (norm.endsWith('.R')) return { base: _cleanBase(norm.slice(0, -2)), side: 'R' };
+  if (norm.endsWith('.L')) return { base: norm.slice(0, -2), side: 'L' };
+  if (norm.endsWith('.R')) return { base: norm.slice(0, -2), side: 'R' };
 
   const lower = norm.toLowerCase();
-  if (lower.endsWith(' left')) return { base: _cleanBase(norm.slice(0, -5)), side: 'L' };
-  if (lower.endsWith(' right')) return { base: _cleanBase(norm.slice(0, -6)), side: 'R' };
+  if (lower.endsWith(' left')) return { base: norm.slice(0, -5), side: 'L' };
+  if (lower.endsWith(' right')) return { base: norm.slice(0, -6), side: 'R' };
 
-  return { base: _cleanBase(norm), side: 'C' };
+  return { base: norm, side: 'C' };
 }
 
 /** =========================
- *  Pretty labels（指骨/趾骨/掌骨/蹠骨/肋骨/脊椎）
+ *  Pretty labels
  *  ========================= */
 
 const HAND_DIGIT_ZH: Record<string, string> = {
@@ -162,7 +136,6 @@ function romanToInt(roman: string): number | null {
 }
 
 function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { zh: string; en: string; tag?: string } {
-  // 手指
   {
     const m = base.match(/^(Thumb|Index|Middle|Ring|Little)_(Proximal|Middle|Distal)$/);
     if (m) {
@@ -174,7 +147,6 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 腳趾
   {
     const m = base.match(/^(Hallux|Second|Third|Fourth|Fifth|fifth)_(Proximal|Middle|Distal)$/);
     if (m) {
@@ -186,7 +158,6 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 掌骨
   {
     const m = base.match(/^Metacarpal(I{1,3}|IV|V)$/i);
     if (m) {
@@ -195,7 +166,6 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 蹠骨
   {
     const m = base.match(/^Metatarsal(I{1,3}|IV|V)$/i);
     if (m) {
@@ -204,7 +174,6 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 肋骨
   {
     const m = base.match(/^Rib(\d{1,2})$/i);
     if (m) {
@@ -213,7 +182,6 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     }
   }
 
-  // 椎骨單顆
   if (/^C\d{1,2}$/.test(base)) return { zh: `頸椎 ${base}`, en: `Cervical vertebra ${base}` };
   if (/^T\d{1,2}$/.test(base)) return { zh: `胸椎 ${base}`, en: `Thoracic vertebra ${base}` };
   if (/^L\d{1,2}$/.test(base)) return { zh: `腰椎 ${base}`, en: `Lumbar vertebra ${base}` };
@@ -506,19 +474,87 @@ type SelectedMode =
   | { kind: 'mesh'; meshName: string }
   | { kind: 'series'; series: SeriesKind };
 
+/** =========================
+ *  Flatten bone-list response
+ *  - 後端回傳可能是 [{ key, bone_*, left/right/center/items: {mesh_name, small_bone_id...} }]
+ *  - 也可能是扁平 [{ mesh_name, small_bone_id, bone_* ... }]
+ * ========================= */
+function flattenBoneListPayload(payload: any): BoneListItem[] {
+  const root = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+  const out: BoneListItem[] = [];
+
+  for (const g of root) {
+    // 已經是扁平
+    if (g?.mesh_name && g?.small_bone_id != null) {
+      out.push({
+        mesh_name: String(g.mesh_name),
+        small_bone_id: Number(g.small_bone_id),
+        bone_id: Number(g.bone_id ?? 0),
+        bone_zh: String(g.bone_zh ?? ''),
+        bone_en: String(g.bone_en ?? ''),
+        bone_region: g.bone_region ?? null,
+        bone_desc: g.bone_desc ?? null,
+      });
+      continue;
+    }
+
+    const parent = {
+      bone_id: Number(g?.bone_id ?? 0),
+      bone_zh: String(g?.bone_zh ?? g?.key ?? ''),
+      bone_en: String(g?.bone_en ?? ''),
+      bone_region: g?.bone_region ?? null,
+      bone_desc: g?.bone_desc ?? null,
+    };
+
+    const pushSide = (s: any) => {
+      if (!s?.mesh_name) return;
+      const sid = s?.small_bone_id ?? s?.small_boneId ?? s?.small_boneID ?? s?.smallBoneId ?? s?.small_bone_id;
+      if (sid == null) return;
+
+      out.push({
+        mesh_name: String(s.mesh_name),
+        small_bone_id: Number(sid),
+        bone_id: parent.bone_id,
+        bone_zh: parent.bone_zh,
+        bone_en: parent.bone_en,
+        bone_region: parent.bone_region,
+        bone_desc: parent.bone_desc,
+      });
+    };
+
+    pushSide(g?.left);
+    pushSide(g?.right);
+    pushSide(g?.center);
+
+    if (Array.isArray(g?.items)) {
+      for (const s of g.items) pushSide(s);
+    }
+  }
+
+  // 去重（同 mesh_name 可能被重複塞）
+  const seen = new Set<string>();
+  return out.filter((x) => {
+    const k = normalizeMeshName(x.mesh_name);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 export default function S3Viewer() {
   const [selectedMode, setSelectedMode] = useState<SelectedMode>({ kind: 'none' });
 
   const selectedMeshName = selectedMode.kind === 'mesh' ? selectedMode.meshName : null;
   const selectedSeries = selectedMode.kind === 'series' ? selectedMode.series : null;
 
+  // ✅ FIX：資訊就用 bone-list 自帶內容（不再打 bone-detail）
   const [boneInfo, setBoneInfo] = useState<BoneInfo | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(false);
 
   const [boneList, setBoneList] = useState<BoneListItem[]>([]);
   const [q, setQ] = useState('');
 
-  const [openGroups, setOpenGroups] = useState<RegionKey[]>(['skull']);
+  const [openGroups, setOpenGroups] = useState<RegionKey[]>([]);
   const openSet = useMemo(() => new Set(openGroups), [openGroups]);
 
   const meshRegistryRef = useRef<Record<string, THREE.Mesh>>({});
@@ -531,8 +567,8 @@ export default function S3Viewer() {
       try {
         const res = await fetch(`${API_BASE}/s3/bone-list`);
         if (!res.ok) throw new Error(await res.text());
-        const data = (await res.json()) as BoneListItem[];
-        setBoneList(data);
+        const json = await res.json();
+        setBoneList(flattenBoneListPayload(json));
       } catch (e) {
         console.error('bone-list fetch failed:', e);
       }
@@ -707,10 +743,20 @@ export default function S3Viewer() {
     async (meshName: string) => {
       setSelectedMode({ kind: 'mesh', meshName });
       setLoadingInfo(true);
-      setBoneInfo(null);
 
       const li = findListItemByMeshName(meshName);
+
+      // ✅ FIX：直接用 bone-list 自帶資料顯示（不打 bone-detail）
       if (li) {
+        setBoneInfo({
+          small_bone_id: Number(li.small_bone_id),
+          bone_id: Number(li.bone_id),
+          bone_zh: li.bone_zh,
+          bone_en: li.bone_en,
+          bone_region: li.bone_region ?? null,
+          bone_desc: li.bone_desc ?? null,
+        });
+
         const rk = toRegionKey(li.bone_region);
         setOpenGroups((prev) => (prev.includes(rk) ? prev : [...prev, rk]));
 
@@ -722,40 +768,15 @@ export default function S3Viewer() {
           const el = document.getElementById(cardId);
           el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
+      } else {
+        // 找不到就清掉（避免顯示上一筆）
+        setBoneInfo(null);
       }
 
-      try {
-        // ✅ 用 normalized 名稱打 mesh-map（避免 Temporal..L / TemporalL 這種炸裂）
-        const queryName = normalizeMeshName(meshName);
+      // 3D focus（跟資訊無關，但你原本就有）
+      requestAnimationFrame(() => focusOnMesh(meshName));
 
-        const meshRes = await fetch(`${API_BASE}/s3/mesh-map/${encodeURIComponent(queryName)}`);
-        if (!meshRes.ok) {
-          console.error('mesh-map error:', await meshRes.text());
-          return;
-        }
-        const meshJson = await meshRes.json();
-        const smallBoneId =
-          meshJson.small_bone_id ?? meshJson.smallBoneId ?? meshJson.SmallBoneId ?? meshJson.smallBoneID;
-
-        if (!smallBoneId) {
-          console.error('mesh-map ok but smallBoneId missing:', meshJson);
-          return;
-        }
-
-        const boneRes = await fetch(`${API_BASE}/s3/bone-detail/${smallBoneId}`);
-        if (!boneRes.ok) {
-          console.error('bone-detail error:', await boneRes.text());
-          return;
-        }
-        const info = (await boneRes.json()) as BoneInfo;
-        setBoneInfo(info);
-
-        requestAnimationFrame(() => focusOnMesh(meshName));
-      } catch (err) {
-        console.error('selectByMeshName failed:', err);
-      } finally {
-        setLoadingInfo(false);
-      }
+      setLoadingInfo(false);
     },
     [findListItemByMeshName, focusOnMesh]
   );
@@ -784,7 +805,7 @@ export default function S3Viewer() {
   }
 
   /** =========================
-   *  Styles
+   *  Styles（完全不動）
    *  ========================= */
   const sAside: React.CSSProperties = {
     width: 360,
@@ -857,6 +878,7 @@ export default function S3Viewer() {
 
   return (
     <div style={{ display: 'flex', width: '100%', height: 'calc(100vh - 64px)' }}>
+      {/* 左側清單 */}
       <aside style={sAside}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
           <div style={{ fontWeight: 900, fontSize: 16 }}>骨頭清單</div>
@@ -1007,6 +1029,7 @@ export default function S3Viewer() {
                           </div>
                         )}
 
+                        {/* Info（✅這段就是你要修的：不再顯示「尚未載入資訊」） */}
                         {active && selectedMeshName && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
                             {loadingInfo ? (
@@ -1038,6 +1061,7 @@ export default function S3Viewer() {
         })}
       </aside>
 
+      {/* 右側 3D */}
       <main style={{ flex: 1, background: '#111', position: 'relative' }}>
         <Canvas camera={{ position: [0, 1.5, 6], fov: 45 }} style={{ width: '100%', height: '100%' }}>
           <ambientLight intensity={0.4} />
