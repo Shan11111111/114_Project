@@ -21,6 +21,16 @@ async function postJson(path: string, body: any) {
   return res.json();
 }
 
+export async function getDetections(caseId: number) {
+  const res = await fetch(`${API_BASE}/s0/cases/${caseId}/detections`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+
+
+
+
 // --- 型別 ---
 export type BigBone = {
   boneId: number;
@@ -155,3 +165,5 @@ export async function askAgentFromS0(payload: {
   const data = await res.json();
   return data.answer as string;
 }
+
+

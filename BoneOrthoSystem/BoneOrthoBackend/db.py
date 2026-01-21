@@ -2,7 +2,7 @@ import os
 import json
 import re
 import uuid
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Iterable, Sequence, Tuple, Callable
 
 import pyodbc
 
@@ -14,6 +14,9 @@ SERVER = os.getenv("MSSQL_SERVER", "localhost")
 DATABASE = os.getenv("MSSQL_DATABASE", "BoneDB")
 TRUSTED = os.getenv("MSSQL_TRUSTED", "yes")  # Windows 驗證
 
+# 額外常用參數
+MSSQL_TIMEOUT = int(os.getenv("MSSQL_TIMEOUT", "30"))
+
 CONN_STR = (
     f"DRIVER={{{DRIVER_NAME}}};"
     f"SERVER={SERVER};"
@@ -23,37 +26,90 @@ CONN_STR = (
     "TrustServerCertificate=yes;"
 )
 
-def get_connection():
-    return pyodbc.connect(CONN_STR)
+def get_connection() -> pyodbc.Connection:
+    # autocommit 預設 False（我們自己 commit）
+    return pyodbc.connect(CONN_STR, timeout=MSSQL_TIMEOUT, autocommit=False)
 
-# ✅ 新增：相容舊碼（有人會 import get_conn）
-def get_conn():
+# ✅ 相容舊碼（有人會 import get_conn）
+def get_conn() -> pyodbc.Connection:
     return get_connection()
 
-def query_all(sql: str, params=None):
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, params or [])
-        cols = [c[0] for c in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
 
-# ✅ 新增：很多 router 會需要 query_one
-def query_one(sql: str, params=None):
+# -------------------------
+# Small utils
+# -------------------------
+def _params(p):
+    # 允許 params=None、list、tuple
+    return [] if p is None else p
+
+
+def query_all(sql: str, params=None) -> List[Dict[str, Any]]:
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql, params or [])
+        cur.execute(sql, _params(params))
+        cols = [c[0] for c in cur.description] if cur.description else []
+        rows = cur.fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
+
+def query_one(sql: str, params=None) -> Optional[Dict[str, Any]]:
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, _params(params))
         row = cur.fetchone()
         if not row:
             return None
-        cols = [c[0] for c in cur.description]
+        cols = [c[0] for c in cur.description] if cur.description else []
         return dict(zip(cols, row))
 
-def execute(sql: str, params=None):
+
+def execute(sql: str, params=None) -> int:
+    """
+    單條 SQL（INSERT/UPDATE/DELETE），一條連線一次 commit。
+    ✅ 保持你原本行為，舊 router 不用改。
+    """
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql, params or [])
+        cur.execute(sql, _params(params))
         conn.commit()
         return cur.rowcount
+
+
+def execute_many(sql: str, params_list: Sequence[Sequence], fast: bool = True) -> int:
+    """
+    ✅ executemany：大量 insert/update 最快
+    params_list: [(...), (...)] 或 [[...], [...]] 都可
+    """
+    if not params_list:
+        return 0
+    with get_connection() as conn:
+        cur = conn.cursor()
+        if fast:
+            cur.fast_executemany = True
+        cur.executemany(sql, params_list)
+        conn.commit()
+        return cur.rowcount
+
+
+def run_in_transaction(
+    ops: Callable[[pyodbc.Cursor], None],
+) -> None:
+    """
+    ✅ 交易工具：同一連線內執行多段 SQL，一次 commit
+    用法：
+      def ops(cur):
+         cur.execute("DELETE ...", ...)
+         cur.executemany("INSERT ...", params_list)
+      run_in_transaction(ops)
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+        try:
+            ops(cur)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 # =========================
@@ -97,7 +153,6 @@ def session_to_conversation_uuid(session_id: str) -> str:
 
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"BoneOrthoSystem:{s}"))
 
-
 def ensure_conversation_exists(conversation_id: str, user_id: str, source: str = "s2x") -> None:
     sql = """
     IF EXISTS (SELECT 1 FROM agent.Conversation WHERE ConversationId = ?)
@@ -128,7 +183,6 @@ def touch_conversation(conversation_id: str) -> None:
         cur = conn.cursor()
         cur.execute(sql, conversation_id)
         conn.commit()
-
 
 def create_conversation(user_id: str, title: Optional[str] = None, source: str = "s2x") -> str:
     conv_id = str(uuid.uuid4())
@@ -201,7 +255,6 @@ def add_message(
     # (你原本這裡就沒寫完，我不亂補，以免影響你們 S2 現況)
     return conv_id
 
-
 def update_conversation_title(conversation_id: str, title: str) -> None:
     conv_id = session_to_conversation_uuid(str(conversation_id))
     sql = """
@@ -226,7 +279,6 @@ def delete_conversation(conversation_id: str) -> None:
 
 def get_messages(conversation_id: str):
     return get_conversation_messages(conversation_id)
-
 
 _CONV_TITLE_MAX = 60
 

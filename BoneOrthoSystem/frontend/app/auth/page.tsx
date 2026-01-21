@@ -470,6 +470,15 @@ export default function Page() {
       });
       setUser(me);
 
+      // ✅ 新增：把 users.id(int) 存起來，給 S0/S1 用
+      const meId = (me as any)?.id ?? (me as any)?.userId ?? null;
+      if (typeof meId === "number") {
+        localStorage.setItem("galabone_me_id", String(meId));
+      } else {
+        // 這裡故意不靜默，避免你以為有存到結果根本沒有
+        console.warn("[auth] /auth/me 沒回傳 id(int)，無法存 galabone_me_id。me=", me);
+      }
+
       setToast({ type: "ok", msg: "登入成功 ✅" });
       router.push("/");
     } catch (e: any) {

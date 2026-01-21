@@ -1,3 +1,4 @@
+/* frontend/app/s0.css */
 /* ===== S0 標註頁 ===== */
 
 .s0-page {
@@ -83,7 +84,21 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  touch-action: none;
+  user-select: none;
 }
+
+.s0-image-frame {
+  touch-action: none;
+  user-select: none;
+}
+
+.s0-main-image {
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none; /* 讓 pointer 事件都由 frame 接住 */
+}
+
 
 .s0-main-image {
   max-width: 100%;
