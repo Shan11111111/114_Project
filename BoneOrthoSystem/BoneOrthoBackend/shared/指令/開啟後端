@@ -35,6 +35,8 @@ pip install -U qdrant-client
 pip install passlib[bcrypt] python-jose[cryptography]
 
 pip install "pydantic[email]"
+pip show python-jose
+pip install -U "python-jose[cryptography]"
 
 
 # 啟動後端服務

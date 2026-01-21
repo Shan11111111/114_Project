@@ -15,7 +15,6 @@ from . import repo
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer_scheme = HTTPBearer(auto_error=False)
 
-# ✅ dev 模式：回傳 dev_code 讓你不用真的寄信也能測
 AUTH_DEV_RETURN_CODE = os.getenv("AUTH_DEV_RETURN_CODE", "1") == "1"
 
 
@@ -37,7 +36,7 @@ def register(payload: RegisterIn):
             username=payload.username,
             email=payload.email,
             password=payload.password,
-            role=payload.role,  # ✅ role -> DB roles
+            role=payload.role,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -52,16 +51,23 @@ def login(req: Request, payload: LoginIn):
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤，或帳號狀態不可用")
 
     if user.get("_login_blocked") == "state_not_active":
-        # ✅ 你前端會抓到這句，導去 verify
         raise HTTPException(status_code=403, detail="此帳號尚未完成 Email 驗證")
 
+    # ✅ refresh token 還是用 user_id(uuid)（不要動）
     repo.mark_last_login(user["user_id"])
-    access = create_access_token({"sub": user["user_id"], "roles": user.get("roles") or "user"})
     refresh = repo.issue_refresh_token(
         user_id=user["user_id"],
         created_ip=_client_ip(req),
         user_agent=req.headers.get("user-agent"),
     )
+
+    # ✅ access token：sub 改成 int id，並保留 user_id 讓你相容舊資料
+    access = create_access_token({
+        "sub": user["id"],  # ✅ int
+        "user_id": user["user_id"],  # ✅ legacy uuid
+        "roles": user.get("roles") or "user",
+    })
+
     return TokenOut(access_token=access, refresh_token=refresh)
 
 
@@ -84,11 +90,22 @@ def refresh(payload: dict):
     if not rt:
         raise HTTPException(status_code=400, detail="缺少 refresh_token")
 
+    # ✅ refresh token -> user_id(uuid)
     user_id = repo.validate_refresh_token(rt)
     if not user_id:
         raise HTTPException(status_code=401, detail="refresh_token 無效或已過期")
 
-    access = create_access_token({"sub": user_id})
+    # ✅ 再查 user 取得 int id，簽新 access
+    u = repo.get_user_by_id(user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="使用者不存在")
+
+    access = create_access_token({
+        "sub": u["id"],          # ✅ int
+        "user_id": u["user_id"], # ✅ uuid
+        "roles": u.get("roles") or "user",
+    })
+
     return TokenOut(access_token=access, refresh_token=rt)
 
 
@@ -98,14 +115,32 @@ def me(creds: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
         raise HTTPException(status_code=401, detail="缺少 Bearer token")
 
     data = decode_access_token(creds.credentials)
-    if not data or not data.get("sub"):
+    if not data:
         raise HTTPException(status_code=401, detail="access_token 無效")
 
-    user = repo.get_user_by_id(data["sub"])
+    sub = data.get("sub")
+    user = None
+
+    # ✅ sub 可能是：int、"123"、uuid
+    if sub is not None:
+        sub_str = str(sub)
+
+        # 1) "123" / 123 -> 當 users.id(int) 查
+        if sub_str.isdigit():
+            user = repo.get_user_by_int_id(int(sub_str))
+        else:
+            # 2) uuid -> 當 users.user_id(uuid string) 查
+            user = repo.get_user_by_id(sub_str)
+
+    # ✅ 再保險：token 同時帶 user_id 就用它補救
+    if not user and data.get("user_id"):
+        user = repo.get_user_by_id(str(data["user_id"]))
+
     if not user:
         raise HTTPException(status_code=404, detail="使用者不存在")
 
     return UserOut(**user)
+
 
 
 # =========================
@@ -130,3 +165,13 @@ def verify_email(payload: VerifyEmailIn):
     if not ok:
         raise HTTPException(status_code=400, detail="驗證碼錯誤或已過期")
     return {"ok": True}
+
+# 在 router.py 最下面 Email Verify APIs 區塊加這兩個
+
+@router.post("/email/send")
+def send_verify_alias(payload: SendVerifyIn):
+    return send_verify(payload)
+
+@router.post("/email/verify")
+def verify_email_alias(payload: VerifyEmailIn):
+    return verify_email(payload)

@@ -57,7 +57,8 @@ class TokenOut(BaseModel):
 
 
 class UserOut(BaseModel):
-    user_id: str
+    id: Optional[int] = None          # ✅ 新增：users.id (int)
+    user_id: str                      # uuid string（原本保留）
     username: Optional[str] = None
     email: Optional[str] = None
     roles: Optional[str] = None

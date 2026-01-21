@@ -462,6 +462,9 @@ export default function Page() {
         body: JSON.stringify({ email: e, password: pw }),
       });
 
+      console.log("[auth] access_token head=", out.access_token?.slice(0, 20));
+      console.log("[auth] localStorage access=", localStorage.getItem("gb_access")?.slice(0, 20));
+
       setTokens(out.access_token, out.refresh_token);
 
       const me = await apiJSON<AuthUser>(EP.me, {

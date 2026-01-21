@@ -22,10 +22,13 @@ ALLOWED_ROLES = {"user", "student", "teacher", "doctor", "assistant"}
 VERIFY_CODE_EXPIRE_MINUTES = int(os.getenv("AUTH_VERIFY_EXPIRE_MINUTES", "10"))
 
 
+# ✅ 1) get_user_by_email：多撈 int id
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     return query_one(
         """
-        SELECT TOP 1 user_id, username, email, roles, states, password_hash, email_verified_at
+        SELECT TOP 1
+            id,              -- ✅ int PK
+            user_id, username, email, roles, states, password_hash, email_verified_at
         FROM dbo.[users]
         WHERE email = ?
         """,
@@ -33,10 +36,13 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     )
 
 
+# ✅ 2) get_user_by_id：多撈 int id
 def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     return query_one(
         """
-        SELECT TOP 1 user_id, username, email, roles, states, email_verified_at
+        SELECT TOP 1
+            id,              -- ✅ int PK
+            user_id, username, email, roles, states, email_verified_at
         FROM dbo.[users]
         WHERE user_id = ?
         """,
@@ -44,6 +50,21 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     )
 
 
+# ✅ 3) 新增：用 int id 查 user（給 /me 用）
+def get_user_by_int_id(user_int_id: int) -> Optional[Dict[str, Any]]:
+    return query_one(
+        """
+        SELECT TOP 1
+            id,
+            user_id, username, email, roles, states, email_verified_at
+        FROM dbo.[users]
+        WHERE id = ?
+        """,
+        [user_int_id],
+    )
+
+
+# ✅ 4) create_user：回傳也帶 id（插入後再查一次）
 def create_user(username: str, email: str, password: str, role: str = "user") -> Dict[str, Any]:
     role = (role or "user").strip().lower()
     if role not in ALLOWED_ROLES:
@@ -52,7 +73,6 @@ def create_user(username: str, email: str, password: str, role: str = "user") ->
     user_id = str(uuid4())
     pw_hash = hash_password(password)
 
-    # ✅ 註冊先 pending（驗證成功才 active）
     execute(
         """
         INSERT INTO dbo.[users] (user_id, username, email, roles, states, password_hash)
@@ -61,7 +81,9 @@ def create_user(username: str, email: str, password: str, role: str = "user") ->
         [user_id, username, email, role, pw_hash],
     )
 
+    row = get_user_by_id(user_id)  # 已包含 id
     return {
+        "id": row["id"] if row else None,
         "user_id": user_id,
         "username": username,
         "email": email,

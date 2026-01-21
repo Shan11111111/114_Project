@@ -1,3 +1,4 @@
+// frontend/app/auth/AuthFlipBook.tsx
 "use client";
 
 import "./auth.css";
@@ -6,7 +7,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { apiJSON, setTokens, setUser } from "../lib/auth";
 
 type Step = "login" | "register" | "verify";
-type Role = "student" | "teacher" | "doctor" | "admin" | "user";
+type Role = "student" | "teacher" | "doctor" | "assistant" | "user";
+
 
 const API_BASE = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 const MAX_PW_BYTES = 72;
@@ -110,7 +112,9 @@ export default function AuthFlipBook() {
     });
     setTokens(tok.access_token, tok.refresh_token);
     const me = await authMe(tok.access_token);
-    setUser(me);
+    if (me.user_id) {
+      setUser(me as any);
+    }
     router.push("/");
   }
 
@@ -359,11 +363,12 @@ export default function AuthFlipBook() {
                           <span className="mini">寫入 DB</span>
                         </div>
                         <select className="select" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+                          <option value="user">user</option>
                           <option value="student">student</option>
                           <option value="teacher">teacher</option>
                           <option value="doctor">doctor</option>
-                          <option value="admin">admin</option>
-                          <option value="user">user</option>
+                          <option value="assistant">assistant</option>
+                          
                         </select>
                       </div>
                     </div>

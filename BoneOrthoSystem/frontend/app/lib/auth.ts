@@ -1,11 +1,14 @@
 // frontend/app/lib/auth.ts
 export type AuthUser = {
-  user_id?: string;
+  id?: number;        // ✅ 新增
+  user_id: string;
   username?: string;
   email?: string;
   roles?: string;
   states?: string;
+  email_verified_at?: string | null;
 };
+
 
 const ACCESS_KEY = "galabone_access_token";
 const REFRESH_KEY = "galabone_refresh_token";
