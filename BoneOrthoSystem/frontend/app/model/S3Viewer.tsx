@@ -135,31 +135,118 @@ function romanToInt(roman: string): number | null {
   return null;
 }
 
-function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { zh: string; en: string; tag?: string } {
+function cleanBaseKey(base: string) {
+  return (base || '')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function lowerKey(s: string) {
+  return cleanBaseKey(s).toLowerCase();
+}
+
+const BASE_NAME_MAP_LOWER: Record<string, { zh: string; en: string }> = {
+  // ---- Tarsals 跗骨 ----
+  [lowerKey('Talus')]: { zh: '距骨', en: 'Talus' },
+  [lowerKey('Calcaneus')]: { zh: '跟骨', en: 'Calcaneus' },
+  [lowerKey('Navicular')]: { zh: '舟狀骨', en: 'Navicular' },
+  [lowerKey('Cuboid')]: { zh: '立方骨', en: 'Cuboid' },
+
+  // 楔狀骨（多種寫法）
+  [lowerKey('Medial cuneiform')]: { zh: '內側楔狀骨', en: 'Medial cuneiform' },
+  [lowerKey('Intermediate cuneiform')]: { zh: '中間楔狀骨', en: 'Intermediate cuneiform' },
+  [lowerKey('Lateral cuneiform')]: { zh: '外側楔狀骨', en: 'Lateral cuneiform' },
+
+  [lowerKey('Cuneiform Medial')]: { zh: '內側楔狀骨', en: 'Medial cuneiform' },
+  [lowerKey('Cuneiform Intermediate')]: { zh: '中間楔狀骨', en: 'Intermediate cuneiform' },
+  [lowerKey('Cuneiform Lateral')]: { zh: '外側楔狀骨', en: 'Lateral cuneiform' },
+
+  [lowerKey('CuneiformMedial')]: { zh: '內側楔狀骨', en: 'Medial cuneiform' },
+  [lowerKey('CuneiformIntermediate')]: { zh: '中間楔狀骨', en: 'Intermediate cuneiform' },
+  [lowerKey('CuneiformLateral')]: { zh: '外側楔狀骨', en: 'Lateral cuneiform' },
+
+  [lowerKey('Cuneiform 1')]: { zh: '內側楔狀骨', en: 'Medial cuneiform' },
+  [lowerKey('Cuneiform 2')]: { zh: '中間楔狀骨', en: 'Intermediate cuneiform' },
+  [lowerKey('Cuneiform 3')]: { zh: '外側楔狀骨', en: 'Lateral cuneiform' },
+  [lowerKey('Cuneiform1')]: { zh: '內側楔狀骨', en: 'Medial cuneiform' },
+  [lowerKey('Cuneiform2')]: { zh: '中間楔狀骨', en: 'Intermediate cuneiform' },
+  [lowerKey('Cuneiform3')]: { zh: '外側楔狀骨', en: 'Lateral cuneiform' },
+
+  // ---- Carpals 腕骨 ----
+  [lowerKey('Scaphoid')]: { zh: '舟狀骨', en: 'Scaphoid' },
+  [lowerKey('Lunate')]: { zh: '月狀骨', en: 'Lunate' },
+  [lowerKey('Triquetrum')]: { zh: '三角骨', en: 'Triquetrum' },
+  [lowerKey('Pisiform')]: { zh: '豆狀骨', en: 'Pisiform' },
+  [lowerKey('Trapezium')]: { zh: '大多角骨', en: 'Trapezium' },
+  [lowerKey('Trapezoid')]: { zh: '小多角骨', en: 'Trapezoid' },
+  [lowerKey('Capitate')]: { zh: '頭狀骨', en: 'Capitate' },
+  [lowerKey('Hamate')]: { zh: '鉤狀骨', en: 'Hamate' },
+};
+
+function lookupBaseName(baseRaw: string): { zh: string; en: string } | null {
+  const base = cleanBaseKey(baseRaw);
+  const k0 = lowerKey(base);
+  if (BASE_NAME_MAP_LOWER[k0]) return BASE_NAME_MAP_LOWER[k0];
+
   {
-    const m = base.match(/^(Thumb|Index|Middle|Ring|Little)_(Proximal|Middle|Distal)$/);
+    const m = base.match(/^(Medial|Intermediate|Lateral)\s+Cuneiform$/i);
+    if (m) {
+      const kk = lowerKey(`${m[1]} cuneiform`);
+      if (BASE_NAME_MAP_LOWER[kk]) return BASE_NAME_MAP_LOWER[kk];
+    }
+  }
+  {
+    const m = base.match(/^Cuneiform\s+(Medial|Intermediate|Lateral)$/i);
+    if (m) {
+      const kk = lowerKey(`cuneiform ${m[1]}`);
+      if (BASE_NAME_MAP_LOWER[kk]) return BASE_NAME_MAP_LOWER[kk];
+    }
+  }
+  {
+    const compact = base.replace(/\s+/g, '');
+    const kk = lowerKey(compact);
+    if (BASE_NAME_MAP_LOWER[kk]) return BASE_NAME_MAP_LOWER[kk];
+  }
+  {
+    const m = base.replace(/\s+/g, '').match(/^(medial|intermediate|lateral)cuneiform$/i);
+    if (m) {
+      const kk = lowerKey(`${m[1]} cuneiform`);
+      if (BASE_NAME_MAP_LOWER[kk]) return BASE_NAME_MAP_LOWER[kk];
+    }
+  }
+  return null;
+}
+
+function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { zh: string; en: string; tag?: string } {
+  const mapped = lookupBaseName(base);
+  if (mapped) return { zh: mapped.zh, en: mapped.en };
+
+  const key = cleanBaseKey(base);
+
+  {
+    const m = key.match(/^(Thumb|Index|Middle|Ring|Little)[ _](Proximal|Middle|Distal)$/);
     if (m) {
       const digit = m[1];
       const seg = m[2];
       const digitZh = HAND_DIGIT_ZH[digit] ?? digit;
       const segZh = SEG_ZH[seg] ?? seg;
-      return { zh: `${digitZh}${segZh}指骨`, en: `${seg} phalanx (${digit})`, tag: `${digitZh} · ${segZh}` };
+      return { zh: `${digitZh}${segZh}指骨`, en: `${digit} ${seg} phalanx`, tag: `${digitZh} · ${segZh}` };
     }
   }
 
   {
-    const m = base.match(/^(Hallux|Second|Third|Fourth|Fifth|fifth)_(Proximal|Middle|Distal)$/);
+    const m = key.match(/^(Hallux|Second|Third|Fourth|Fifth|fifth)[ _](Proximal|Middle|Distal)$/);
     if (m) {
       const digit = m[1];
       const seg = m[2];
       const digitZh = FOOT_DIGIT_ZH[digit] ?? digit;
       const segZh = SEG_ZH[seg] ?? seg;
-      return { zh: `${digitZh}${segZh}趾骨`, en: `${seg} phalanx (${digit})`, tag: `${digitZh} · ${segZh}` };
+      return { zh: `${digitZh}${segZh}趾骨`, en: `${digit} ${seg} phalanx`, tag: `${digitZh} · ${segZh}` };
     }
   }
 
   {
-    const m = base.match(/^Metacarpal(I{1,3}|IV|V)$/i);
+    const m = key.match(/^Metacarpal\s?(I{1,3}|IV|V)$/i);
     if (m) {
       const n = romanToInt(m[1]);
       if (n) return { zh: `第${n}掌骨`, en: `Metacarpal ${n}` };
@@ -167,7 +254,7 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
   }
 
   {
-    const m = base.match(/^Metatarsal(I{1,3}|IV|V)$/i);
+    const m = key.match(/^Metatarsal\s?(I{1,3}|IV|V)$/i);
     if (m) {
       const n = romanToInt(m[1]);
       if (n) return { zh: `第${n}蹠骨`, en: `Metatarsal ${n}` };
@@ -175,18 +262,18 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
   }
 
   {
-    const m = base.match(/^Rib(\d{1,2})$/i);
+    const m = key.match(/^Rib(\d{1,2})$/i);
     if (m) {
       const n = Number(m[1]);
       if (!Number.isNaN(n)) return { zh: `第${n}肋骨`, en: `Rib ${n}` };
     }
   }
 
-  if (/^C\d{1,2}$/.test(base)) return { zh: `頸椎 ${base}`, en: `Cervical vertebra ${base}` };
-  if (/^T\d{1,2}$/.test(base)) return { zh: `胸椎 ${base}`, en: `Thoracic vertebra ${base}` };
-  if (/^L\d{1,2}$/.test(base)) return { zh: `腰椎 ${base}`, en: `Lumbar vertebra ${base}` };
+  if (/^C\d{1,2}$/.test(key)) return { zh: `頸椎 ${key}`, en: `Cervical vertebra ${key}` };
+  if (/^T\d{1,2}$/.test(key)) return { zh: `胸椎 ${key}`, en: `Thoracic vertebra ${key}` };
+  if (/^L\d{1,2}$/.test(key)) return { zh: `腰椎 ${key}`, en: `Lumbar vertebra ${key}` };
 
-  return { zh: fallbackZh || base, en: fallbackEn || base };
+  return { zh: fallbackZh || key, en: fallbackEn || key };
 }
 
 /** =========================
@@ -226,11 +313,12 @@ function SelectedEdges({
 type BoneModelProps = {
   url: string;
   selectedNormSet: Set<string>;
+  visibleNormSet?: Set<string> | null; // ✅ 新增：null = 全顯示
   onSelectMesh?: (meshName: string) => void;
   onRegistryReady?: (registry: Record<string, THREE.Mesh>) => void;
 };
 
-function BoneModel({ url, selectedNormSet, onSelectMesh, onRegistryReady }: BoneModelProps) {
+function BoneModel({ url, selectedNormSet, visibleNormSet, onSelectMesh, onRegistryReady }: BoneModelProps) {
   const { scene } = useGLTF(url) as any;
   const [hovered, setHovered] = useState<string | null>(null);
 
@@ -263,6 +351,7 @@ function BoneModel({ url, selectedNormSet, onSelectMesh, onRegistryReady }: Bone
 
         const isHovered = hovered === rawName;
         const isSelected = selectedNormSet.has(normName);
+        const isVisible = !visibleNormSet || visibleNormSet.has(normName); // ✅ 新增
 
         const pos = v3(mesh.position);
         const rot = e3(mesh.rotation);
@@ -271,6 +360,7 @@ function BoneModel({ url, selectedNormSet, onSelectMesh, onRegistryReady }: Bone
         return (
           <group key={rawName}>
             <mesh
+              visible={isVisible} // ✅ 新增
               geometry={mesh.geometry}
               position={pos}
               rotation={rot}
@@ -298,7 +388,9 @@ function BoneModel({ url, selectedNormSet, onSelectMesh, onRegistryReady }: Bone
               />
             </mesh>
 
-            {isSelected && <SelectedEdges geometry={mesh.geometry} position={pos} rotation={rot} scale={scl} />}
+            {isSelected && isVisible ? (
+              <SelectedEdges geometry={mesh.geometry} position={pos} rotation={rot} scale={scl} />
+            ) : null}
           </group>
         );
       })}
@@ -476,15 +568,12 @@ type SelectedMode =
 
 /** =========================
  *  Flatten bone-list response
- *  - 後端回傳可能是 [{ key, bone_*, left/right/center/items: {mesh_name, small_bone_id...} }]
- *  - 也可能是扁平 [{ mesh_name, small_bone_id, bone_* ... }]
  * ========================= */
 function flattenBoneListPayload(payload: any): BoneListItem[] {
   const root = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
   const out: BoneListItem[] = [];
 
   for (const g of root) {
-    // 已經是扁平
     if (g?.mesh_name && g?.small_bone_id != null) {
       out.push({
         mesh_name: String(g.mesh_name),
@@ -531,7 +620,6 @@ function flattenBoneListPayload(payload: any): BoneListItem[] {
     }
   }
 
-  // 去重（同 mesh_name 可能被重複塞）
   const seen = new Set<string>();
   return out.filter((x) => {
     const k = normalizeMeshName(x.mesh_name);
@@ -547,7 +635,6 @@ export default function S3Viewer() {
   const selectedMeshName = selectedMode.kind === 'mesh' ? selectedMode.meshName : null;
   const selectedSeries = selectedMode.kind === 'series' ? selectedMode.series : null;
 
-  // ✅ FIX：資訊就用 bone-list 自帶內容（不再打 bone-detail）
   const [boneInfo, setBoneInfo] = useState<BoneInfo | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(false);
 
@@ -561,6 +648,10 @@ export default function S3Viewer() {
   const controlsRef = useRef<any>(null);
   const cameraRef = useRef<THREE.Camera | null>(null);
   const [registryTick, setRegistryTick] = useState(0);
+
+  // ✅ 新增：Solo / Isolate 模式（只顯示某顆）
+  const [soloNormSet, setSoloNormSet] = useState<Set<string> | null>(null);
+  const soloActive = soloNormSet != null;
 
   useEffect(() => {
     (async () => {
@@ -744,9 +835,12 @@ export default function S3Viewer() {
       setSelectedMode({ kind: 'mesh', meshName });
       setLoadingInfo(true);
 
+      // ✅ Solo 開著時，換選別顆就自動只顯示新那顆
+      const normSel = normalizeMeshName(meshName);
+      setSoloNormSet((prev) => (prev ? new Set([normSel]) : null));
+
       const li = findListItemByMeshName(meshName);
 
-      // ✅ FIX：直接用 bone-list 自帶資料顯示（不打 bone-detail）
       if (li) {
         setBoneInfo({
           small_bone_id: Number(li.small_bone_id),
@@ -769,13 +863,10 @@ export default function S3Viewer() {
           el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
       } else {
-        // 找不到就清掉（避免顯示上一筆）
         setBoneInfo(null);
       }
 
-      // 3D focus（跟資訊無關，但你原本就有）
       requestAnimationFrame(() => focusOnMesh(meshName));
-
       setLoadingInfo(false);
     },
     [findListItemByMeshName, focusOnMesh]
@@ -1029,9 +1120,26 @@ export default function S3Viewer() {
                           </div>
                         )}
 
-                        {/* Info（✅這段就是你要修的：不再顯示「尚未載入資訊」） */}
+                        {/* Info */}
                         {active && selectedMeshName && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
+                            {/* ✅ Solo/Unsolo 按鈕 */}
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                              {!soloActive ? (
+                                <button
+                                  style={sWholeBtn}
+                                  onClick={() => setSoloNormSet(new Set([normalizeMeshName(selectedMeshName)]))}
+                                  title="只顯示目前選取的這顆骨頭"
+                                >
+                                  只顯示此骨頭
+                                </button>
+                              ) : (
+                                <button style={sWholeBtn} onClick={() => setSoloNormSet(null)} title="恢復顯示全部骨頭">
+                                  顯示全部
+                                </button>
+                              )}
+                            </div>
+
                             {loadingInfo ? (
                               <div style={{ opacity: 0.7, fontSize: 13 }}>載入中…</div>
                             ) : !boneInfo ? (
@@ -1071,6 +1179,7 @@ export default function S3Viewer() {
             <BoneModel
               url="/models/bones.glb"
               selectedNormSet={selectedNormSet}
+              visibleNormSet={soloNormSet} // ✅ 套用 Solo 顯示集合
               onSelectMesh={onPickMeshFrom3D}
               onRegistryReady={(r) => {
                 meshRegistryRef.current = r;
@@ -1080,7 +1189,13 @@ export default function S3Viewer() {
           </group>
 
           <EffectComposer multisampling={4}>
-            <Outline selection={outlineSelection} visibleEdgeColor={0xff8a00} hiddenEdgeColor={0xff8a00} edgeStrength={4} width={1200} />
+            <Outline
+              selection={outlineSelection}
+              visibleEdgeColor={0xff8a00}
+              hiddenEdgeColor={0xff8a00}
+              edgeStrength={4}
+              width={1200}
+            />
           </EffectComposer>
 
           <Controls controlsRef={controlsRef} cameraRef={cameraRef} />
