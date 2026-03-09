@@ -1,4 +1,3 @@
-# main.py
 from __future__ import annotations
 
 import json
@@ -15,8 +14,24 @@ from pydantic import BaseModel
 
 from .models import ChatRequest, ChatResponse, ChatMessage, Action
 from .state.sessions import get_session, append_messages
+
+# ✅ 重要：RAG 匯入（防爆）
 from .tools.rag_tool import answer_with_rag
+try:
+    from .tools.rag_tool import answer_with_doc_rag
+except Exception:
+    answer_with_doc_rag = answer_with_rag  # type: ignore
+
 from .tools.doc_tool import extract_text_and_summary
+
+# ✅ URL 索引：從 doc_tool 匯入（若你 doc_tool 尚未加 index_url / build_url_digest，會走 fallback）
+try:
+    from .tools.doc_tool import index_url, build_url_digest, is_enabled as doc_rag_enabled
+except Exception:
+    index_url = None  # type: ignore
+    build_url_digest = None  # type: ignore
+    doc_rag_enabled = lambda: False  # type: ignore
+
 from .routers.export import router as export_router
 
 
@@ -71,7 +86,7 @@ from db import (  # noqa: E402
     set_conversation_title_if_empty,
     delete_conversation,
     session_to_conversation_uuid,
-    ensure_conversation_exists,   # ✅ 先建 Conversation（UserId 正確），避免後續亂寫
+    ensure_conversation_exists,
 )
 
 app = FastAPI(title="S2 Legacy Agent (Integrated)")
@@ -84,24 +99,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# /s2x/uploads/* 由上層 app 掛 /s2x；這裡 mount "/uploads"
 app.mount("/uploads", StaticFiles(directory=str(USER_UPLOAD_DIR)), name="uploads")
-
 app.include_router(export_router)
 
 
 # =========================================================
 # Helpers
 # =========================================================
+URL_RE = re.compile(r"(https?://[^\s\]\)]+)", re.IGNORECASE)
+
+
 def _extract_question(text: str) -> str:
-    """
-    前端會把 prompt 後面加 --- RAG 指令/檔案摘要
-    ✅ 向量檢索只能用「真正問題」，避免污染 query
-    """
     t = (text or "").strip()
     if "\n---\n" in t:
         t = t.split("\n---\n", 1)[0].strip()
-    # 壓縮空白
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
@@ -133,6 +144,20 @@ def _format_sources_for_text(sources: list[dict] | None) -> str:
     return "\n\n---\n【Sources】\n" + "\n".join(lines)
 
 
+def _collect_urls(text: str) -> list[str]:
+    if not text:
+        return []
+    urls = URL_RE.findall(text)
+    # 去重但保序
+    seen = set()
+    out = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
 # =========================================================
 # Health
 # =========================================================
@@ -148,6 +173,8 @@ def health():
             "db": row[0],
             "public_dir": str(PUBLIC_DIR),
             "user_upload_dir": str(USER_UPLOAD_DIR),
+            "doc_rag_enabled": bool(doc_rag_enabled()),
+            "has_index_url": bool(index_url is not None),
         }
     except Exception as e:
         return {"status": "error", "detail": str(e)}
@@ -188,8 +215,8 @@ async def upload_file(file: UploadFile = File(...)):
     with open(fpath, "wb") as f:
         f.write(data)
 
-    public_url = f"/public/user_upload_file/{fname}"   # 給 Next 最穩
-    legacy_url = f"/uploads/{fname}"                   # 變成 /s2x/uploads/{fname}
+    public_url = f"/public/user_upload_file/{fname}"
+    legacy_url = f"/uploads/{fname}"
 
     result = {
         "url": public_url,
@@ -199,7 +226,7 @@ async def upload_file(file: UploadFile = File(...)):
         "storage": "public/user_upload_file",
     }
 
-    if safe_ext in {"pdf", "ppt", "pptx", "txt", "doc", "docx", "xls", "xlsx", "csv"}:
+    if safe_ext in {"pdf", "pptx", "txt", "docx", "xlsx", "csv"}:
         try:
             text, summary = extract_text_and_summary(fpath, safe_ext)
             result["text"] = text
@@ -225,28 +252,25 @@ def agent_chat(req: ChatRequest):
     user_id = (getattr(req, "user_id", None) or "guest").strip() or "guest"
     session_id = req.session_id.strip()
 
-    # ✅ 1) 先用前端給的永久 GUID（conversation_id）
-    # ✅ 2) 沒給才 fallback：用 session_id 轉 deterministic GUID（兼容舊行為）
     raw_cid = (getattr(req, "conversation_id", None) or "").strip()
     if raw_cid:
-        conversation_id = session_to_conversation_uuid(raw_cid)  # GUID normalize
+        conversation_id = session_to_conversation_uuid(raw_cid)
     else:
         conversation_id = session_to_conversation_uuid(session_id)
 
-    # ✅ 確保 DB Conversation 存在 & UserId 正確
     ensure_conversation_exists(conversation_id, user_id=user_id, source="s2x")
 
-    # ✅ session memory key 用 conversation_id（GUID）
     session = get_session(conversation_id)
     append_messages(session, [req.messages[-1]])
 
-    # ✅ 寫入 user messages（記得把 user_id 傳進 add_message）
-    # ✅ 只存最新一則 user 訊息，避免重複寫入
     last_in = req.messages[-1]
     if last_in.role == "user":
         attachments_json = None
         if last_in.type == "image" and last_in.url:
-            attachments_json = json.dumps({"url": last_in.url, "filetype": last_in.filetype}, ensure_ascii=False)
+            attachments_json = json.dumps(
+                {"url": last_in.url, "filetype": last_in.filetype},
+                ensure_ascii=False
+            )
 
         add_message(
             conversation_id=conversation_id,
@@ -256,7 +280,7 @@ def agent_chat(req: ChatRequest):
             sources=None,
             user_id=user_id,
             source="s2x",
-    )
+        )
 
     last = req.messages[-1]
     actions: list[Action] = []
@@ -288,7 +312,7 @@ def agent_chat(req: ChatRequest):
             actions=[],
             session_id=session_id,
             conversation_id=conversation_id,
-            answer=tip,  # 可選
+            answer=tip,
         )
 
     # text
@@ -298,7 +322,34 @@ def agent_chat(req: ChatRequest):
             raise HTTPException(status_code=400, detail="empty text message")
 
         clean_q = _extract_question(raw_q)
-        ans_text, sources = answer_with_rag(clean_q, session)
+
+        # ✅ 1) 先解析 URL 並索引（讓 doc_rag 真的找得到）
+        url_digest_text = ""
+        urls = _collect_urls(clean_q)
+        if urls and index_url is not None and build_url_digest is not None:
+            digests = []
+            for u in urls[:3]:
+                try:
+                    idx = index_url(url=u, conversation_id=str(conversation_id), user_id=user_id)
+                    # idx 可能回傳 dict：{ok, title, summary, warning...}
+                    digests.append(build_url_digest(idx))
+                except Exception as e:
+                    digests.append(f"【已解析網址】{u}\n【解析失敗】{e}")
+            url_digest_text = "\n\n".join([d for d in digests if d]).strip()
+
+        # ✅ 2) 讓「解析結果」進入回答的核心（放在問題上方當 context）
+        if url_digest_text:
+            clean_q_for_answer = (
+                f"{url_digest_text}\n\n"
+                f"---\n"
+                f"【使用者問題】{clean_q}\n"
+                f"請把上面「已解析網址/摘要」視為證據，優先用於 1) 直接回答。"
+            )
+        else:
+            clean_q_for_answer = clean_q
+
+        # ✅ 3) 用 doc_rag（命中才會引用 doc/網址 chunk）
+        ans_text, sources = answer_with_doc_rag(clean_q_for_answer, session)
         ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
 
         reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
@@ -321,7 +372,7 @@ def agent_chat(req: ChatRequest):
             actions=actions,
             session_id=session_id,
             conversation_id=conversation_id,
-            answer=ans_text_out,  # 可選
+            answer=ans_text_out,
         )
 
     return ChatResponse(
@@ -364,10 +415,7 @@ def api_create_conversation(payload: ConversationCreate):
     uid = (payload.user_id or "guest").strip() or "guest"
     title = (payload.title or "新對話").strip() or "新對話"
 
-    # ✅ 永久 GUID（已寫入 agent.Conversation）
     conv_id = create_conversation(uid, title=title, source="s2x")
-
-    # ✅ 暫時 session_id（不寫 DB，前端自己存 mapping）
     sid = f"{uid}::{uuid.uuid4().hex}"
 
     return {"conversation_id": conv_id, "session_id": sid, "title": title}
@@ -404,7 +452,7 @@ def api_get_conversation_messages(conversation_id: str):
 
         messages.append(m)
 
-    cid = session_to_conversation_uuid(str(conversation_id))  # ✅ normalize GUID
+    cid = session_to_conversation_uuid(str(conversation_id))
     session = get_session(cid)
     session["messages"] = messages
 
@@ -416,6 +464,7 @@ def api_delete_conversation(conversation_id: str):
     cid = session_to_conversation_uuid(str(conversation_id))
     delete_conversation(cid)
     return {"conversation_id": cid, "deleted": True}
+
 
 # =========================================================
 # bone image

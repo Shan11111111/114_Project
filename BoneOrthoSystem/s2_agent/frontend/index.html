@@ -327,7 +327,7 @@
       if (type === "text") {
         const label =
           role === "user" ? "我" :
-          role === "assistant" ? "Dr.Bone" :
+          role === "assistant" ? "GalaBone" :
           "系統";
         div.innerHTML = `<span class="label">${label}：</span>${content}`;
       } else if (type === "image") {
@@ -650,7 +650,7 @@ async function handleSendText() {
   // 前端先畫出自己的訊息
   appendMessage("user", text);
 
-  // 呼叫後端，讓 Dr.Bone 回覆
+  // 呼叫後端，讓 GalaBone 回覆
   await callAgentChat({
     session_id: currentConversationId,
     messages: [userMsg],

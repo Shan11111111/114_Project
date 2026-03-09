@@ -138,7 +138,7 @@ export const s0Api = {
   },
 };
 
-// ----- S2 Dr.Bone -----
+// ----- S2 GalaBone -----
 export async function askAgentFromS0(payload: {
   imageCaseId: number;
   boneId: number | null;

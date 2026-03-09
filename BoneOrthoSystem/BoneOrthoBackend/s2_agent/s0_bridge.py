@@ -40,7 +40,7 @@ else:
 @router.post("/ask", response_model=AskFromS0Out)
 def ask_from_s0(body: AskFromS0In) -> AskFromS0Out:
     """
-    S0 一鍵「請 Dr.Bone 解說」用的 API。
+    S0 一鍵「請 GalaBone 解說」用的 API。
     有 OPENAI_API_KEY 時：呼叫 OpenAI LLM。
     沒有 key 時：回 demo 文本（不花錢）。
     """
@@ -57,7 +57,7 @@ def ask_from_s0(body: AskFromS0In) -> AskFromS0Out:
 
     # ---- 真正 LLM 模式 ----
     system_prompt = (
-        "你是 Dr.Bone，一位擅長骨科衛教與影像解說的助理。"
+        "你是 GalaBone，一位擅長骨科衛教與影像解說的助理。"
         "使用者剛在 X 光影像上框選了一塊骨頭，想了解這塊骨頭的『位置、功能、常見骨折或病變』。"
         "請用台灣病人看得懂的繁體中文，條列重點、語氣溫和但專業；"
         "不要做診斷、不要誇大風險，可以提醒一定要由專業醫師判讀影像。"

@@ -38,7 +38,7 @@ async def upload_material(
     language: str = Form("zh-TW"),
     style: str = Form("edu"),
     bone_id: Optional[int] = Form(None),
-    bone_small_id: Optional[int] = Form(None),     # ✅ 對外統一叫 bone_small_id
+    bone_small_id: Optional[int] = Form(None),     # 對外統一叫 bone_small_id
     user_id: Optional[str] = Form("teacher01"),
     conversation_id: Optional[UUID] = Form(None),
     structure_json: Optional[str] = Form(None),

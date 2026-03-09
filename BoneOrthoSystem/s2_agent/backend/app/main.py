@@ -179,9 +179,9 @@ def agent_chat(req: ChatRequest):
 
             labels = ", ".join(d["bone"] for d in dets)
             explain = (
-                f"Dr.Bone：偵測到的骨頭為 {labels}"
+                f"GalaBone：偵測到的骨頭為 {labels}"
                 if labels
-                else "Dr.Bone：這張圖未偵測到特定骨頭。"
+                else "GalaBone：這張圖未偵測到特定骨頭。"
             )
 
             img_msg = ChatMessage(role="assistant", type="image", url=boxed_url)

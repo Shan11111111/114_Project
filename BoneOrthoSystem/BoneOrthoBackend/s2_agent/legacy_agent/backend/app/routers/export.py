@@ -90,7 +90,7 @@ def flatten_messages(req: ChatRequest) -> List[str]:
         if m.role == "user":
             prefix = "我"
         elif m.role == "assistant":
-            prefix = "Dr.Bone"
+            prefix = "GalaBone"
         else:
             prefix = "系統"
 
@@ -396,7 +396,7 @@ def export_pptx(req: ChatRequest):
         if m.role == "user":
             prefix = "我"
         elif m.role == "assistant":
-            prefix = "Dr.Bone"
+            prefix = "GalaBone"
         else:
             prefix = "系統"
 

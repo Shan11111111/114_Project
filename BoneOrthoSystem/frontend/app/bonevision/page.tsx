@@ -1,3 +1,4 @@
+// frontend/app/bonevision/page.tsx
 "use client";
 
 import React, {

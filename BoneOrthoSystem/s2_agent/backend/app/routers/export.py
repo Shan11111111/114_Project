@@ -86,7 +86,7 @@ def flatten_messages(req: ChatRequest) -> List[str]:
         if m.role == "user":
             prefix = "我"
         elif m.role == "assistant":
-            prefix = "Dr.Bone"
+            prefix = "GalaBone"
         else:
             prefix = "系統"
 
@@ -298,7 +298,7 @@ def export_pptx(req: ChatRequest):
     匯出 PPT：
     - 第 1 張：骨科互動助理－學習報告 + Session ID
     - 第 2 張開始：條列所有對話內容（我 / AI / 系統）
-      只有「我：」「Dr.Bone：」是粗體，其餘一般字重。
+      只有「我：」「GalaBone：」是粗體，其餘一般字重。
     """
     prs = Presentation()
 
@@ -363,7 +363,7 @@ def export_pptx(req: ChatRequest):
         if m.role == "user":
             prefix = "我"
         elif m.role == "assistant":
-            prefix = "Dr.Bone"
+            prefix = "GalaBone"
         else:
             prefix = "系統"
 
@@ -372,7 +372,7 @@ def export_pptx(req: ChatRequest):
         for idx, raw_chunk in enumerate(chunks):
             chunk = normalize_line_text(raw_chunk)
 
-            # 第一行：顯示「我：...」「Dr.Bone：...」
+            # 第一行：顯示「我：...」「GalaBone：...」
             if idx == 0:
                 text_body = chunk
                 if slide_paragraph_count >= max_paragraphs_per_slide:

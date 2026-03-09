@@ -187,7 +187,7 @@ def analyze_image(image_url: str) -> Dict[str, Any]:
             font_small = ImageFont.load_default()
         draw.text(
             (10, 10),
-            "Dr.Bone：這張影像未偵測到特定骨頭。",
+            "GalaBone：這張影像未偵測到特定骨頭。",
             fill=(255, 0, 0),
             font=font_small,
         )
