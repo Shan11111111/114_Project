@@ -178,7 +178,7 @@ async function uploadOneFileToBackend(file: File) {
 async function postChatToBackend(payload: any) {
   const res = await fetch(API.chat, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
 
@@ -199,7 +199,7 @@ async function apiUpdateConversationTitle(conversationId: string, title: string)
   // 1) /title
   const r1 = await fetch(API.updateConvTitle(conversationId), {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: buildAuthHeaders({ "Content-Type": "application/json" }),
     body,
   });
 
@@ -211,7 +211,7 @@ async function apiUpdateConversationTitle(conversationId: string, title: string)
   // 2) fallback /{id}（有些人寫成 /agent/conversations/{id}）
   const r2 = await fetch(API.updateConvTitleFallback(conversationId), {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: buildAuthHeaders({ "Content-Type": "application/json" }),
     body,
   });
 
@@ -244,7 +244,7 @@ async function exportToBackend(
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
 
@@ -266,12 +266,32 @@ function lsKey(uid: string) {
   return `${LS_NS}::${safe}`;
 }
 
+const GUEST_TTL_MS = 24 * 60 * 60 * 1000;
+
+function isGuestUid(uid: string) {
+  return !uid || uid === "guest" || uid.startsWith("guest-");
+}
+
 function lsRead(uid: string): any | null {
   if (typeof window === "undefined") return null;
+
   try {
     const raw = localStorage.getItem(lsKey(uid));
     if (!raw) return null;
-    return JSON.parse(raw);
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    // 訪客資料超過一天就清掉
+    if (isGuestUid(uid)) {
+      const expireAt = Number(parsed.expireAt || 0);
+      if (expireAt && Date.now() > expireAt) {
+        localStorage.removeItem(lsKey(uid));
+        return null;
+      }
+    }
+
+    return parsed;
   } catch {
     return null;
   }
@@ -279,10 +299,21 @@ function lsRead(uid: string): any | null {
 
 function lsWrite(uid: string, value: any) {
   if (typeof window === "undefined") return;
+
   try {
-    localStorage.setItem(lsKey(uid), JSON.stringify(value));
+    const payload = isGuestUid(uid)
+      ? {
+        ...value,
+        expireAt: Date.now() + GUEST_TTL_MS,
+      }
+      : {
+        ...value,
+        expireAt: null,
+      };
+
+    localStorage.setItem(lsKey(uid), JSON.stringify(payload));
   } catch {
-    // ignore quota / privacy mode
+    // ignore
   }
 }
 
@@ -294,26 +325,94 @@ function lsSafeNow() {
   }
 }
 
-function getUserIdFromLS() {
-  if (typeof window === "undefined") return "guest";
+function getClientIdentity() {
+  if (typeof window === "undefined") {
+    return {
+      mode: "guest" as const,
+      userId: "guest",
+    };
+  }
+
   try {
-    const KEY = "tmp_user_id";
-    const existing = localStorage.getItem(KEY);
-    if (existing && existing.trim()) return existing.trim();
+    // 先看有沒有真正登入的使用者
+    const authUser = getAuthUserFromLS();
+    if (authUser?.userId) {
+      return {
+        mode: "member" as const,
+        userId: authUser.userId,
+      };
+    }
 
-    const uid =
-      typeof crypto !== "undefined" &&
-        "randomUUID" in crypto &&
-        typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    // 沒登入就走訪客模式
+    const GUEST_KEY = "guest_user_id";
+    let guestId = localStorage.getItem(GUEST_KEY);
 
-    localStorage.setItem(KEY, uid);
-    return uid;
+    if (!guestId) {
+      guestId =
+        typeof crypto !== "undefined" &&
+          "randomUUID" in crypto &&
+          typeof crypto.randomUUID === "function"
+          ? `guest-${crypto.randomUUID()}`
+          : `guest-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      localStorage.setItem(GUEST_KEY, guestId);
+    }
+
+    return {
+      mode: "guest" as const,
+      userId: guestId,
+    };
   } catch {
-    return "guest";
+    return {
+      mode: "guest" as const,
+      userId: "guest",
+    };
   }
 }
+
+function getAuthUserFromLS() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw =
+      localStorage.getItem("auth_user") ||
+      localStorage.getItem("user") ||
+      localStorage.getItem("currentUser");
+
+    if (!raw) return null;
+
+    const user = JSON.parse(raw);
+    const userId = String(user?.user_id || user?.id || "").trim();
+
+    if (!userId) return null;
+
+    return {
+      userId,
+      raw: user,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getAccessTokenFromLS() {
+  if (typeof window === "undefined") return "";
+  return (
+    localStorage.getItem("access_token") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("auth_token") ||
+    ""
+  ).trim();
+}
+
+function buildAuthHeaders(extra?: Record<string, string>) {
+  const token = getAccessTokenFromLS();
+  return {
+    ...(extra || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 
 // ==============================
 // ✅ Detection Viewer（最小侵入：只加一張卡片，不動你現有聊天 UI）
@@ -356,7 +455,7 @@ function parsePolyFromDetection(d: Detection): [number, number][] | null {
       .map((p) => [toNum(p?.[0]), toNum(p?.[1])] as any)
       .filter((p) => p[0] !== null && p[1] !== null)
       .map((p) => [p[0] as number, p[1] as number] as [number, number]);
-    if (pts.length >= 4) 
+    if (pts.length >= 4)
       return pts;
   }
 
@@ -1193,7 +1292,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
   );
 });
 
- function LLMClient() {
+function LLMClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -1265,6 +1364,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
 
   // ✅✅ 重要：避免初始化階段直接碰 localStorage/crypto（防空白/奇怪錯）
   const [userId, setUserId] = useState<string>("guest");
+  const [userMode, setUserMode] = useState<"guest" | "member">("guest");
   const uidRef = useRef<string>("guest");
   const uidReadyRef = useRef<boolean>(false);
 
@@ -1307,12 +1407,15 @@ const HistoryOverlay = memo(function HistoryOverlay({
   }
 
   useEffect(() => {
-    const uid = getUserIdFromLS();
-    uidRef.current = uid;
-    uidReadyRef.current = true;
-    setUserId(uid);
+    const identity = getClientIdentity();
 
-    const cached = lsRead(uid);
+    uidRef.current = identity.userId;
+    uidReadyRef.current = true;
+
+    setUserId(identity.userId);
+    setUserMode(identity.mode);
+
+    const cached = lsRead(identity.userId);
     if (cached && typeof cached === "object") {
       const cRag: RagMode | undefined = cached.ragMode;
       const cThreads: HistoryThread[] | undefined = cached.historyThreads;
@@ -1353,11 +1456,10 @@ const HistoryOverlay = memo(function HistoryOverlay({
       if (typeof cActive === "string") setActiveThreadId(cActive);
     }
 
-    cacheLoadedRef.current = true; // ✅✅ 新增：快取讀取完成
+    cacheLoadedRef.current = true;
     didHydrateRef.current = true;
     setHydrated(true);
   }, []);
-
   useEffect(() => {
     if (!didHydrateRef.current) return;
     if (!uidReadyRef.current) return;
@@ -1490,9 +1592,9 @@ const HistoryOverlay = memo(function HistoryOverlay({
         setActiveThreadId(fallbackId);
 
         if (fallbackId) {
-          loadThreadToMain(fallbackId);
+          void loadThreadToMain(fallbackId);
         } else {
-          newThread();
+          void newThread();
         }
       }
 
@@ -1509,7 +1611,10 @@ const HistoryOverlay = memo(function HistoryOverlay({
   }
 
   async function apiFetchConversations(uid: string) {
-    const res = await fetch(API.listConvs(uid), { method: "GET" });
+    const res = await fetch(API.listConvs(uid), {
+      method: "GET",
+      headers: buildAuthHeaders(),
+    });
     const raw = await res.text();
     const data = safeJsonParse(raw);
 
@@ -1542,7 +1647,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
     // （UI 仍然顯示新對話，因為前端自己 title=新對話）
     const res = await fetch(`${S2X_BASE}/agent/conversations`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ user_id: uid, title: "" }),
     });
 
@@ -1561,8 +1666,10 @@ const HistoryOverlay = memo(function HistoryOverlay({
   }
 
   async function fetchConversationMessages(cid: string) {
-    const res = await fetch(API.getMsgs(cid), { method: "GET" });
-    const raw = await res.text();
+    const res = await fetch(API.getMsgs(cid), {
+      method: "GET",
+      headers: buildAuthHeaders(),
+    }); const raw = await res.text();
     const data = safeJsonParse(raw);
 
     if (!res.ok || !data) {
@@ -1620,7 +1727,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
     }
   }
 
-  function loadThreadToMain(threadId: string) {
+  async function loadThreadToMain(threadId: string) {
     resetSeedAndCaseIdInUrl();
 
     const t = historyThreads.find((x) => x.id === threadId);
@@ -1628,13 +1735,44 @@ const HistoryOverlay = memo(function HistoryOverlay({
 
     setActiveThreadId(threadId);
     setActiveView("llm");
-    setMessages(buildChatMessagesFromThread(threadId));
     resetMainInputBox();
 
     setPendingFiles((prev) => {
       prev.forEach((f) => URL.revokeObjectURL(f.url));
       return [];
     });
+
+    if (userMode === "member" && !threadId.startsWith("t-")) {
+      try {
+        const remoteMsgs = await fetchConversationMessages(threadId);
+
+        setHistoryMessages((prev) => {
+          const others = prev.filter((m) => m.threadId !== threadId);
+          return [...others, ...remoteMsgs];
+        });
+
+        setMessages(
+          remoteMsgs.length > 0
+            ? remoteMsgs.map((m, idx) => ({
+              id: Date.now() + idx,
+              role: m.role,
+              content: m.content,
+            }))
+            : [
+              {
+                id: 1,
+                role: "assistant",
+                content: WELCOME_TEXT,
+              },
+            ]
+        );
+      } catch (err) {
+        console.error("載入 conversation messages 失敗，改用本地快取：", err);
+        setMessages(buildChatMessagesFromThread(threadId));
+      }
+    } else {
+      setMessages(buildChatMessagesFromThread(threadId));
+    }
 
     setIsHistoryOpen(false);
     setTimeout(() => inputRef.current?.focus(), 60);
@@ -1861,6 +1999,12 @@ const HistoryOverlay = memo(function HistoryOverlay({
       setTimeout(() => inputRef.current?.focus(), 60);
 
       // ✅ 後端建立 conversation（失敗就維持本地）
+      // 訪客：只建立本地 thread，不寫 DB
+      if (userMode === "guest" || isGuestUid(uid)) {
+        return;
+      }
+
+      // 會員：才建立真正 DB conversation
       try {
         const created = await apiCreateConversation(uid);
         const realId = String(created.conversation_id || "");
@@ -1879,6 +2023,66 @@ const HistoryOverlay = memo(function HistoryOverlay({
       creatingThreadRef.current = false;
     }
   }
+
+  //自動抓取會員清單
+  useEffect(() => {
+    if (!hydrated) return;
+    if (userMode !== "member") return;
+    if (!userId || isGuestUid(userId)) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const convs = await apiFetchConversations(userId);
+        if (cancelled) return;
+
+        setHistoryThreads(convs);
+
+        if (!activeThreadIdRef.current && convs.length > 0) {
+          const firstId = convs[0].id;
+          setActiveThreadId(firstId);
+
+          try {
+            const msgs = await fetchConversationMessages(firstId);
+            if (cancelled) return;
+
+            setHistoryMessages((prev) => {
+              const others = prev.filter((m) => m.threadId !== firstId);
+              return [...others, ...msgs];
+            });
+
+            const t = convs.find((x) => x.id === firstId);
+            if (t?.sessionId) setSessionId(t.sessionId);
+
+            setMessages(
+              msgs.length > 0
+                ? msgs.map((m, idx) => ({
+                  id: Date.now() + idx,
+                  role: m.role,
+                  content: m.content,
+                }))
+                : [
+                  {
+                    id: 1,
+                    role: "assistant",
+                    content: WELCOME_TEXT,
+                  },
+                ]
+            );
+          } catch (err) {
+            console.error("載入第一筆 conversation messages 失敗：", err);
+          }
+        }
+      } catch (err) {
+        console.error("載入會員 conversations 失敗：", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, userId, userMode]);
 
   // ✅✅ 修掉「hydrate 還沒完成就 newThread 覆蓋快取」的 bug（最重要）
   const bootNewThreadOnceRef = useRef(false);
