@@ -68,3 +68,27 @@ BoneOrthoSystem/s2_agent/backend/data/uploads/
 *.ckpt
 runs/
 
+# ========================
+# Unity (必加，否則會爆 18914 changes + filename too long)
+# ========================
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Unity PackageCache（你截圖爆掉的來源）
+**/[Pp]ackage[Cc]ache/
+
+# Rider/VS 產物（Unity 常見）
+*.csproj
+*.sln
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
