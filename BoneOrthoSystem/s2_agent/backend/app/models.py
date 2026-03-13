@@ -5,9 +5,9 @@ from pydantic import BaseModel
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     type: Literal["text", "image", "file"]
-    content: Optional[str] = None      # 文字內容
-    url: Optional[str] = None          # 圖片或檔案路徑 / URL
-    filetype: Optional[str] = None     # pdf / pptx / png / jpg... 等
+    content: Optional[str] = None
+    url: Optional[str] = None
+    filetype: Optional[str] = None
 
 
 class Action(BaseModel):
@@ -20,6 +20,10 @@ class Action(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str
+    user_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+    privacy_consent: bool = False
+    pii_mode: Literal["block", "mask"] = "block"
     messages: List[ChatMessage]
 
 

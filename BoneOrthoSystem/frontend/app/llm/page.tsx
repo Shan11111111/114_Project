@@ -15,6 +15,10 @@ import React, {
   Suspense,
 } from "react";
 
+import S2PrivacyConsent from "./S2PrivacyConsent";
+import S2SensitiveInfoModal from "./S2SensitiveInfoModal";
+import { detectSensitiveInfo, maskSensitiveInfo, type SensitiveHit } from "./piiGuard";
+
 type UploadedFile = {
   id: string;
   name: string;
@@ -165,7 +169,12 @@ async function uploadOneFileToBackend(file: File) {
   const fd = new FormData();
   fd.append("file", file);
 
-  const res = await fetch(API.upload, { method: "POST", body: fd });
+  const res = await fetch(API.upload, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    body: fd,
+  });
+
   const raw = await res.text();
   const data = safeJsonParse(raw);
 
@@ -1331,6 +1340,10 @@ function LLMClient() {
   // ✅ 主輸入框：受控（中文/英文）
   const [draftText, setDraftText] = useState("");
 
+  const [privacyConsent, setPrivacyConsent] = useState(false);
+  const [showSensitiveModal, setShowSensitiveModal] = useState(false);
+  const [sensitiveHits, setSensitiveHits] = useState<SensitiveHit[]>([]);
+
   const [loading, setLoading] = useState(false);
   const [showToolMenu, setShowToolMenu] = useState(false);
 
@@ -1347,6 +1360,7 @@ function LLMClient() {
   const isExpanded = isMultiLine || pendingFiles.length > 0;
 
   const [ragOpen, setRagOpen] = useState(false);
+
 
   // ✅ thread清單  聊天紀錄
   const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([]);
@@ -1669,7 +1683,8 @@ function LLMClient() {
     const res = await fetch(API.getMsgs(cid), {
       method: "GET",
       headers: buildAuthHeaders(),
-    }); const raw = await res.text();
+    });
+    const raw = await res.text();
     const data = safeJsonParse(raw);
 
     if (!res.ok || !data) {
@@ -2201,10 +2216,14 @@ function LLMClient() {
   }
 
 
-  async function sendMessage(e?: FormEvent) {
+  async function reallySendMessage(
+    e?: FormEvent,
+    textOverride?: string,
+    piiMode: "block" | "mask" = "block"
+  ) {
     if (e) e.preventDefault();
 
-    const text = draftText.trim();
+    const text = (textOverride ?? draftText).trim();
     if ((!text && pendingFiles.length === 0) || loading) return;
 
     const threadIdAtSend = ensureActiveThreadIdForSend();
@@ -2322,6 +2341,8 @@ function LLMClient() {
         session_id: sid,
         user_id: uid,
         conversation_id: threadIdAtSend,
+        privacy_consent: true,
+        pii_mode: piiMode,
         messages: [{ role: "user", type: "text", content: basePrompt }],
       };
 
@@ -2402,6 +2423,40 @@ function LLMClient() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function sendMessage(e?: FormEvent) {
+    if (e) e.preventDefault();
+
+    const text = draftText.trim();
+    if ((!text && pendingFiles.length === 0) || loading) return;
+
+    if (!privacyConsent) {
+      alert("請先勾選個資與隱私聲明後再送出。");
+      return;
+    }
+
+    const hits = detectSensitiveInfo(text);
+
+    if (hits.length > 0) {
+      setSensitiveHits(hits);
+      setShowSensitiveModal(true);
+      return;
+    }
+
+    await reallySendMessage(undefined, text, "block");
+  }
+
+  async function handleMaskAndSend() {
+    const text = draftText.trim();
+    if (!text || loading) return;
+
+    const masked = maskSensitiveInfo(text);
+
+    setShowSensitiveModal(false);
+    setSensitiveHits([]);
+
+    await reallySendMessage(undefined, masked, "mask");
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -3478,173 +3533,174 @@ function LLMClient() {
                 />
 
                 <div className="w-full flex justify-center">
-                  <div className="flex items-end gap-3 w-full max-w-3xl">
-                    <div className="flex-1 relative">
-                      <div
-                        className={`relative border px-4 py-2 shadow-lg backdrop-blur-sm ${isExpanded ? "rounded-2xl" : "rounded-full"
+                  <div className="w-full max-w-3xl">
+                    <div className="flex items-end gap-3 w-full">
+                      <div className="flex-1 relative">
+                        <div
+                          className={`relative border px-4 py-2 shadow-lg backdrop-blur-sm ${
+                            isExpanded ? "rounded-2xl" : "rounded-full"
                           } transition-colors duration-500 neon-shell`}
-                        style={{
-                          backgroundColor: "var(--navbar-bg)",
-                          borderColor: "var(--navbar-border)",
-                          color: "var(--foreground)",
-                        }}
-                        data-tool-menu-root
-                      >
-                        {showToolMenu && <ToolMenu />}
+                          style={{
+                            backgroundColor: "var(--navbar-bg)",
+                            borderColor: "var(--navbar-border)",
+                            color: "var(--foreground)",
+                          }}
+                          data-tool-menu-root
+                        >
+                          {showToolMenu && <ToolMenu />}
 
-                        <div className="flex flex-col gap-2">
-                          {pendingFiles.length > 0 && (
-                            <div className="flex flex-wrap gap-2 text-[11px]">
-                              {pendingFiles.map((file) => (
-                                <div
-                                  key={file.id}
-                                  className="flex items-center gap-2 px-2 py-1 rounded-full border bg-black/5"
-                                  style={{
-                                    borderColor: "rgba(148,163,184,0.35)",
-                                  }}
-                                >
-                                  <i className="fa-regular fa-file text-[10px]" />
-                                  <span className="max-w-[160px] truncate">
-                                    {file.name}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => removePendingFile(file.id)}
-                                    className="text-[10px] opacity-70 hover:opacity-100"
+                          <div className="flex flex-col gap-2">
+                            {pendingFiles.length > 0 && (
+                              <div className="flex flex-wrap gap-2 text-[11px]">
+                                {pendingFiles.map((file) => (
+                                  <div
+                                    key={file.id}
+                                    className="flex items-center gap-2 px-2 py-1 rounded-full border bg-black/5"
+                                    style={{
+                                      borderColor: "rgba(148,163,184,0.35)",
+                                    }}
                                   >
-                                    ✕
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          <div
-                            className={
-                              isExpanded ? "" : "flex items-center gap-3"
-                            }
-                          >
-                            {!isExpanded && (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setShowToolMenu((v) => !v)}
-                                  className="flex items-center gap-1 text-xs"
-                                  style={{
-                                    backgroundColor: "transparent",
-                                    color: "var(--foreground)",
-                                  }}
-                                >
-                                  <i className="fa-solid fa-sliders text-[11px] opacity-75" />
-                                  <span>工具</span>
-                                  <span className="text-[10px]">
-                                    {showToolMenu ? "▴" : "▾"}
-                                  </span>
-                                </button>
+                                    <i className="fa-regular fa-file text-[10px]" />
+                                    <span className="max-w-[160px] truncate">
+                                      {file.name}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => removePendingFile(file.id)}
+                                      className="text-[10px] opacity-70 hover:opacity-100"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
                               </div>
                             )}
 
-                            <textarea
-                              ref={inputRef}
-                              value={draftText}
-                              onChange={(e) => {
-                                setDraftText(e.target.value);
-                                requestAnimationFrame(() =>
-                                  autoResizeTextarea()
-                                );
-                              }}
-                              onKeyDown={handleKeyDown}
-                              placeholder="提出任何問題⋯"
-                              rows={1}
-                              className={`custom-scroll bg-transparent resize-none border-none outline-none text-sm leading-relaxed overflow-hidden placeholder:text-slate-500 ${isExpanded ? "w-full" : "flex-1"
-                                }`}
-                              style={{
-                                color: "var(--foreground)",
-                                caretColor: "var(--foreground)",
-                              }}
-                              autoComplete="off"
-                              autoCorrect="off"
-                              spellCheck={false}
-                            />
+                            <div className={isExpanded ? "" : "flex items-center gap-3"}>
+                              {!isExpanded && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowToolMenu((v) => !v)}
+                                    className="flex items-center gap-1 text-xs"
+                                    style={{
+                                      backgroundColor: "transparent",
+                                      color: "var(--foreground)",
+                                    }}
+                                  >
+                                    <i className="fa-solid fa-sliders text-[11px] opacity-75" />
+                                    <span>工具</span>
+                                    <span className="text-[10px]">
+                                      {showToolMenu ? "▴" : "▾"}
+                                    </span>
+                                  </button>
+                                </div>
+                              )}
 
-                            {!isExpanded && (
-                              <div className="flex items-center gap-3">
-                                <span className="text-[10px] text-emerald-400">
-                                  ●
-                                </span>
-                                <button
-                                  type="submit"
-                                  disabled={
-                                    (!draftText.trim() &&
-                                      pendingFiles.length === 0) ||
-                                    loading
-                                  }
-                                  className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
-                                  style={{
-                                    background:
-                                      "linear-gradient(135deg,#0ea5e9,#22c55e)",
-                                    boxShadow:
-                                      "0 10px 25px rgba(56,189,248,0.45)",
-                                  }}
-                                >
-                                  {loading ? (
-                                    "…"
-                                  ) : (
-                                    <i className="fa-solid fa-arrow-up text-[13px]" />
-                                  )}
-                                </button>
+                              <textarea
+                                ref={inputRef}
+                                value={draftText}
+                                onChange={(e) => {
+                                  setDraftText(e.target.value);
+                                  requestAnimationFrame(() => autoResizeTextarea());
+                                }}
+                                onKeyDown={handleKeyDown}
+                                placeholder="提出任何問題⋯"
+                                rows={1}
+                                className={`custom-scroll bg-transparent resize-none border-none outline-none text-sm leading-relaxed overflow-hidden placeholder:text-slate-500 ${
+                                  isExpanded ? "w-full" : "flex-1"
+                                }`}
+                                style={{
+                                  color: "var(--foreground)",
+                                  caretColor: "var(--foreground)",
+                                }}
+                                autoComplete="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                              />
+
+                              {!isExpanded && (
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[10px] text-emerald-400">●</span>
+                                  <button
+                                    type="submit"
+                                    disabled={
+                                      !privacyConsent ||
+                                      ((!draftText.trim() && pendingFiles.length === 0) ||
+                                        loading)
+                                    }
+                                    className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                                    style={{
+                                      background:
+                                        "linear-gradient(135deg,#0ea5e9,#22c55e)",
+                                      boxShadow:
+                                        "0 10px 25px rgba(56,189,248,0.45)",
+                                    }}
+                                  >
+                                    {loading ? (
+                                      "…"
+                                    ) : (
+                                      <i className="fa-solid fa-arrow-up text-[13px]" />
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {isExpanded && (
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowToolMenu((v) => !v)}
+                                    className="flex items-center gap-1 text-xs"
+                                    style={{
+                                      backgroundColor: "transparent",
+                                      color: "var(--foreground)",
+                                    }}
+                                  >
+                                    <i className="fa-solid fa-sliders text-[11px] opacity-75" />
+                                    <span>工具</span>
+                                    <span className="text-[10px]">
+                                      {showToolMenu ? "▴" : "▾"}
+                                    </span>
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[10px] text-emerald-400">●</span>
+                                  <button
+                                    type="submit"
+                                    disabled={
+                                      !privacyConsent ||
+                                      ((!draftText.trim() && pendingFiles.length === 0) ||
+                                        loading)
+                                    }
+                                    className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
+                                    style={{
+                                      background:
+                                        "linear-gradient(135deg,#0ea5e9,#22c55e)",
+                                      boxShadow:
+                                        "0 10px 25px rgba(56,189,248,0.45)",
+                                    }}
+                                  >
+                                    {loading ? (
+                                      "…"
+                                    ) : (
+                                      <i className="fa-solid fa-arrow-up text-[13px]" />
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </div>
+                        </div>
 
-                          {isExpanded && (
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setShowToolMenu((v) => !v)}
-                                  className="flex items-center gap-1 text-xs"
-                                  style={{
-                                    backgroundColor: "transparent",
-                                    color: "var(--foreground)",
-                                  }}
-                                >
-                                  <i className="fa-solid fa-sliders text-[11px] opacity-75" />
-                                  <span>工具</span>
-                                  <span className="text-[10px]">
-                                    {showToolMenu ? "▴" : "▾"}
-                                  </span>
-                                </button>
-                              </div>
-
-                              <div className="flex items-center gap-3">
-                                <span className="text-[10px] text-emerald-400">
-                                  ●
-                                </span>
-                                <button
-                                  type="submit"
-                                  disabled={
-                                    (!draftText.trim() &&
-                                      pendingFiles.length === 0) ||
-                                    loading
-                                  }
-                                  className="h-7 w-7 rounded-full flex items-center justify-center text-white text-sm font-semibold disabled:opacity-60"
-                                  style={{
-                                    background:
-                                      "linear-gradient(135deg,#0ea5e9,#22c55e)",
-                                    boxShadow:
-                                      "0 10px 25px rgba(56,189,248,0.45)",
-                                  }}
-                                >
-                                  {loading ? (
-                                    "…"
-                                  ) : (
-                                    <i className="fa-solid fa-arrow-up text-[13px]" />
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                        <div className="mt-2">
+                          <S2PrivacyConsent
+                            checked={privacyConsent}
+                            onChange={setPrivacyConsent}
+                          />
                         </div>
                       </div>
                     </div>
@@ -3654,6 +3710,12 @@ function LLMClient() {
             </div>
           </section>
         )}
+        <S2SensitiveInfoModal
+          open={showSensitiveModal}
+          hits={sensitiveHits}
+          onClose={() => setShowSensitiveModal(false)}
+          onMaskAndSend={handleMaskAndSend}
+        />
       </div>
     </div>
   );

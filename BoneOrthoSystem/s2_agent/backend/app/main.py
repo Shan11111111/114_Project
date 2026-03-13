@@ -1,4 +1,3 @@
-# ai_agent_backend/app/main.py
 from pathlib import Path
 import uuid
 import sys
@@ -17,6 +16,7 @@ from .tools.rag_tool import answer_with_rag
 from .tools.yolo_tool import analyze_image
 from .tools.doc_tool import extract_text_and_summary
 from .routers.export import router as export_router
+from .utils.privacy_guard import detect_sensitive_info, mask_sensitive_info
 
 # ---------------------------------------------------------
 # 路徑設定：把專案根目錄（Bone）加進 sys.path，才能 import db
@@ -37,7 +37,7 @@ from db import (
     get_messages,
     update_conversation_title,
     set_conversation_title_if_empty,
-    delete_conversation,         # ← 新增：刪除用
+    delete_conversation,
 )
 
 load_dotenv(PROJECT_ROOT / ".env")
@@ -92,6 +92,68 @@ def add_message_to_db_from_chatmessage(conversation_id: str, msg: ChatMessage):
         attachments_json=attachments_json,
         meta_json=None,
     )
+
+# =========================================================
+# 工具：複製並處理訊息中的敏感資訊
+# =========================================================
+def sanitize_messages_with_privacy(req: ChatRequest) -> tuple[list[ChatMessage], list[dict], str]:
+    """
+    回傳：
+    - sanitized_messages: 處理後的 messages
+    - all_hits: 偵測到的敏感資訊清單
+    - privacy_action: "none" | "masked"
+    """
+    incoming_messages = req.messages or []
+    has_user_text = any(
+        m.role == "user" and m.type == "text" and (m.content or "").strip()
+        for m in incoming_messages
+    )
+
+    # 只有 user text 才要求 consent
+    if has_user_text and not req.privacy_consent:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "未勾選個資與隱私聲明，無法送出問題。"
+            },
+        )
+
+    all_hits: list[dict] = []
+    privacy_action = "none"
+    sanitized_messages: list[ChatMessage] = []
+
+    for msg in incoming_messages:
+        content = msg.content or ""
+
+        # 只處理 user + text
+        if msg.role == "user" and msg.type == "text" and content.strip():
+            hits = detect_sensitive_info(content)
+            if hits:
+                all_hits.extend(hits)
+
+                if req.pii_mode == "mask":
+                    content = mask_sensitive_info(content)
+                    privacy_action = "masked"
+                else:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "message": "偵測到可能的個人資料或隱私資訊，已阻擋送出。",
+                            "hits": hits,
+                        },
+                    )
+
+        sanitized_messages.append(
+            ChatMessage(
+                role=msg.role,
+                type=msg.type,
+                content=content,
+                url=msg.url,
+                filetype=msg.filetype,
+            )
+        )
+
+    return sanitized_messages, all_hits, privacy_action
 
 # =========================================================
 # 健康檢查
@@ -158,15 +220,18 @@ def agent_chat(req: ChatRequest):
 
     conversation_id = req.session_id
 
+    # 先做隱私檢查 / 遮罩
+    sanitized_messages, _hits, _privacy_action = sanitize_messages_with_privacy(req)
+
     # in-memory session：用 ConversationId 當 key
     session = get_session(conversation_id)
-    append_messages(session, req.messages)
+    append_messages(session, sanitized_messages)
 
-    # 先把「前端送進來的所有訊息」寫進 DB
-    for msg in req.messages:
+    # 先把「前端送進來的所有訊息（已處理過）」寫進 DB
+    for msg in sanitized_messages:
         add_message_to_db_from_chatmessage(conversation_id, msg)
 
-    last = req.messages[-1]
+    last = sanitized_messages[-1]
     actions: list[Action] = []
 
     # ========== 圖片 YOLO ==========
@@ -224,12 +289,12 @@ def agent_chat(req: ChatRequest):
                     type="image",
                     content=None,
                     url=extra["image_url"],
-                    filetype="png",   # 先固定 png，之後有需要再從 DB 帶 content_type
+                    filetype="png",
                 )
                 session["messages"].append(img_msg)
                 add_message_to_db_from_chatmessage(conversation_id, img_msg)
 
-        # 後端也可以在第一句時，幫你自動補標題（如果你想用的話）
+        # 後端也可以在第一句時，幫你自動補標題
         set_conversation_title_if_empty(conversation_id, user_q)
 
     # assistant 的文字（例如前端顯示檔案摘要）：
@@ -373,12 +438,11 @@ def api_get_bone_image(bone_id: int):
 
     # 2) 沒有二進位 → 用 image_path 找檔案（如果真的有存檔）
     if image_path:
-        rel = str(image_path).lstrip("/")  # 例如 "static/uploads/xx.png"
+        rel = str(image_path).lstrip("/")
         file_path = BACKEND_DIR / rel
         if file_path.exists():
             with open(file_path, "rb") as f:
                 data = f.read()
             return Response(content=data, media_type=media_type)
 
-    # 都找不到
     raise HTTPException(status_code=404, detail="image file not found")
