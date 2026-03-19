@@ -57,3 +57,7 @@ curl -X POST http://127.0.0.1:8000/materials/upload ^
   -F "user_id=teacher01" ^
   -F "bone_id=" ^
   -F "bone_small_id="
+
+
+cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend
+py -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
