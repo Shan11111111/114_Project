@@ -1,4 +1,3 @@
-# BoneOrthoBackend/app.py
 from dotenv import load_dotenv
 import os
 import uuid
@@ -11,14 +10,13 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     print("⚠️ WARNING: OPENAI_API_KEY 未設定，S2 會使用假資料，不會真的叫 LLM。")
 else:
-    print("✅ OPENAI_API_KEY 已載入，長度 =", len(OPENAI_API_KEY))
+    print(" OPENAI_API_KEY 已載入，長度 =", len(OPENAI_API_KEY))
 
 # 2) 再來才 import FastAPI / 各子系統 router
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-
 
 from s0_annotation import router as s0_router
 from s1_detection.router import router as s1_router
@@ -28,15 +26,11 @@ from shared.router import router as shared_router
 from s2_agent.s0_bridge import router as s0_bridge_router
 from s2_agent.s1_handoff import router as s1_handoff_router
 from s2_agent.ensure_title import router as ensure_title_router
-
 from s2_agent.legacy_agent.backend.app.main import app as s2_legacy_app
-
-# 例：在你 FastAPI app = FastAPI() 之後
 from s4_mr_bridge.router import router as mr_router
-app.include_router(mr_router)
-
-
 from auth.router import router as auth_router
+
+
 # ==========================================
 #  跨主機通用：自動尋找 BoneOrthoSystem 根目錄
 #  目的：把 /public 掛到 BoneOrthoSystem/public（S1 存圖的位置）
@@ -46,7 +40,7 @@ def find_project_root(target_folder="BoneOrthoSystem") -> str:
     while True:
         parent = os.path.dirname(current_path)
         if parent == current_path:
-            raise RuntimeError(f"❌ 無法找到 {target_folder} 根目錄")
+            raise RuntimeError(f" 無法找到 {target_folder} 根目錄")
         if os.path.basename(parent) == target_folder:
             return parent
         current_path = parent
@@ -62,8 +56,7 @@ DEV_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
-
-# ✅ CORS
+#  CORS
 app.add_middleware(
     CORSMiddleware,
     # allow_origins=["*"],
@@ -73,7 +66,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ DEV 用：把未處理的 500 變成 JSON（讓 CORS header 能正常回到前端）
+#  DEV 用：把未處理的 500 變成 JSON（讓 CORS header 能正常回到前端）
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
@@ -85,12 +78,12 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
         },
     )
 
-# ✅ 靜態檔案：讓 DB 存的 /public/... 真的能被打到
+#  靜態檔案：讓 DB 存的 /public/... 真的能被打到
 PROJECT_ROOT = find_project_root("BoneOrthoSystem")
 PUBLIC_DIR = os.path.join(PROJECT_ROOT, "public")
 os.makedirs(PUBLIC_DIR, exist_ok=True)
 
-# ✅ 你要的兩個資料夾：S1 bone_images、S2 user_upload_file
+#  你要的兩個資料夾：S1 bone_images、S2 user_upload_file
 BONE_IMAGES_DIR = os.path.join(PUBLIC_DIR, "bone_images")
 USER_UPLOAD_DIR = os.path.join(PUBLIC_DIR, "user_upload_file")
 os.makedirs(BONE_IMAGES_DIR, exist_ok=True)
@@ -113,7 +106,7 @@ def root():
 
 
 # =========================================================
-# ✅ Root /upload：給前端 llm/page.tsx 用（你現在就是打這裡）
+#  Root /upload：給前端 llm/page.tsx 用（你現在就是打這裡）
 # - 任何檔案都存到 BoneOrthoSystem/public/user_upload_file
 # - 回傳 url 使用 /public/user_upload_file/...（避免 /s2x/uploads 路徑對不起來）
 # =========================================================
@@ -127,11 +120,13 @@ _ALLOWED_UPLOAD_EXT = {
     "xls", "xlsx",
 }
 
+
 def _ext_of(filename: str) -> str:
     parts = (filename or "").rsplit(".", 1)
     if len(parts) == 2:
         return parts[1].lower()
     return ""
+
 
 @app.post("/upload")
 async def root_upload(file: UploadFile = File(...)):
@@ -159,7 +154,7 @@ async def root_upload(file: UploadFile = File(...)):
     }
 
 
-# ✅ routers
+#  routers
 app.include_router(shared_router, prefix="/shared")
 app.include_router(s0_router)
 app.include_router(s1_router)
@@ -168,10 +163,8 @@ app.include_router(s3_router)
 app.include_router(s0_bridge_router, prefix="/s2")
 app.include_router(s1_handoff_router)
 app.include_router(ensure_title_router)
-
-
+app.include_router(mr_router)
 app.include_router(auth_router)
 
-
-# ✅ legacy S2（維持你原本行為）
+#  legacy S2（維持你原本行為）
 app.mount("/s2x", s2_legacy_app)
