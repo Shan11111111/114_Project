@@ -61,3 +61,10 @@ curl -X POST http://127.0.0.1:8000/materials/upload ^
 
 cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend
 py -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+
+
+連外網(meta Quest 3要連接):要同一個網路
+py -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+
+//測試可否連外
+Test-NetConnection 140.136.155.157 -Port 8000

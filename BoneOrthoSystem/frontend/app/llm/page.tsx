@@ -55,7 +55,7 @@ type HistoryMessage = {
   createdAt: string;
 };
 
-type RagMode = "file_then_vector" | "vector_only" | "file_only" | "pubmed_only";
+type RagMode = "file_then_vector" | "vector_only" | "file_only" | "pubmed_only" | "soap_only";
 /**  S1 bootstrap detections（支援 bbox / poly / PolyJson / P1~P4） */
 type Detection = {
   bone_id?: number | null;
@@ -2066,7 +2066,7 @@ function LLMClient() {
               return [...others, ...msgs];
             });
 
-            const t = convs.find((x) => x.id === firstId);
+            const t = convs.find((x: { id: any; }) => x.id === firstId);
             if (t?.sessionId) setSessionId(t.sessionId);
 
             setMessages(
@@ -2228,12 +2228,14 @@ function LLMClient() {
     const threadIdAtSend = ensureActiveThreadIdForSend();
     const firstUserText = text || "（已上傳檔案）";
 
-    const userMessage: ChatMessage = {
-      id: Date.now(),
-      role: "user",
-      content: text || "（已上傳檔案）",
-      files: pendingFiles.length ? pendingFiles : undefined,
-    };
+    const filesSnapshot = pendingFiles.map((f) => ({ ...f }));
+
+  const userMessage: ChatMessage = {
+    id: Date.now(),
+    role: "user",
+    content: text || "（已上傳檔案）",
+    files: filesSnapshot.length ? filesSnapshot : undefined,
+  };
 
     setMessages((prev) => [...prev, userMessage]);
     pushHistoryMessage(threadIdAtSend, "user", firstUserText);
@@ -2270,9 +2272,10 @@ function LLMClient() {
       }
 
       const isPubmedOnly = ragMode === "pubmed_only";
-      const wantFile = ragMode !== "vector_only" && !isPubmedOnly;
-      const wantVector = ragMode !== "file_only" && !isPubmedOnly;
+      const isSoapOnly = ragMode === "soap_only";
 
+      const wantFile = ragMode === "file_then_vector" || ragMode === "file_only";
+      const wantVector = ragMode === "file_then_vector" || ragMode === "vector_only";
       let fileContextText = "";
       let summaryForUI = ""; //  新增：給聊天室看的摘要
 
@@ -2334,10 +2337,12 @@ function LLMClient() {
         `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}`;
 
       const basePrompt = isPubmedOnly
-        ? (text ? text : "請根據 PubMed 文獻回答")
-        : (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
-          (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
-          vectorHint;
+  ? (text ? text : "請根據 PubMed 文獻回答")
+  : isSoapOnly
+    ? (text ? text : "請根據目前療法與醫院 SOAP 記錄回答")
+    : (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
+      (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
+      vectorHint;
 
       const payload = {
         session_id: sid,
@@ -3117,11 +3122,15 @@ function LLMClient() {
                             {ragMode === "file_then_vector" &&
                               "先用上傳檔案 → 不足再查向量庫"}
                             {ragMode === "vector_only" &&
-                              "只查向量庫（你做好的教材庫）"}
+                              "只查衛教向量庫（衛教教材庫）"}
                             {ragMode === "file_only" &&
-                              "只用上傳檔案（不查向量庫）"}
+                              "只用上傳檔案（不查衛教向量庫）"}
                             {ragMode === "pubmed_only" &&
                               "只查 PubMed(不查資料庫)"}
+                            {ragMode === "soap_only" &&
+                              "只查目前療法 (醫院 SOAP 紀錄)"}
+ 
+                  
                           </span>
 
                           <i
@@ -3157,6 +3166,10 @@ function LLMClient() {
                               {
                                 value: "pubmed_only",
                                 label: "只查 PubMed(不查資料庫)",
+                              },
+                              {
+                                value: "soap_only",
+                                label: "只查目前療法（醫院 SOAP 記錄）",
                               },
                             ].map((opt) => {
                               const active = ragMode === opt.value;
@@ -3406,6 +3419,9 @@ function LLMClient() {
                     </option>
                     <option value="pubmed_only">
                       只查PubMed （不查資料庫）
+                    </option>
+                    <option value="soap_only">
+                      只查目前療法（醫院 SOAP 記錄）
                     </option>
                   </select>
                 </div>
