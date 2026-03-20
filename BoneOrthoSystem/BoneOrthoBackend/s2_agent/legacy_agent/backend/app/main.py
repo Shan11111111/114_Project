@@ -16,6 +16,7 @@ from .models import ChatRequest, ChatResponse, ChatMessage, Action
 from .state.sessions import get_session, append_messages
 
 from .tools.pubmed_tool import answer_with_pubmed
+from .tools.soap_csv_service import answer_with_soap_csv
 
 #  重要：RAG 匯入（防爆）
 from .tools.rag_tool import answer_with_rag
@@ -387,6 +388,69 @@ def agent_chat(req: ChatRequest):
                 conversation_id=conversation_id,
                 answer=ans_text_out,
             )
+        
+           
+        # =========================
+        # SOAP CSV only 分支
+        # =========================
+        if rag_mode == "soap_only":
+            ans_text, sources = answer_with_soap_csv(
+                question=clean_q,
+                max_results=5,
+            )
+
+            soap_source_lines = []
+            for i, s in enumerate(sources or [], 1):
+                title = s.get("title") or f"soap-{i}"
+                record_id = s.get("record_id") or ""
+                visit_date = s.get("visit_date") or ""
+
+                tail = " · ".join(
+                    [x for x in [f"RRN:{record_id}" if record_id else "", visit_date] if x]
+                )
+                if tail:
+                    soap_source_lines.append(f"[#{i}] {title} · {tail}")
+                else:
+                    soap_source_lines.append(f"[#{i}] {title}")
+
+            if soap_source_lines:
+                ans_text_out = (
+                    (ans_text or "").rstrip()
+                    + "\n\n---\n【SOAP Sources】\n"
+                    + "\n".join(soap_source_lines)
+                )
+            else:
+                ans_text_out = ans_text or ""
+
+            reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
+            session["messages"].append(reply)
+
+            add_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=ans_text_out,
+                attachments_json=None,
+                sources=sources,
+                user_id=user_id,
+                source="s2x",
+            )
+
+            set_conversation_title_if_empty(conversation_id, _title_seed(clean_q, 80))
+
+            return ChatResponse(
+                messages=session["messages"],
+                actions=actions,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                answer=ans_text_out,
+            )
+
+
+
+
+
+
+
 
         #  1) 先解析 URL 並索引（讓 doc_rag 真的找得到）
         url_digest_text = ""

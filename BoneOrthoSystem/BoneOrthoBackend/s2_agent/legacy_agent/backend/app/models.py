@@ -1,3 +1,5 @@
+# 這裡定義了 ChatMessage、Action、ChatRequest、ChatResponse 四個 Pydantic 模型，用於定義聊天訊息、動作指令、聊天請求和聊天回應的結構。
+#models.py
 from __future__ import annotations
 
 from typing import Literal, Optional, List, Any
@@ -30,7 +32,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
 
     # 新增：前端模式切換
-    rag_mode: Literal["file_then_vector", "vector_only", "file_only", "pubmed_only"] = "file_then_vector"
+    rag_mode: Literal["file_then_vector", "vector_only", "file_only", "pubmed_only","soap_only"] = "file_then_vector"
 
     # 新增：PubMed 一次最多抓幾篇
     pubmed_max_results: int = 5
