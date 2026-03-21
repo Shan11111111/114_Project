@@ -8,7 +8,7 @@ _RULES = [
     "type": "name",
     "label": "姓名",
     "regex": re.compile(
-        r"(?:姓名|名字|我叫|病人姓名|患者姓名|患者|病人|我是|我的名字   )\s*[:：]?\s*[\u4e00-\u9fff]{2,4}",
+        r"(?:姓名|名字|我叫|病人姓名|患者姓名|患者|病人|我是|我的名字|我叫做)\s*[:：]?\s*[\u4e00-\u9fff]{2,4}",
         re.I,
     ),
 },
@@ -34,7 +34,7 @@ _RULES = [
         "type": "birthday",
         "label": "生日",
         "regex": re.compile(
-            r"\b(?:生日|出生日期|DOB|birth\s*date)\s*[:：]?\s*(?:民國)?\d{2,4}(?:年|[\/\.-])\d{1,2}(?:月|[\/\.-])\d{1,2}(?:日)?\b",
+            r"\b(?:生日|出生日期|我的生日是|DOB|birth\s*date)\s*[:：]?\s*(?:民國)?\d{2,4}(?:年|[\/\.-])\d{1,2}(?:月|[\/\.-])\d{1,2}(?:日)?\b",
             re.I,
         ),
     },
@@ -51,8 +51,8 @@ _RULES = [
         "type": "medical_record_no",
         "label": "病歷號",
         "regex": re.compile(
-            r"(?:病歷號|病歷編號|MRN|Chart\s*No|Record\s*No)\s*[:：]?\s*[A-Z0-9-]{4,20}",
-            re.I,
+        r"(?:病歷號|病歷編號|MRN|Chart\s*No|Record\s*No)\s*[:：]?\s*(\d{9}[A-Z])\b",
+        re.I,
         ),
     },
     {

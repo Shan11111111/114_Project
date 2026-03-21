@@ -1,3 +1,5 @@
+# 這裡定義了 ChatMessage、Action、ChatRequest、ChatResponse 四個 Pydantic 模型，用於定義聊天訊息、動作指令、聊天請求和聊天回應的結構。
+#models.py
 from __future__ import annotations
 
 from typing import Literal, Optional, List, Any
@@ -18,8 +20,6 @@ class Action(BaseModel):
     target_model: Optional[str] = None
     bones: Optional[List[str]] = None
     image_url: Optional[str] = None
-
-    # ✅ 新增：有些版本會塞 sources/citations/items
     sources: Optional[List[Any]] = None
     citations: Optional[List[Any]] = None
     items: Optional[List[Any]] = None
@@ -28,14 +28,19 @@ class Action(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     user_id: str | None = None
-    conversation_id: str | None = None   
+    conversation_id: str | None = None
     messages: list[ChatMessage]
 
+    # 新增：前端模式切換
+    rag_mode: Literal["file_then_vector", "vector_only", "file_only", "pubmed_only","soap_only"] = "file_then_vector"
+
+    # 新增：PubMed 一次最多抓幾篇
+    pubmed_max_results: int = 5
 
 
 class ChatResponse(BaseModel):
     messages: list[ChatMessage]
     actions: list[Action] = []
-    session_id: str | None = None         # ✅ 新增（回給前端）
-    conversation_id: str | None = None    # ✅ 新增（回給前端）
-    answer: str | None = None             # 可選：你前端會吃 answer/content/message
+    session_id: str | None = None
+    conversation_id: str | None = None
+    answer: str | None = None

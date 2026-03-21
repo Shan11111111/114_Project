@@ -35,8 +35,6 @@ from s2_agent.s1_handoff import router as s1_handoff_router
 from s2_agent.ensure_title import router as ensure_title_router
 
 from s2_agent.legacy_agent.backend.app.main import app as s2_legacy_app
-
-# 例：在你 FastAPI app = FastAPI() 之後
 from s4_mr_bridge.router import router as mr_router
 app.include_router(mr_router)
 
@@ -52,10 +50,6 @@ def find_project_root(target_folder="BoneOrthoSystem") -> str:
         parent = os.path.dirname(current_path)
         if parent == current_path:
             raise RuntimeError(f"❌ 無法找到 {target_folder} 根目錄")
-        if os.path.basename(parent) == target_folder:
-            return parent
-        current_path = parent
-
 
 
 DEV_ORIGINS = [

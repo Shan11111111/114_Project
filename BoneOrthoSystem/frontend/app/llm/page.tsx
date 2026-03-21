@@ -44,7 +44,7 @@ type HistoryThread = {
   updatedAt: string;
   preview: string;
   messageCount: number;
-  sessionId?: string; // ✅ 新增：不顯示，只用於繼續聊天
+  sessionId?: string; //  新增：不顯示，只用於繼續聊天
 };
 
 type HistoryMessage = {
@@ -55,9 +55,8 @@ type HistoryMessage = {
   createdAt: string;
 };
 
-type RagMode = "file_then_vector" | "vector_only" | "file_only";
-
-/** ✅ S1 bootstrap detections（支援 bbox / poly / PolyJson / P1~P4） */
+type RagMode = "file_then_vector" | "vector_only" | "file_only" | "pubmed_only" | "soap_only";
+/**  S1 bootstrap detections（支援 bbox / poly / PolyJson / P1~P4） */
 type Detection = {
   bone_id?: number | null;
   bone_zh?: string | null;
@@ -114,7 +113,7 @@ const WELCOME_TEXT = `嗨，我是 GalaBone LLM。
 （你可以要求後端「必回傳 sources/citations」才算合格 RAG。）`;
 
 // ==============================
-// ✅ 後端 API（搬 C 的連線；不影響 D 的 UI）
+//  後端 API（搬 C 的連線；不影響 D 的 UI）
 // ==============================
 const API_BASE = (
   process.env.NEXT_PUBLIC_BACKEND_URL ||
@@ -124,10 +123,10 @@ const API_BASE = (
 
 const S2X_BASE = `${API_BASE}/s2x`;
 
-// ✅ C 裡的 bootstrap（S1 -> S2）
+//  C 裡的 bootstrap（S1 -> S2）
 const BOOT_URL = `${API_BASE}/s2/agent/bootstrap-from-s1`;
 
-// ✅ C 裡集中管理的 API endpoints（conversations 也一起帶過來）
+//  C 裡集中管理的 API endpoints（conversations 也一起帶過來）
 const API = {
   health: `${S2X_BASE}/health`,
   upload: `${S2X_BASE}/upload`,
@@ -138,11 +137,11 @@ const API = {
     `${S2X_BASE}/agent/conversations?user_id=${encodeURIComponent(uid)}`,
   getMsgs: (cid: string) => `${S2X_BASE}/agent/conversations/${cid}/messages`,
 
-  // ✅✅ 修正：後端正確的 title endpoint（你 main.py 是 /agent/conversations/{id}/title）
+  //   修正：後端正確的 title endpoint（你 main.py 是 /agent/conversations/{id}/title）
   updateConvTitle: (cid: string) =>
     `${S2X_BASE}/agent/conversations/${cid}/title`,
 
-  // ✅ 兼容：有些後端可能做在 /agent/conversations/{id}
+  //  兼容：有些後端可能做在 /agent/conversations/{id}
   updateConvTitleFallback: (cid: string) => `${S2X_BASE}/agent/conversations/${cid}`,
 };
 
@@ -202,7 +201,7 @@ async function postChatToBackend(payload: any) {
 }
 
 async function apiUpdateConversationTitle(conversationId: string, title: string) {
-  // ✅✅ 先打 /title；如果後端沒有這條路，再 fallback /{id}
+  //   先打 /title；如果後端沒有這條路，再 fallback /{id}
   const body = JSON.stringify({ title });
 
   // 1) /title
@@ -244,7 +243,7 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-// ✅ export：沿用 D 現在的 UI，但 endpoint 改用 C 的 API.exportPdf/exportPptx
+//  export：沿用 D 現在的 UI，但 endpoint 改用 C 的 API.exportPdf/exportPptx
 async function exportToBackend(
   type: "pdf" | "pptx",
   payload: { session_id: string; user_id: string; messages: any[] }
@@ -266,7 +265,7 @@ async function exportToBackend(
 }
 
 // ==============================
-// ✅ LocalStorage 快取（方案 A）
+//  LocalStorage 快取（方案 A）
 // ==============================
 const LS_NS = "gab_llm_v1";
 
@@ -424,7 +423,7 @@ function buildAuthHeaders(extra?: Record<string, string>) {
 
 
 // ==============================
-// ✅ Detection Viewer（最小侵入：只加一張卡片，不動你現有聊天 UI）
+//  Detection Viewer（最小侵入：只加一張卡片，不動你現有聊天 UI）
 // ==============================
 
 const LABEL41_ZH: Record<number, string> = {
@@ -755,7 +754,7 @@ function DetectionViewer({
 }
 
 // ==============================
-// ✅ GPT-style「⋯」選單（分享/刪除）
+//  GPT-style「⋯」選單（分享/刪除）
 // ==============================
 function MenuItem({
   icon,
@@ -866,7 +865,7 @@ function ThreadMoreMenu({
 }
 
 // ============================================================
-// ✅ HistoryOverlay（原樣保留）
+//  HistoryOverlay（原樣保留）
 // ============================================================
 const HistoryOverlay = memo(function HistoryOverlay({
   isOpen,
@@ -1305,10 +1304,10 @@ function LLMClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  // ✅✅ 改動 1：由 boolean 改成記錄最後 boot 的 caseId（避免重複 boot）
+  //   改動 1：由 boolean 改成記錄最後 boot 的 caseId（避免重複 boot）
   const bootOnceRef = useRef<string>("");
 
-  // ✅ seed card（不動原排版：只在聊天區最上方插一張卡）
+  //  seed card（不動原排版：只在聊天區最上方插一張卡）
   const [seedImageUrl, setSeedImageUrl] = useState<string>("");
   const [seedDetections, setSeedDetections] = useState<Detection[]>([]);
 
@@ -1316,16 +1315,16 @@ function LLMClient() {
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
-  // ✅ 目前頁面
+  //  目前頁面
   const [activeView, setActiveView] = useState<ViewKey>("llm");
 
-  // ✅ RAG 模式（沿用 pasted.txt：不建立索引）
+  //  RAG 模式（沿用 pasted.txt：不建立索引）
   const [ragMode, setRagMode] = useState<RagMode>("file_then_vector");
 
-  // ✅ History overlay
+  //  History overlay
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
-  // ✅ 搜尋字詞持久化（不觸發 rerender）
+  //  搜尋字詞持久化（不觸發 rerender）
   const historyPersistedQueryRef = useRef<string>("");
 
   // ===== chat 狀態 =====
@@ -1337,7 +1336,7 @@ function LLMClient() {
     },
   ]);
 
-  // ✅ 主輸入框：受控（中文/英文）
+  //  主輸入框：受控（中文/英文）
   const [draftText, setDraftText] = useState("");
 
   const [privacyConsent, setPrivacyConsent] = useState(false);
@@ -1362,11 +1361,11 @@ function LLMClient() {
   const [ragOpen, setRagOpen] = useState(false);
 
 
-  // ✅ thread清單  聊天紀錄
+  //  thread清單  聊天紀錄
   const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([]);
   const [historyMessages, setHistoryMessages] = useState<HistoryMessage[]>([]);
 
-  // ✅✅ 改動：不要用 t-001 當預設，避免一直送到假 thread
+  //   改動：不要用 t-001 當預設，避免一直送到假 thread
   const [activeThreadId, setActiveThreadId] = useState<string>("");
 
   const activeThreadIdRef = useRef<string>(activeThreadId);
@@ -1376,32 +1375,32 @@ function LLMClient() {
 
   const [sessionId, setSessionId] = useState<string>("");
 
-  // ✅✅ 重要：避免初始化階段直接碰 localStorage/crypto（防空白/奇怪錯）
+  //   重要：避免初始化階段直接碰 localStorage/crypto（防空白/奇怪錯）
   const [userId, setUserId] = useState<string>("guest");
   const [userMode, setUserMode] = useState<"guest" | "member">("guest");
   const uidRef = useRef<string>("guest");
   const uidReadyRef = useRef<boolean>(false);
 
-  // ✅ 統一 hover/active 顏色
+  //  統一 hover/active 顏色
   const NAV_ACTIVE_BG = "rgba(148,163,184,0.16)";
   const NAV_HOVER_BG = "rgba(148,163,184,0.10)";
 
   // ==============================
-  // ✅ LocalStorage：初始化載入 + 持久化
+  //  LocalStorage：初始化載入 + 持久化
   // ==============================
   const didHydrateRef = useRef(false);
   const [hydrated, setHydrated] = useState(false);
 
-  // ✅✅ 新增：確保「讀取快取完成」後才允許 auto-newThread（避免覆蓋快取）
+  //   新增：確保「讀取快取完成」後才允許 auto-newThread（避免覆蓋快取）
   const cacheLoadedRef = useRef(false);
 
-  // ✅ 防連點：避免短時間連續 newThread 造成側邊一直洗牌/狂打後端
+  //  防連點：避免短時間連續 newThread 造成側邊一直洗牌/狂打後端
   const creatingThreadRef = useRef(false);
 
-  // ✅✅ 新增：避免同一個 conversation 重複 PATCH title
+  //   新增：避免同一個 conversation 重複 PATCH title
   const autoTitledSetRef = useRef<Set<string>>(new Set());
 
-  // ✅ 判斷目前 thread 是否仍是「空白新對話」（尚未有 user 訊息）
+  //  判斷目前 thread 是否仍是「空白新對話」（尚未有 user 訊息）
   function isBlankNewThread(threadId: string) {
     if (!threadId) return false;
 
@@ -1502,7 +1501,7 @@ function LLMClient() {
     messages,
   ]);
 
-  // ✅✅ 新增：reset seed + 清除 URL 的 caseId（不動 UI）
+  //   新增：reset seed + 清除 URL 的 caseId（不動 UI）
   function resetSeedAndCaseIdInUrl() {
     bootOnceRef.current = "";
     setSeedImageUrl("");
@@ -1522,7 +1521,7 @@ function LLMClient() {
     return new Date().toLocaleString();
   }
 
-  // ✅✅ 新增：push 到 historyMessages（讓 overlay / reload 都有內容）
+  //   新增：push 到 historyMessages（讓 overlay / reload 都有內容）
   function pushHistoryMessage(
     threadId: string,
     role: "user" | "assistant",
@@ -1542,14 +1541,14 @@ function LLMClient() {
     ]);
   }
 
-  // ✅✅ 新增：用第一句生成 title（跟你 UI 現在的 18 字一致）
+  //   新增：用第一句生成 title（跟你 UI 現在的 18 字一致）
   function makeAutoTitleFromText(userText: string) {
     const t = (userText || "").trim().replace(/\s+/g, " ");
     if (!t) return "";
     return t.slice(0, 18);
   }
 
-  // ✅✅ 新增：只在「新對話」時，對真 conversation_id 做一次 PATCH title
+  //   新增：只在「新對話」時，對真 conversation_id 做一次 PATCH title
   async function ensureBackendAutoTitleOnce(
     conversationId: string,
     userText: string
@@ -1574,7 +1573,7 @@ function LLMClient() {
     }
   }
 
-  // ✅✅ rename：先更新本地，再嘗試同步後端（不影響 UI）
+  //   rename：先更新本地，再嘗試同步後端（不影響 UI）
   function renameThread(threadId: string, nextTitle: string) {
     const title = nextTitle.trim();
     if (!title) return;
@@ -1657,7 +1656,7 @@ function LLMClient() {
   }
 
   async function apiCreateConversation(uid: string) {
-    // ✅✅ 關鍵：後端 title 不要傳「新對話」→ 讓 db.py 的 if_empty 有機會運作
+    //   關鍵：後端 title 不要傳「新對話」→ 讓 db.py 的 if_empty 有機會運作
     // （UI 仍然顯示新對話，因為前端自己 title=新對話）
     const res = await fetch(`${S2X_BASE}/agent/conversations`, {
       method: "POST",
@@ -1853,7 +1852,7 @@ function LLMClient() {
     });
   }
 
-  // ✅✅ 新增：自動把「新對話」改成第一句（像 GPT）
+  //   新增：自動把「新對話」改成第一句（像 GPT）
   function maybeAutoTitle(threadId: string, userText: string) {
     const title = (userText || "").trim().replace(/\s+/g, " ");
     if (!title) return;
@@ -1928,7 +1927,7 @@ function LLMClient() {
     setActiveThreadId(newId);
   }
 
-  // ✅✅ 新增：保證有 threadId（避免 refresh/初始化時送到空字串）
+  //   新增：保證有 threadId（避免 refresh/初始化時送到空字串）
   function ensureActiveThreadIdForSend() {
     if (activeThreadIdRef.current) return activeThreadIdRef.current;
 
@@ -1955,7 +1954,7 @@ function LLMClient() {
   }
 
   async function newThread() {
-    // ✅ 如果目前就已經是「空白新對話」，不要再新建：只回到 llm、清 seed、focus
+    //  如果目前就已經是「空白新對話」，不要再新建：只回到 llm、清 seed、focus
     const curId = activeThreadIdRef.current;
     if (curId && isBlankNewThread(curId)) {
       resetSeedAndCaseIdInUrl();
@@ -1967,7 +1966,7 @@ function LLMClient() {
       return;
     }
 
-    // ✅ 防連點/防併發：建立中就直接忽略
+    //  防連點/防併發：建立中就直接忽略
     if (creatingThreadRef.current) return;
     creatingThreadRef.current = true;
 
@@ -2013,7 +2012,7 @@ function LLMClient() {
       setIsMobileNavOpen(false);
       setTimeout(() => inputRef.current?.focus(), 60);
 
-      // ✅ 後端建立 conversation（失敗就維持本地）
+      //  後端建立 conversation（失敗就維持本地）
       // 訪客：只建立本地 thread，不寫 DB
       if (userMode === "guest" || isGuestUid(uid)) {
         return;
@@ -2067,7 +2066,7 @@ function LLMClient() {
               return [...others, ...msgs];
             });
 
-            const t = convs.find((x) => x.id === firstId);
+            const t = convs.find((x: { id: any; }) => x.id === firstId);
             if (t?.sessionId) setSessionId(t.sessionId);
 
             setMessages(
@@ -2099,11 +2098,11 @@ function LLMClient() {
     };
   }, [hydrated, userId, userMode]);
 
-  // ✅✅ 修掉「hydrate 還沒完成就 newThread 覆蓋快取」的 bug（最重要）
+  //   修掉「hydrate 還沒完成就 newThread 覆蓋快取」的 bug（最重要）
   const bootNewThreadOnceRef = useRef(false);
   useEffect(() => {
     if (!hydrated) return;
-    if (!cacheLoadedRef.current) return; // ✅✅ 新增：快取還沒讀完，不要 auto-newThread
+    if (!cacheLoadedRef.current) return; //   新增：快取還沒讀完，不要 auto-newThread
     if (bootNewThreadOnceRef.current) return;
     bootNewThreadOnceRef.current = true;
 
@@ -2229,12 +2228,14 @@ function LLMClient() {
     const threadIdAtSend = ensureActiveThreadIdForSend();
     const firstUserText = text || "（已上傳檔案）";
 
-    const userMessage: ChatMessage = {
-      id: Date.now(),
-      role: "user",
-      content: text || "（已上傳檔案）",
-      files: pendingFiles.length ? pendingFiles : undefined,
-    };
+    const filesSnapshot = pendingFiles.map((f) => ({ ...f }));
+
+  const userMessage: ChatMessage = {
+    id: Date.now(),
+    role: "user",
+    content: text || "（已上傳檔案）",
+    files: filesSnapshot.length ? filesSnapshot : undefined,
+  };
 
     setMessages((prev) => [...prev, userMessage]);
     pushHistoryMessage(threadIdAtSend, "user", firstUserText);
@@ -2270,11 +2271,13 @@ function LLMClient() {
         return;
       }
 
-      const wantFile = ragMode !== "vector_only";
-      const wantVector = ragMode !== "file_only";
+      const isPubmedOnly = ragMode === "pubmed_only";
+      const isSoapOnly = ragMode === "soap_only";
 
+      const wantFile = ragMode === "file_then_vector" || ragMode === "file_only";
+      const wantVector = ragMode === "file_then_vector" || ragMode === "vector_only";
       let fileContextText = "";
-      let summaryForUI = ""; // ✅ 新增：給聊天室看的摘要
+      let summaryForUI = ""; //  新增：給聊天室看的摘要
 
       if (wantFile) {
         for (const f of filesToUpload) {
@@ -2291,7 +2294,7 @@ function LLMClient() {
           const abs = toAbsUrl(urlRel);
           f.serverUrl = abs || urlRel;
 
-          // ✅ 1) 聊天室立即顯示摘要
+          //  1) 聊天室立即顯示摘要
           if (summary.trim()) {
             summaryForUI += `\n\n【${fn}】摘要\n${summary.trim()}`;
           } else if (warn.trim()) {
@@ -2300,7 +2303,7 @@ function LLMClient() {
             summaryForUI += `\n\n【${fn}】\n⚠️ 這份檔案沒有回傳摘要（可能是掃描檔或無可抽取文字）`;
           }
 
-          // ✅ 2) 仍保留你原本：把摘要/節錄塞進 prompt（供後續 RAG 用）
+          //  2) 仍保留你原本：把摘要/節錄塞進 prompt（供後續 RAG 用）
           if (summary.trim()) {
             fileContextText += `\n\n---\n[檔案：${fn}]\n摘要：\n${summary.trim()}\n`;
           }
@@ -2313,29 +2316,33 @@ function LLMClient() {
           }
         }
 
-        // ✅ 3) 上傳完成後，立刻丟一則 assistant 訊息（你要的效果）
+        //  3) 上傳完成後，立刻丟一則 assistant 訊息（你要的效果）
         if (summaryForUI.trim()) {
           appendAssistantMessage(
             threadIdAtSend,
-            `✅ 已解析上傳檔案：${filesToUpload.length} 份\n${summaryForUI.trim()}`
+            ` 已解析上傳檔案：${filesToUpload.length} 份\n${summaryForUI.trim()}`
           );
         }
       }
 
 
-      const vectorHint = wantVector
-        ? `\n\n---\n【RAG】請先用既有教材向量庫檢索後回答，並附 sources/citations（檔名/頁碼或chunk/score）。找不到就說找不到。`
-        : "";
+      const vectorHint =
+        wantVector && !isPubmedOnly
+          ? `\n\n---\n【RAG】請先用既有教材向量庫檢索後回答，並附 sources/citations（檔名/頁碼或chunk/score）。找不到就說找不到。`
+          : "";
 
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
       const sid =
         (sessionId || "").trim() ||
         `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}`;
 
-      const basePrompt =
-        (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
-        (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
-        vectorHint;
+      const basePrompt = isPubmedOnly
+  ? (text ? text : "請根據 PubMed 文獻回答")
+  : isSoapOnly
+    ? (text ? text : "請根據目前療法與醫院 SOAP 記錄回答")
+    : (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
+      (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
+      vectorHint;
 
       const payload = {
         session_id: sid,
@@ -2343,6 +2350,8 @@ function LLMClient() {
         conversation_id: threadIdAtSend,
         privacy_consent: true,
         pii_mode: piiMode,
+        rag_mode: ragMode,
+        pubmed_max_results: 5,
         messages: [{ role: "user", type: "text", content: basePrompt }],
       };
 
@@ -2356,7 +2365,7 @@ function LLMClient() {
       if (cid) {
         replaceThreadId(threadIdAtSend, cid, sidFromServer || sessionId);
 
-        // ✅✅ 這行是你要的重點：拿到「真 cid」後，補一次 PATCH title（不改 db.py）
+        //   這行是你要的重點：拿到「真 cid」後，補一次 PATCH title（不改 db.py）
         // 只有當 thread title 仍是「新對話」才會動
         // （replaceThreadId 會把本地 title/preview 帶過去，所以 UI 不變）
         setTimeout(() => {
@@ -2776,7 +2785,7 @@ function LLMClient() {
   }
 
   // =========================
-  // ✅✅ Bootstrap-from-S1（保持你原邏輯；但 seed 只有帶 caseId 才出現）
+  //   Bootstrap-from-S1（保持你原邏輯；但 seed 只有帶 caseId 才出現）
   // =========================
   useEffect(() => {
     const caseIdStr =
@@ -2895,7 +2904,7 @@ function LLMClient() {
         if (cid) {
           replaceThreadId(threadIdAtBoot, cid, sidFromServer || bootSession);
 
-          // ✅✅ 同步 title（只在新對話時做一次）
+          //   同步 title（只在新對話時做一次）
           setTimeout(() => {
             ensureBackendAutoTitleOnce(cid, question);
           }, 0);
@@ -2962,7 +2971,7 @@ function LLMClient() {
   }, [searchParams]);
 
   // =========================
-  // ✅ 下面 return UI：完全不動（你原本的 JSX 그대로）
+  //  下面 return UI：完全不動（你原本的 JSX 그대로）
   // =========================
   return (
     <div
@@ -3113,9 +3122,15 @@ function LLMClient() {
                             {ragMode === "file_then_vector" &&
                               "先用上傳檔案 → 不足再查向量庫"}
                             {ragMode === "vector_only" &&
-                              "只查向量庫（你做好的教材庫）"}
+                              "只查衛教向量庫（衛教教材庫）"}
                             {ragMode === "file_only" &&
-                              "只用上傳檔案（不查向量庫）"}
+                              "只用上傳檔案（不查衛教向量庫）"}
+                            {ragMode === "pubmed_only" &&
+                              "只查 PubMed(不查資料庫)"}
+                            {ragMode === "soap_only" &&
+                              "只查目前療法 (醫院 SOAP 紀錄)"}
+ 
+                  
                           </span>
 
                           <i
@@ -3147,6 +3162,14 @@ function LLMClient() {
                               {
                                 value: "file_only",
                                 label: "只用上傳檔案（不查向量庫）",
+                              },
+                              {
+                                value: "pubmed_only",
+                                label: "只查 PubMed(不查資料庫)",
+                              },
+                              {
+                                value: "soap_only",
+                                label: "只查目前療法（醫院 SOAP 記錄）",
                               },
                             ].map((opt) => {
                               const active = ragMode === opt.value;
@@ -3393,6 +3416,12 @@ function LLMClient() {
                     </option>
                     <option value="file_only">
                       只用上傳檔案（不查向量庫）
+                    </option>
+                    <option value="pubmed_only">
+                      只查PubMed （不查資料庫）
+                    </option>
+                    <option value="soap_only">
+                      只查目前療法（醫院 SOAP 記錄）
                     </option>
                   </select>
                 </div>
