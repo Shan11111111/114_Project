@@ -12,8 +12,6 @@ DB_CONFIG = {
     "driver": "ODBC Driver 17 for SQL Server",
     "server": "localhost",
     "database": "BoneDB",
-    "uid": "sa",
-    "pwd": "你的密碼",
 }
 
 # 前端 / API 要讀的靜態路徑前綴
@@ -49,8 +47,7 @@ def get_connection():
         f"DRIVER={{{DB_CONFIG['driver']}}};"
         f"SERVER={DB_CONFIG['server']};"
         f"DATABASE={DB_CONFIG['database']};"
-        f"UID={DB_CONFIG['uid']};"
-        f"PWD={DB_CONFIG['pwd']};"
+        "Trusted_Connection=yes;"
         "TrustServerCertificate=yes;"
     )
     return pyodbc.connect(conn_str)
