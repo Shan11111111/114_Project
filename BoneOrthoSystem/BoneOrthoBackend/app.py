@@ -45,11 +45,17 @@ from auth.router import router as auth_router
 #  目的：把 /public 掛到 BoneOrthoSystem/public（S1 存圖的位置）
 # ==========================================
 def find_project_root(target_folder="BoneOrthoSystem") -> str:
-    current_path = os.path.abspath(__file__)
+    current_path = os.path.dirname(os.path.abspath(__file__))
+
     while True:
+        if os.path.basename(current_path) == target_folder:
+            return current_path
+
         parent = os.path.dirname(current_path)
         if parent == current_path:
             raise RuntimeError(f"❌ 無法找到 {target_folder} 根目錄")
+
+        current_path = parent
 
 
 DEV_ORIGINS = [
@@ -62,8 +68,8 @@ DEV_ORIGINS = [
 # ✅ CORS
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=["*"],
-    allow_origins=DEV_ORIGINS,
+    allow_origins=["*"],
+    # allow_origins=DEV_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

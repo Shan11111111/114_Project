@@ -10,7 +10,11 @@ import React, {
 } from "react";
 import { useRouter } from "next/navigation";
 
-const PREDICT_URL = "http://127.0.0.1:8000/predict";
+const API_BASE = (
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://140.136.155.157:8000"
+).replace(/\/+$/, "");
+
+const PREDICT_URL = `${API_BASE}/predict`;
 
 type PolyPoint = [number, number];
 

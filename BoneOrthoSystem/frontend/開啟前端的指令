@@ -6,8 +6,16 @@ npm run dev
 安裝套件
 npm i framer-motion
 
+連外
+npm run dev -- --hostname 0.0.0.0 --port 3000
+
+
+http://localhost:3000/llm/materials   //上傳官方教材的前端(學生以外的使用者:老師，記得連)
 
 
 
 
-http://localhost:3000/llm/materials   //上傳官方教材的前端
+--------------------------------------------------------------
+rmdir /s /q .next
+npm run build
+npm run start -- --hostname 0.0.0.0 --port 3000
