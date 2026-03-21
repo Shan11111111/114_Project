@@ -39,7 +39,7 @@ pip show python-jose
 pip install -U "python-jose[cryptography]"
 
 
-# 啟動後端服務(現在不用這個，要用連外網的指令開)
+# 啟動後端服務(現在不用這個!!!!!不要用這個開!!!!!要用連外網的指令開)
 py -m uvicorn app:app --reload --port 8000
 
 用這個!!
