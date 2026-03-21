@@ -20,6 +20,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 
 
+app = FastAPI(
+    title="BoneOrtho Backend",
+    version="0.1.0",
+)
+
 from s0_annotation import router as s0_router
 from s1_detection.router import router as s1_router
 from s2_agent.router import router as s2_router
@@ -52,14 +57,11 @@ def find_project_root(target_folder="BoneOrthoSystem") -> str:
         current_path = parent
 
 
-app = FastAPI(
-    title="BoneOrtho Backend",
-    version="0.1.0",
-)
 
 DEV_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://140.136.155.157:3000" 
 ]
 
 
