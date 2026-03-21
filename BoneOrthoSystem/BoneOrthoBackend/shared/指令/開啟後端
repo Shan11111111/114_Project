@@ -39,7 +39,7 @@ pip show python-jose
 pip install -U "python-jose[cryptography]"
 
 
-# 啟動後端服務
+# 啟動後端服務(現在不用這個，要用連外網的指令開)
 py -m uvicorn app:app --reload --port 8000
 
 
@@ -64,7 +64,7 @@ ____________________________________________________________________
 cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\BoneOrthoBackend
 py -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
-
+(v)現在用這個2026/03/11
 連外網(meta Quest 3要連接):要同一個網路
 py -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
@@ -73,6 +73,8 @@ Test-NetConnection 140.136.155.157 -Port 8000
 --------------------------------------------------------------------
 ____________________________________________________________________
 
+IIS部屬
+py -m uvicorn app:app --host 127.0.0.1 --port 8000
 
 新server:
 

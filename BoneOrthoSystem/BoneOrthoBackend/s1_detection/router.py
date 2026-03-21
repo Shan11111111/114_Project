@@ -1,12 +1,14 @@
+# router.py - 定義 S1 椎體檢測相關的 API 路由和處理邏輯
 import traceback
-
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
-from ultralytics import YOLO
-from PIL import Image
 import io
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+
+import pyodbc
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import JSONResponse, FileResponse
+from ultralytics import YOLO
+from PIL import Image
 
 from .bone_service import get_bone_info, assign_spine_levels
 from .image_service import save_case_and_detections
@@ -19,7 +21,15 @@ router = APIRouter(
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "model" / "best.pt"
 
+# BoneOrthoBackend 根目錄
+PROJECT_ROOT = BASE_DIR.parent
+
+# 範例影像 image_id 範圍
+SAMPLE_ID_START = 3421
+SAMPLE_ID_END = 3693
+
 _model = None  # 懶載入用
+
 
 def get_model():
     global _model
@@ -33,82 +43,192 @@ def get_model():
     return _model
 
 
-# @router.post("/predict")
-# async def predict(file: UploadFile = File(...)):
-#     print(">>> /predict HIT")
-#     print(">>> filename =", file.filename)
-#     print(">>> content_type =", file.content_type)
-#     image_bytes = await file.read()
-#     pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-
-#     model = get_model()  # ✅ 這裡才載入模型
-
-#     results = model.predict(
-#         pil_image,
-#         imgsz=1024,
-#         conf=0.3,
-#         iou=0.4,
-#         verbose=False,
-#     )
-
-#     res = results[0]
-#     obb = getattr(res, "obb", None)
-
-#     if obb is None or len(obb) == 0:
-#         return {"count": 0, "boxes": []}
-
-#     polys_flat = obb.xyxyxyxyn.tolist()
-#     confs = obb.conf.tolist()
-#     clses = obb.cls.tolist()
-
-#     boxes: List[Dict[str, Any]] = []
-
-#     names = model.names  # 提前取出
-#     for i in range(len(confs)):
-#         flat_poly = polys_flat[i]
-#         cls_id = int(clses[i])
-
-#         if isinstance(names, dict):
-#             cls_name = names.get(cls_id, f"class_{cls_id}")
-#         else:
-#             cls_name = names[cls_id] if 0 <= cls_id < len(names) else f"class_{cls_id}"
-
-#         if isinstance(flat_poly[0], (list, tuple)):
-#             poly_pairs = [[float(x), float(y)] for x, y in flat_poly]
-#         else:
-#             poly_pairs = [[float(flat_poly[j]), float(flat_poly[j + 1])]
-#                           for j in range(0, len(flat_poly), 2)]
-
-#         bone_info = get_bone_info(cls_name)
-
-#         boxes.append({
-#             "poly": poly_pairs,
-#             "conf": round(float(confs[i]), 3),
-#             "cls_id": cls_id,
-#             "cls_name": cls_name,
-#             "bone_info": bone_info,
-#         })
-
-#     spine_map = assign_spine_levels(boxes)
-#     for idx, sub_label in spine_map.items():
-#         boxes[idx]["sub_label"] = sub_label
-
-#     image_case_id = save_case_and_detections(
-#         image_bytes=image_bytes,
-#         original_filename=file.filename,
-#         content_type=file.content_type,
-#         boxes=boxes,
-#         user_id=None,
-#         source="api_upload",
-#     )
-
-#     return {
-#         "image_case_id": image_case_id,
-#         "count": len(boxes),
-#         "boxes": boxes,
-#     }
+def get_db_conn():
+    return pyodbc.connect(
+        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "SERVER=localhost;"
+        "DATABASE=BoneDB;"
+        "Trusted_Connection=yes;"
+    )
 
 
+def resolve_image_path(db_image_path: str) -> Path:
+    """
+    DB:
+      /data/bone_examples/01_Cervical_Vertebrae_頸椎/0024037.png
+
+    轉成:
+      BoneOrthoBackend/data/bone_examples/01_Cervical_Vertebrae_頸椎/0024037.png
+    """
+    if not db_image_path:
+        raise ValueError("image_path is empty")
+
+    relative_path = db_image_path.replace("\\", "/").lstrip("/")
+    return PROJECT_ROOT / relative_path
+
+
+def get_image_row(image_id: int) -> Optional[Any]:
+    conn = None
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                bi.image_id,
+                bi.bone_id,
+                bi.image_name,
+                bi.image_path,
+                bi.content_type,
+                b.bone_en,
+                b.bone_zh,
+                b.bone_region,
+                b.bone_desc
+            FROM dbo.Bone_Images AS bi
+            LEFT JOIN dbo.Bone_Info AS b
+                ON bi.bone_id = b.bone_id
+            WHERE bi.image_id = ?
+        """, image_id)
+        row = cursor.fetchone()
+        return row
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+@router.get("/sample-images")
+def list_sample_images():
+    conn = None
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                bi.image_id,
+                bi.bone_id,
+                bi.image_name,
+                bi.image_path,
+                bi.content_type,
+                b.bone_en,
+                b.bone_zh,
+                b.bone_region,
+                b.bone_desc
+            FROM dbo.Bone_Images AS bi
+            LEFT JOIN dbo.Bone_Info AS b
+                ON bi.bone_id = b.bone_id
+            WHERE bi.image_id BETWEEN ? AND ?
+            ORDER BY bi.image_id
+        """, SAMPLE_ID_START, SAMPLE_ID_END)
+
+        rows = cursor.fetchall()
+
+        items = []
+        for row in rows:
+            items.append({
+                "id": row.image_id,
+                "bone_id": row.bone_id,
+                "bone_en": row.bone_en,
+                "bone_zh": row.bone_zh,
+                "bone_region": row.bone_region,
+                "bone_desc": row.bone_desc,
+                "name": row.image_name,
+                "filename": row.image_name,
+                "image_path": row.image_path,
+                "content_type": row.content_type,
+                "preview_url": f"/sample-images/{row.image_id}/preview",
+                "download_url": f"/sample-images/{row.image_id}/download",
+            })
+
+        return {
+            "count": len(items),
+            "items": items,
+        }
+
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "list sample images failed",
+                "error": repr(e),
+            },
+        )
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+@router.get("/sample-images/{image_id}/preview")
+def preview_sample_image(image_id: int):
+    try:
+        row = get_image_row(image_id)
+
+        if not row:
+            raise HTTPException(status_code=404, detail="找不到 image_id")
+
+        file_path = resolve_image_path(row.image_path)
+
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"圖片檔不存在: {file_path}"
+            )
+
+        return FileResponse(
+            path=str(file_path),
+            media_type=row.content_type or "application/octet-stream",
+            filename=row.image_name,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "preview sample image failed",
+                "error": repr(e),
+            },
+        )
+
+
+@router.get("/sample-images/{image_id}/download")
+def download_sample_image(image_id: int):
+    try:
+        row = get_image_row(image_id)
+
+        if not row:
+            raise HTTPException(status_code=404, detail="找不到 image_id")
+
+        file_path = resolve_image_path(row.image_path)
+
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"圖片檔不存在: {file_path}"
+            )
+
+        return FileResponse(
+            path=str(file_path),
+            media_type=row.content_type or "application/octet-stream",
+            filename=row.image_name,
+            headers={
+                "Content-Disposition": f'attachment; filename="{row.image_name}"'
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "download sample image failed",
+                "error": repr(e),
+            },
+        )
 
 
 @router.post("/predict")
@@ -158,7 +278,7 @@ async def predict(file: UploadFile = File(...)):
         confs = obb.conf.tolist()
         clses = obb.cls.tolist()
 
-        boxes = []
+        boxes: List[Dict[str, Any]] = []
         names = model.names
 
         for i in range(len(confs)):

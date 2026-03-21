@@ -1,4 +1,3 @@
-// frontend/app/bonevision/page.tsx
 "use client";
 
 import React, {
@@ -11,7 +10,8 @@ import React, {
 import { useRouter } from "next/navigation";
 
 const API_BASE = (
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://140.136.155.157:8000"
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://localhost:8000"
 ).replace(/\/+$/, "");
 
 const PREDICT_URL = `${API_BASE}/predict`;
@@ -42,62 +42,23 @@ type ImgBox = {
   height: number;
 };
 
-type SampleCategory = "全部" | "手部" | "足部" | "脊椎";
+type SampleCategory = string;
 
 type SampleImage = {
   id: number;
+  bone_id: number | null;
+  bone_en?: string | null;
+  bone_zh?: string | null;
+  bone_region?: string | null;
+  bone_desc?: string | null;
   name: string;
-  url: string;
   filename: string;
-  category: Exclude<SampleCategory, "全部">;
+  image_path: string;
+  content_type?: string | null;
+  preview_url: string;
+  download_url: string;
+  category: string;
 };
-
-const SAMPLE_IMAGES: SampleImage[] = [
-  {
-    id: 1,
-    name: "手部 X 光 01",
-    url: "/sample-xrays/xray-hand-1.jpg",
-    filename: "xray-hand-1.jpg",
-    category: "手部",
-  },
-  {
-    id: 2,
-    name: "手部 X 光 02",
-    url: "/sample-xrays/xray-hand-2.jpg",
-    filename: "xray-hand-2.jpg",
-    category: "手部",
-  },
-  {
-    id: 3,
-    name: "足部 X 光 01",
-    url: "/sample-xrays/xray-foot-1.jpg",
-    filename: "xray-foot-1.jpg",
-    category: "足部",
-  },
-  {
-    id: 4,
-    name: "足部 X 光 02",
-    url: "/sample-xrays/xray-foot-2.jpg",
-    filename: "xray-foot-2.jpg",
-    category: "足部",
-  },
-  {
-    id: 5,
-    name: "脊椎 X 光 01",
-    url: "/sample-xrays/xray-spine-1.jpg",
-    filename: "xray-spine-1.jpg",
-    category: "脊椎",
-  },
-  {
-    id: 6,
-    name: "脊椎 X 光 02",
-    url: "/sample-xrays/xray-spine-2.jpg",
-    filename: "xray-spine-2.jpg",
-    category: "脊椎",
-  },
-];
-
-const FILTER_OPTIONS: SampleCategory[] = ["全部", "手部", "足部", "脊椎"];
 
 export default function BoneVisionPage() {
   const router = useRouter();
@@ -116,6 +77,7 @@ export default function BoneVisionPage() {
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [galleryFilter, setGalleryFilter] = useState<SampleCategory>("全部");
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [samples, setSamples] = useState<SampleImage[]>([]);
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
@@ -235,6 +197,41 @@ export default function BoneVisionPage() {
     };
   }, [isGalleryOpen]);
 
+  useEffect(() => {
+    const loadSamples = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/sample-images`);
+        if (!res.ok) {
+          throw new Error(`無法載入範例影像庫：${res.status}`);
+        }
+
+        const data = await res.json();
+
+        const items: SampleImage[] = (data.items || []).map((item: any) => ({
+          id: Number(item.id),
+          bone_id: item.bone_id != null ? Number(item.bone_id) : null,
+          bone_en: item.bone_en ?? null,
+          bone_zh: item.bone_zh ?? null,
+          bone_region: item.bone_region ?? null,
+          bone_desc: item.bone_desc ?? null,
+          name: item.name ?? item.filename ?? `sample_${item.id}`,
+          filename: item.filename ?? `sample_${item.id}`,
+          image_path: item.image_path ?? "",
+          content_type: item.content_type ?? null,
+          preview_url: item.preview_url,
+          download_url: item.download_url,
+          category: item.bone_region?.trim() || "未分類",
+        }));
+
+        setSamples(items);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    loadSamples();
+  }, []);
+
   const parsePredictResponse = (data: any) => {
     setRawResponse(data);
 
@@ -305,17 +302,17 @@ export default function BoneVisionPage() {
       setLoading(true);
       setErrorMsg(null);
 
-      const res = await fetch(sample.url);
+      const res = await fetch(`${API_BASE}${sample.download_url}`);
       if (!res.ok) throw new Error("無法載入範例圖片");
 
       const blob = await res.blob();
       const sampleFile = new File([blob], sample.filename, {
-        type: blob.type || "image/jpeg",
+        type: blob.type || sample.content_type || "image/jpeg",
       });
 
       setFile(sampleFile);
       resetDetectionState();
-      setPreviewUrl(sample.url);
+      setPreviewUrl(`${API_BASE}${sample.preview_url}`);
       setIsGalleryOpen(false);
 
       await detectWithFile(sampleFile);
@@ -329,7 +326,7 @@ export default function BoneVisionPage() {
 
   const handleDownloadSampleImage = async (sample: SampleImage) => {
     try {
-      const res = await fetch(sample.url);
+      const res = await fetch(`${API_BASE}${sample.download_url}`);
       if (!res.ok) throw new Error("下載失敗");
 
       const blob = await res.blob();
@@ -385,10 +382,23 @@ export default function BoneVisionPage() {
   const activeBox =
     activeId !== null ? detections.find((b) => b.id === activeId) ?? null : null;
 
+  const filterOptions: SampleCategory[] = [
+    "全部",
+    ...Array.from(
+      new Set(
+        samples
+          .map((img) => img.bone_region?.trim() || "未分類")
+          .filter((v): v is string => Boolean(v))
+      )
+    ),
+  ];
+
   const filteredSamples =
     galleryFilter === "全部"
-      ? SAMPLE_IMAGES
-      : SAMPLE_IMAGES.filter((img) => img.category === galleryFilter);
+      ? samples
+      : samples.filter(
+          (img) => (img.bone_region?.trim() || "未分類") === galleryFilter
+        );
 
   const modalSurfaceClass = isDarkMode
     ? "border-slate-800 bg-slate-950 text-slate-100"
@@ -421,7 +431,6 @@ export default function BoneVisionPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 flex flex-col lg:flex-row gap-6 px-6 py-6">
-        {/* 左側：上傳 & 控制 */}
         <section className="w-full lg:w-5/20 space-y-4">
           <div className="card border border-slate-800/70 shadow-xl shadow-slate-900/40">
             <h2 className="text-sm font-semibold mb-3">資料與設定</h2>
@@ -493,7 +502,6 @@ export default function BoneVisionPage() {
           </div>
         </section>
 
-        {/* 中間：影像 + OBB */}
         <section className="w-full lg:w-8/20">
           <div className="card border border-slate-800 rounded-2xl h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
@@ -624,7 +632,6 @@ export default function BoneVisionPage() {
           </div>
         </section>
 
-        {/* 右側：骨骼列表 + 說明 */}
         <section className="w-full lg:w-7/20">
           <div className="card border border-slate-800 rounded-2xl h-full flex flex-col">
             <h2 className="text-sm font-semibold mb-3">辨識出的部位</h2>
@@ -782,7 +789,7 @@ export default function BoneVisionPage() {
               <div>
                 <h3 className="text-2xl font-bold tracking-tight">範例影像庫</h3>
                 <p className={`text-sm mt-2 ${modalTextSubClass}`}>
-                  可直接使用範例 X 光進行辨識，或下載到本機
+                  可直接使用該部位影像進行辨識，或下載到本機
                 </p>
               </div>
 
@@ -797,7 +804,7 @@ export default function BoneVisionPage() {
 
             <div className={`px-7 py-4 border-b ${modalBorderClass}`}>
               <div className="flex flex-wrap gap-2">
-                {FILTER_OPTIONS.map((option) => (
+                {filterOptions.map((option) => (
                   <button
                     key={option}
                     type="button"
@@ -832,24 +839,35 @@ export default function BoneVisionPage() {
                         <div
                           className={`absolute top-4 left-4 z-10 rounded-full px-3 py-1 text-[11px] border ${categoryBadgeClass}`}
                         >
-                          {sample.category}
+                          {sample.bone_region || "未分類"}
                         </div>
 
                         <div
                           className={`h-[290px] flex items-center justify-center ${imageFrameClass}`}
                         >
                           <img
-                            src={sample.url}
-                            alt={sample.name}
+                            src={`${API_BASE}${sample.preview_url}`}
+                            alt={sample.bone_zh || sample.name}
                             className="max-h-[245px] max-w-[88%] object-contain"
                           />
                         </div>
                       </div>
 
                       <div className="p-5">
-                        <h4 className="text-xl font-semibold">{sample.name}</h4>
+                        <h4 className="text-xl font-semibold">
+                          {sample.bone_zh || sample.name}
+                        </h4>
+
                         <p className={`mt-2 text-sm ${modalTextSubClass}`}>
-                          預設範例影像，可直接送入模型測試
+                          {sample.bone_en || "未提供英文名稱"}
+                        </p>
+
+                        <p className={`mt-1 text-xs ${modalTextSubClass}`}>
+                          {sample.bone_region || "未分類區域"}
+                        </p>
+
+                        <p className={`mt-2 text-xs line-clamp-3 ${modalTextSubClass}`}>
+                          {sample.bone_desc || "目前無描述"}
                         </p>
 
                         <div className="mt-5 grid grid-cols-2 gap-3">
