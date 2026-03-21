@@ -29,11 +29,21 @@ type UploadedFile = {
   serverUrl?: string; //新增：後端回來的 url（如果你要記）
 };
 
+type ChatResource = {
+  title: string;
+  url?: string;
+  download_url?: string;
+  source_type?: string;
+  page?: string;
+  snippet?: string;
+};
+
 type ChatMessage = {
   id: number;
   role: "user" | "assistant";
   content: string;
   files?: UploadedFile[];
+  resources?: ChatResource[];
 };
 
 type ViewKey = "llm" | "assets";
@@ -162,12 +172,11 @@ function safeJsonParse(raw: string) {
 
 function toAbsUrl(maybeUrl?: string) {
   if (!maybeUrl) return "";
-  if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://"))
+  if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://")) {
     return maybeUrl;
+  }
 
   const path = maybeUrl.startsWith("/") ? maybeUrl : `/${maybeUrl}`;
-  // 常見：後端回傳 /uploads/xxx
-  if (path.startsWith("/uploads/")) return `${API_BASE}/s2x${path}`;
   return `${API_BASE}${path}`;
 }
 
@@ -1456,18 +1465,28 @@ function LLMClient() {
           content: m.content,
           files: Array.isArray(m.files)
             ? m.files.map((f) => ({
-              id: f.id,
-              name: f.name,
-              size: f.size,
-              type: f.type,
-              url:
-                f.serverUrl && f.serverUrl.startsWith("http")
-                  ? f.serverUrl
-                  : f.url && (f.url.startsWith("http") || f.url.startsWith("/"))
-                    ? f.url
-                    : "",
-              serverUrl: f.serverUrl,
-            }))
+                id: f.id,
+                name: f.name,
+                size: f.size,
+                type: f.type,
+                url:
+                  f.serverUrl && f.serverUrl.startsWith("http")
+                    ? f.serverUrl
+                    : f.url && (f.url.startsWith("http") || f.url.startsWith("/"))
+                      ? f.url
+                      : "",
+                serverUrl: f.serverUrl,
+              }))
+            : undefined,
+          resources: Array.isArray((m as any).resources)
+            ? (m as any).resources.map((r: any) => ({
+                title: String(r?.title ?? "未命名來源"),
+                url: r?.url ? String(r.url) : undefined,
+                download_url: r?.download_url ? String(r.download_url) : undefined,
+                source_type: r?.source_type ? String(r.source_type) : undefined,
+                page: r?.page ? String(r.page) : undefined,
+                snippet: r?.snippet ? String(r.snippet) : undefined,
+              }))
             : undefined,
         }));
         setMessages(safeMain);
@@ -2206,21 +2225,25 @@ function LLMClient() {
   }
 
 
-  function appendAssistantMessage(threadId: string, text: string) {
-    const content = String(text ?? "");
-    if (!content.trim()) return;
+  function appendAssistantMessage(
+  threadId: string,
+  text: string,
+  resources?: ChatResource[]
+) {
+  const content = String(text ?? "");
+  if (!content.trim()) return;
 
-    const msg: ChatMessage = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
-      role: "assistant",
-      content,
-    };
+  const msg: ChatMessage = {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    role: "assistant",
+    content,
+    resources,
+  };
 
-    setMessages((prev) => [...prev, msg]);
-    pushHistoryMessage(threadId, "assistant", content);
-    bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
-  }
-
+  setMessages((prev) => [...prev, msg]);
+  pushHistoryMessage(threadId, "assistant", content);
+  bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
+}
 
   async function reallySendMessage(
     e?: FormEvent,
@@ -2268,8 +2291,11 @@ function LLMClient() {
           id: Date.now() + 1,
           role: "assistant",
           content: answerText,
+          resources: [],
         };
         setMessages((prev) => [...prev, botMessage]);
+
+        
         pushHistoryMessage(threadIdAtSend, "assistant", String(answerText));
 
         bumpThreadOnMessage(threadIdAtSend, String(answerText).slice(0, 80), 1);
@@ -2399,10 +2425,22 @@ function LLMClient() {
           `⚠️ chat 回傳格式看不懂：${JSON.stringify(data).slice(0, 200)}`;
       }
 
+        const botResources: ChatResource[] = Array.isArray(data?.resources)
+        ? data.resources.map((r: any) => ({
+            title: String(r?.title ?? "未命名來源"),
+            url: r?.url ? String(r.url) : undefined,
+            download_url: r?.download_url ? String(r.download_url) : undefined,
+            source_type: r?.source_type ? String(r.source_type) : undefined,
+            page: r?.page ? String(r.page) : undefined,
+            snippet: r?.snippet ? String(r.snippet) : undefined,
+          }))
+        : [];
+
       const botMessage: ChatMessage = {
         id: Date.now() + 1,
         role: "assistant",
         content: String(answerText),
+        resources: botResources,
       };
 
       setMessages((prev) => [...prev, botMessage]);
@@ -2423,9 +2461,10 @@ function LLMClient() {
       setMessages((prev) => [
         ...prev,
         {
-          id: Date.now() + 2,
+          id: Date.now() + 1,
           role: "assistant",
           content: msg,
+          resources: [],
         },
       ]);
 
@@ -2599,6 +2638,71 @@ function LLMClient() {
       </div>
     );
   }
+
+
+  function renderResources(resources?: ChatResource[]) {
+  if (!resources || resources.length === 0) return null;
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="text-[11px] font-semibold opacity-70">
+        參考來源 / Resources
+      </div>
+
+      {resources.map((r, idx) => (
+        <div
+          key={`${r.title || "resource"}-${idx}`}
+          className="rounded-xl border px-3 py-2 text-xs"
+          style={{
+            borderColor: "rgba(148,163,184,0.25)",
+            backgroundColor: "rgba(148,163,184,0.06)",
+          }}
+        >
+          <div className="font-medium break-words">
+            {r.title || `來源 ${idx + 1}`}
+          </div>
+
+          {(r.source_type || r.page) && (
+            <div className="mt-1 text-[11px] opacity-60">
+              {[r.source_type, r.page].filter(Boolean).join(" ｜ ")}
+            </div>
+          )}
+
+          {r.snippet && (
+            <div className="mt-2 whitespace-pre-wrap break-words opacity-80">
+              {r.snippet}
+            </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            {r.url && (
+              <a
+                href={toAbsUrl(r.url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-full border text-[11px]"
+                style={{ borderColor: "rgba(148,163,184,0.30)" }}
+              >
+                查看文件
+              </a>
+            )}
+
+            {(r.download_url || r.url) && (
+              <a
+                href={toAbsUrl(r.download_url || r.url)}
+                download
+                className="px-3 py-1.5 rounded-full border text-[11px]"
+                style={{ borderColor: "rgba(148,163,184,0.30)" }}
+              >
+                下載
+              </a>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
   function renderMessageFiles(files?: UploadedFile[]) {
     if (!files || files.length === 0) return null;
@@ -2934,12 +3038,24 @@ function LLMClient() {
             ) || "";
         }
 
+        const bootResources: ChatResource[] = Array.isArray(resp?.resources)
+          ? resp.resources.map((r: any) => ({
+              title: String(r?.title ?? "未命名來源"),
+              url: r?.url ? String(r.url) : undefined,
+              download_url: r?.download_url ? String(r.download_url) : undefined,
+              source_type: r?.source_type ? String(r.source_type) : undefined,
+              page: r?.page ? String(r.page) : undefined,
+              snippet: r?.snippet ? String(r.snippet) : undefined,
+            }))
+          : [];
+
         setMessages((prev) => [
           ...prev,
           {
             id: Date.now() + 1,
             role: "assistant",
             content: String(answerText),
+            resources: bootResources,
           },
         ]);
 
@@ -2962,6 +3078,7 @@ function LLMClient() {
             id: Date.now() + 2,
             role: "assistant",
             content: msg,
+            resources: [],
           },
         ]);
 
@@ -3515,20 +3632,21 @@ function LLMClient() {
                         >
                           <div className="flex flex-col items-stretch max-w-[min(70%,60ch)]">
                             <div
-                              className="whitespace-pre-wrap break-words leading-relaxed px-4 py-3 rounded-2xl"
-                              style={{
-                                backgroundColor: isUser
-                                  ? "var(--chat-user-bg)"
-                                  : "var(--chat-assistant-bg)",
-                                color: isUser
-                                  ? "var(--chat-user-text)"
-                                  : "var(--chat-assistant-text)",
-                                wordBreak: "break-word",
-                              }}
-                            >
-                              {msg.content}
-                            </div>
-                            {renderMessageFiles(msg.files)}
+                            className="whitespace-pre-wrap break-words leading-relaxed px-4 py-3 rounded-2xl"
+                            style={{
+                              backgroundColor: isUser
+                                ? "var(--chat-user-bg)"
+                                : "var(--chat-assistant-bg)",
+                              color: isUser
+                                ? "var(--chat-user-text)"
+                                : "var(--chat-assistant-text)",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {msg.content}
+                            {!isUser && renderResources(msg.resources)}
+                          </div>
+                          {renderMessageFiles(msg.files)}
                           </div>
                         </div>
                       </div>

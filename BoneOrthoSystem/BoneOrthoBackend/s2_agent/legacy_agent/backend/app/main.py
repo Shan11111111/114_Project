@@ -1,3 +1,4 @@
+# 這個 main.py 是 S2 Legacy Agent 的核心後端服務，提供聊天、檔案上傳、對話管理等 API。
 from __future__ import annotations
 
 import json
@@ -12,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .models import ChatRequest, ChatResponse, ChatMessage, Action
+from .models import ChatRequest, ChatResponse, ChatMessage, Action, ChatResource
 from .state.sessions import get_session, append_messages
 
 from .tools.pubmed_tool import answer_with_pubmed
@@ -77,6 +78,12 @@ PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
 USER_UPLOAD_DIR = PUBLIC_DIR / "user_upload_file"
 USER_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+MATERIALS_DIR = BACKEND_ROOT / "s2_agent" / "vectordb" / "materials"
+MATERIALS_DIR.mkdir(parents=True, exist_ok=True)
+
+print("📌 PUBLIC_DIR =", PUBLIC_DIR)
+print("📌 USER_UPLOAD_DIR =", USER_UPLOAD_DIR)
+print("📌 MATERIALS_DIR =", MATERIALS_DIR)
 
 # DB functions
 from db import (  # noqa: E402
@@ -103,6 +110,7 @@ app.add_middleware(
 )
 
 app.mount("/uploads", StaticFiles(directory=str(USER_UPLOAD_DIR)), name="uploads")
+app.mount("/materials", StaticFiles(directory=str(MATERIALS_DIR)), name="materials")
 app.include_router(export_router)
 
 
@@ -126,26 +134,153 @@ def _title_seed(text: str, max_len: int = 80) -> str:
     return (s[:max_len] if s else "新對話")
 
 
+
+
 def _format_sources_for_text(sources: list[dict] | None) -> str:
     if not sources:
         return ""
+
     lines = []
     for i, s in enumerate(sources, 1):
-        title = s.get("title") or s.get("file") or s.get("name") or f"source-{i}"
+        if not isinstance(s, dict):
+            continue
+
+        title = (
+            s.get("title")
+            or s.get("file")
+            or s.get("name")
+            or s.get("filename")
+            or f"source-{i}"
+        )
+
         page = s.get("page")
         chunk = s.get("chunk") or s.get("chunk_index") or s.get("chunk_id")
-        score = s.get("score") or s.get("similarity")
+        score = s.get("score")
+
         meta = []
         if page is not None:
             meta.append(f"p.{page}")
-        if chunk is not None:
-            meta.append(f"chunk:{chunk}")
-        if isinstance(score, (int, float)):
-            meta.append(f"score:{score:.3f}")
-        tail = (" · " + " · ".join(meta)) if meta else ""
-        lines.append(f"[#{i}] {title}{tail}")
+        elif chunk is not None:
+            meta.append(f"chunk {chunk}")
+
+        if score is not None:
+            try:
+                meta.append(f"score={float(score):.3f}")
+            except Exception:
+                pass
+
+        if meta:
+            lines.append(f"[#{i}] {title} ({', '.join(meta)})")
+        else:
+            lines.append(f"[#{i}] {title}")
+
+    if not lines:
+        return ""
+
     return "\n\n---\n【Sources】\n" + "\n".join(lines)
 
+
+
+def _build_resources(sources: list[dict] | None) -> list[ChatResource]:
+    if not sources:
+        return []
+
+    resources: list[ChatResource] = []
+
+    allowed_exts = [".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".md", ".csv", ".xlsx", ".xls"]
+
+    for i, s in enumerate(sources, 1):
+        if not isinstance(s, dict):
+            continue
+
+        title = (
+            s.get("title")
+            or s.get("file")
+            or s.get("name")
+            or s.get("filename")
+            or s.get("source")
+            or f"source-{i}"
+        )
+        file_stem = (
+            s.get("file")
+            or s.get("filename")
+            or s.get("title")
+            or s.get("source")
+            or ""
+        )
+
+        title_str = str(title).strip()
+        file_stem_str = str(file_stem).strip()
+
+        url = (
+            s.get("url")
+            or s.get("download_url")
+            or s.get("file_url")
+            or s.get("serverUrl")
+            or s.get("path")
+        )
+
+        # 如果 source 沒直接給 url，就去 materials 資料夾找實際檔案
+        if not url and file_stem_str:
+            candidates = []
+
+            # 先試原字串
+            candidates.append(file_stem_str)
+
+            # 再試補副檔名
+            lower_name = file_stem_str.lower()
+            if not any(lower_name.endswith(ext) for ext in allowed_exts):
+                for ext in allowed_exts:
+                    candidates.append(file_stem_str + ext)
+
+            found_name = None
+            for cand in candidates:
+                p = MATERIALS_DIR / cand
+                if p.exists():
+                    found_name = cand
+                    break
+
+            if found_name:
+                url = f"/s2x/materials/{found_name}"
+
+        download_url = s.get("download_url") or url
+
+        page = None
+        if s.get("page") is not None:
+            page = f"p.{s.get('page')}"
+        else:
+            chunk = s.get("chunk") or s.get("chunk_index") or s.get("chunk_id")
+            if chunk is not None:
+                page = f"chunk {chunk}"
+
+        snippet = (
+            s.get("snippet")
+            or s.get("text")
+            or s.get("content")
+            or s.get("summary")
+            or s.get("quote")
+        )
+
+        source_type = (
+            s.get("source_type")
+            or s.get("type")
+            or s.get("collection")
+            or s.get("kind")
+            or "reference"
+        )
+
+        resources.append(
+            ChatResource(
+                title=title_str,
+                url=str(url) if url else None,
+                download_url=str(download_url) if download_url else None,
+                source_type=str(source_type) if source_type else None,
+                page=page,
+                snippet=str(snippet)[:300] if snippet else None,
+            )
+        )
+
+    return resources
 
 def _collect_urls(text: str) -> list[str]:
     if not text:
@@ -218,7 +353,7 @@ async def upload_file(file: UploadFile = File(...)):
     with open(fpath, "wb") as f:
         f.write(data)
 
-    public_url = f"/public/user_upload_file/{fname}"
+    public_url = f"/uploads/{fname}"
     legacy_url = f"/uploads/{fname}"
 
     result = {
@@ -310,13 +445,15 @@ def agent_chat(req: ChatRequest):
             source="s2x",
         )
 
+        
         return ChatResponse(
             messages=session["messages"],
             actions=[],
             session_id=session_id,
             conversation_id=conversation_id,
             answer=tip,
-        )
+            resources=[],
+            )
 
     # text
     if last.type == "text" and last.role == "user":
@@ -381,12 +518,15 @@ def agent_chat(req: ChatRequest):
 
             set_conversation_title_if_empty(conversation_id, _title_seed(clean_q, 80))
 
+            resources = _build_resources(sources)
+
             return ChatResponse(
                 messages=session["messages"],
                 actions=actions,
                 session_id=session_id,
                 conversation_id=conversation_id,
                 answer=ans_text_out,
+                resources=resources,
             )
         
            
@@ -437,12 +577,15 @@ def agent_chat(req: ChatRequest):
 
             set_conversation_title_if_empty(conversation_id, _title_seed(clean_q, 80))
 
+            resources = _build_resources(sources)
+
             return ChatResponse(
                 messages=session["messages"],
                 actions=actions,
                 session_id=session_id,
                 conversation_id=conversation_id,
                 answer=ans_text_out,
+                resources=resources,
             )
 
 
@@ -480,6 +623,10 @@ def agent_chat(req: ChatRequest):
         #  3) 用 doc_rag（命中才會引用 doc/網址 chunk）
         ans_text, sources = answer_with_doc_rag(clean_q_for_answer, session)
         ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
+        resources = _build_resources(sources)
+
+        print("DEBUG sources =", sources)
+        print("DEBUG resources =", [r.model_dump() for r in resources])
 
         reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
         session["messages"].append(reply)
@@ -495,6 +642,8 @@ def agent_chat(req: ChatRequest):
         )
 
         set_conversation_title_if_empty(conversation_id, _title_seed(clean_q, 80))
+        
+        resources = _build_resources(sources)
 
         return ChatResponse(
             messages=session["messages"],
@@ -502,13 +651,19 @@ def agent_chat(req: ChatRequest):
             session_id=session_id,
             conversation_id=conversation_id,
             answer=ans_text_out,
+            resources=resources,
         )
+    
+    
 
     return ChatResponse(
         messages=session["messages"],
         actions=actions,
         session_id=session_id,
         conversation_id=conversation_id,
+        answer=None,
+        resources=[],
+
     )
 
 

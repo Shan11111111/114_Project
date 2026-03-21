@@ -42,6 +42,8 @@ pip install -U "python-jose[cryptography]"
 # 啟動後端服務(現在不用這個，要用連外網的指令開)
 py -m uvicorn app:app --reload --port 8000
 
+用這個!!
+py -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 # 停止後端服務時，按 Ctrl + C 即可
 # 停止後，若要離開虛擬環境，輸入 deactivate 即可

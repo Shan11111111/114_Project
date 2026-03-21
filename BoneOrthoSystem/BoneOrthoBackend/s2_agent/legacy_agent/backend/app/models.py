@@ -1,9 +1,9 @@
 # 這裡定義了 ChatMessage、Action、ChatRequest、ChatResponse 四個 Pydantic 模型，用於定義聊天訊息、動作指令、聊天請求和聊天回應的結構。
-#models.py
+# models.py
 from __future__ import annotations
 
 from typing import Literal, Optional, List, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatMessage(BaseModel):
@@ -12,6 +12,15 @@ class ChatMessage(BaseModel):
     content: Optional[str] = None
     url: Optional[str] = None
     filetype: Optional[str] = None
+
+
+class ChatResource(BaseModel):
+    title: str
+    url: Optional[str] = None
+    download_url: Optional[str] = None
+    source_type: Optional[str] = None
+    page: Optional[str] = None
+    snippet: Optional[str] = None
 
 
 class Action(BaseModel):
@@ -31,16 +40,23 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     messages: list[ChatMessage]
 
-    # 新增：前端模式切換
-    rag_mode: Literal["file_then_vector", "vector_only", "file_only", "pubmed_only","soap_only"] = "file_then_vector"
+    # 前端模式切換
+    rag_mode: Literal[
+        "file_then_vector",
+        "vector_only",
+        "file_only",
+        "pubmed_only",
+        "soap_only",
+    ] = "file_then_vector"
 
-    # 新增：PubMed 一次最多抓幾篇
+    # PubMed 一次最多抓幾篇
     pubmed_max_results: int = 5
 
 
 class ChatResponse(BaseModel):
     messages: list[ChatMessage]
-    actions: list[Action] = []
+    actions: list[Action] = Field(default_factory=list)
     session_id: str | None = None
     conversation_id: str | None = None
     answer: str | None = None
+    resources: list[ChatResource] = Field(default_factory=list)
