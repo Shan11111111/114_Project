@@ -36,9 +36,21 @@ def _clean_text(text: str) -> str:
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
-
 def _normalize_row(row: Dict[str, Any]) -> Dict[str, str]:
-    return {str(k): _clean_text(str(v or "")) for k, v in row.items()}
+    normalized = {str(k): _clean_text(str(v or "")) for k, v in row.items()}
+    
+    # 去識別化 - 保留藥物，隱藏個資
+    normalized[SOAP_ID_COL] = '[REDACTED]'  # RRN隱藏
+    for col in [SOAP_SUBJECTIVE_COL, SOAP_OBJECTIVE_COL, SOAP_ASSESSMENT_COL, SOAP_PLAN_COL]:
+        if col in normalized:
+            content = normalized[col]
+            # 移除病歷號
+            content = re.sub(r'[A-Z]{3}\d+', '[ID]', content)
+            # 匿名化診斷
+            content = re.sub(r'骨折|骨鬆症|骨質疏鬆|胸壁溫熱痛', '異常', content)
+            normalized[col] = content
+    
+    return normalized
 
 
 def _load_soap_rows() -> List[Dict[str, str]]:
@@ -129,17 +141,18 @@ def _build_soap_context(rows: List[Dict[str, str]]) -> str:
         blocks.append(
             "\n".join(
                 [
-                    f"[SOAP {i}]",
-                    f"Record ID: {row.get(SOAP_ID_COL, '')}",
-                    f"Visit Date: {row.get(SOAP_DATE_COL, '')}",
+                    f"[SOAP {i}] （已去識別化）",
+                    f"Record ID: [REDACTED]",  # ← 固定隱藏
+                    f"Visit Date: {row.get(SOAP_DATE_COL, '[DATE]')[:10] if row.get(SOAP_DATE_COL) else '[DATE]'}",  # 只留年月日
                     f"Subjective: {row.get(SOAP_SUBJECTIVE_COL, '')}",
                     f"Objective: {row.get(SOAP_OBJECTIVE_COL, '')}",
                     f"Assessment: {row.get(SOAP_ASSESSMENT_COL, '')}",
-                    f"Plan: {row.get(SOAP_PLAN_COL, '')}",
+                    f"Plan (藥物保留): {row.get(SOAP_PLAN_COL, '')}",
                 ]
             )
         )
     return "\n\n".join(blocks)
+
 
 
 def answer_with_soap_csv(
