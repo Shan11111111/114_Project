@@ -139,6 +139,10 @@ const API_BASE = (
 ).replace(/\/+$/, "");
 
 const S2X_BASE = `${API_BASE}/s2x`;
+//  新增：檢查是否有設定後端 URL，沒有的話可以直接提示（不影響 UI）
+const HAS_BACKEND =
+  !!process.env.NEXT_PUBLIC_BACKEND_URL ||
+  !!process.env.NEXT_PUBLIC_API_BASE;
 
 //  C 裡的 bootstrap（S1 -> S2）
 const BOOT_URL = `${API_BASE}/s2/agent/bootstrap-from-s1`;
@@ -161,10 +165,11 @@ const API = {
   //  兼容：有些後端可能做在 /agent/conversations/{id}
   updateConvTitleFallback: (cid: string) => `${S2X_BASE}/agent/conversations/${cid}`,
 };
+// 
 
-function safeJsonParse(raw: string) {
+function safeJsonParse<T = any>(raw: string): T | null {
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as T;
   } catch {
     return null;
   }
@@ -446,6 +451,15 @@ function buildAuthHeaders(extra?: Record<string, string>) {
   };
 }
 
+function makeUuid() {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 // ==============================
 //  Detection Viewer（最小侵入：只加一張卡片，不動你現有聊天 UI）
@@ -1349,6 +1363,9 @@ function LLMClient() {
   //  History overlay
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
+  //  正在預覽的 thread（點 history 後會先載入 thread list，點 thread 後才載入訊息內容到 preview）
+  const [historyPreviewThreadId, setHistoryPreviewThreadId] = useState<string>("");
+
   //  搜尋字詞持久化（不觸發 rerender）
   const historyPersistedQueryRef = useRef<string>("");
 
@@ -1376,6 +1393,7 @@ function LLMClient() {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const loadedThreadFromUrlRef = useRef<string>("");
 
   const baseHeightRef = useRef<number | null>(null);
   const [isMultiLine, setIsMultiLine] = useState(false);
@@ -1440,18 +1458,17 @@ function LLMClient() {
     pendingFilesRef.current = pendingFiles;
   }, [pendingFiles]);
 
-
   //  離開前警告
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (!hasUnsavedDraft()) return;
+      if (!hasUnsavedDraft() && !loading) return;
       e.preventDefault();
       e.returnValue = "";
     };
 
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [draftText, pendingFiles]);
+  }, [draftText, pendingFiles, loading]);
 
   //  判斷目前 thread 是否仍是「空白新對話」（尚未有 user 訊息）
   function isBlankNewThread(threadId: string) {
@@ -1536,6 +1553,19 @@ function LLMClient() {
     didHydrateRef.current = true;
     setHydrated(true);
   }, []);
+
+  //   新增：當開啟 history overlay 時，如果沒有正在預覽的 thread，就先載入 activeThreadId（如果有的話）
+  useEffect(() => {
+    if (!isHistoryOpen) return;
+
+    // 已經有 preview 就不要覆蓋
+    if (historyPreviewThreadId) return;
+
+    if (activeThreadId) {
+      setHistoryPreviewThreadId(activeThreadId);
+    }
+  }, [isHistoryOpen, historyPreviewThreadId, activeThreadId]);
+
   useEffect(() => {
     if (!didHydrateRef.current) return;
     if (!uidReadyRef.current) return;
@@ -1564,24 +1594,21 @@ function LLMClient() {
     messages,
   ]);
 
-  //   新增：reset seed + 清除 URL 的 caseId（不動 UI）
-  function resetSeedAndCaseIdInUrl() {
-    bootOnceRef.current = "";
-    setSeedImageUrl("");
-    setSeedDetections([]);
 
+  function nowText() {
+    return new Date().toLocaleString();
+  }
+
+  //   新增：如果 URL 上有 caseId 但沒有 thread 了，就清掉 URL 上的 caseId（避免一直 boot 同一個不存在的 case）
+  function clearCaseIdInUrlOnly() {
     const hasCase =
       !!searchParams.get("caseId") ||
       !!searchParams.get("caseld") ||
       !!searchParams.get("caseid");
 
     if (hasCase) {
-      router.replace("/llm"); // 只改 URL，不改 UI
+      router.replace("/llm");
     }
-  }
-
-  function nowText() {
-    return new Date().toLocaleString();
   }
 
   //   新增：push 到 historyMessages（讓 overlay / reload 都有內容）
@@ -1811,6 +1838,38 @@ function LLMClient() {
       inputRef.current.scrollTop = 0;
     }
   }
+  //   新增：當預覽的 thread 變更時，如果是會員且不是 t- 開頭的假 thread，就嘗試載入訊息（避免點開就空空如也）
+  useEffect(() => {
+    if (!isHistoryOpen) return;
+    if (!historyPreviewThreadId) return;
+    if (userMode !== "member") return;
+    if (historyPreviewThreadId.startsWith("t-")) return;
+
+    const alreadyLoaded = historyMessages.some(
+      (m) => m.threadId === historyPreviewThreadId
+    );
+    if (alreadyLoaded) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const msgs = await fetchConversationMessages(historyPreviewThreadId);
+        if (cancelled) return;
+
+        setHistoryMessages((prev) => {
+          const others = prev.filter((m) => m.threadId !== historyPreviewThreadId);
+          return [...others, ...msgs];
+        });
+      } catch (err) {
+        console.error("載入 history preview messages 失敗：", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isHistoryOpen, historyPreviewThreadId, userMode]);
 
   async function loadThreadToMain(threadId: string) {
     if (hasUnsavedDraft()) {
@@ -1818,7 +1877,7 @@ function LLMClient() {
       if (!ok) return;
     }
 
-    resetSeedAndCaseIdInUrl();
+    clearCaseIdInUrlOnly();
 
     const t = historyThreads.find((x) => x.id === threadId);
     if (t?.sessionId) setSessionId(t.sessionId);
@@ -1866,6 +1925,7 @@ function LLMClient() {
     }
 
     setIsHistoryOpen(false);
+    setHistoryPreviewThreadId("");
     setTimeout(() => inputRef.current?.focus(), 60);
   }
 
@@ -2008,8 +2068,7 @@ function LLMClient() {
 
     const uid = (uidRef.current || userId || "guest").trim() || "guest";
     const localThreadId = `t-${Date.now()}`;
-    const localSessionId = `${uid}::${crypto?.randomUUID?.() ?? `tmp-${Date.now()}`
-      }`;
+    const localSessionId = `${uid}::${makeUuid()}`;
 
     // 關鍵：先寫 ref
     activeThreadIdRef.current = localThreadId;
@@ -2038,8 +2097,6 @@ function LLMClient() {
     if (curId && isBlankNewThread(curId)) {
       activeThreadIdRef.current = curId;
       setActiveThreadId(curId);
-
-      resetSeedAndCaseIdInUrl();
       setActiveView("llm");
       setIsHistoryOpen(false);
       setIsMobileNavOpen(false);
@@ -2067,12 +2124,9 @@ function LLMClient() {
     creatingThreadRef.current = true;
 
     try {
-      resetSeedAndCaseIdInUrl();
-
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
       const localThreadId = `t-${Date.now()}`;
-      const localSessionId = `${uid}::${crypto?.randomUUID?.() ?? `tmp-${Date.now()}`}`;
-
+      const localSessionId = `${uid}::${makeUuid()}`;
       activeThreadIdRef.current = localThreadId;
 
       setActiveView("llm");
@@ -2121,6 +2175,8 @@ function LLMClient() {
         const convs = await apiFetchConversations(userId);
         if (cancelled) return;
 
+        let mergedThreads: HistoryThread[] = [];
+
         setHistoryThreads((prev) => {
           const map = new Map<string, HistoryThread>();
 
@@ -2129,20 +2185,18 @@ function LLMClient() {
             map.set(t.id, { ...map.get(t.id), ...t });
           }
 
-          return Array.from(map.values()).sort((a, b) =>
+          mergedThreads = Array.from(map.values()).sort((a, b) =>
             String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
           );
+
+          return mergedThreads;
         });
 
-        const mergedIds = new Set([
-          ...historyThreads.map((t) => t.id),
-          ...convs.map((t) => t.id),
-        ]);
-
         const activeId = activeThreadIdRef.current;
-        const activeExists = !!activeId && mergedIds.has(activeId);
+        const activeExists =
+          !!activeId && convs.some((t) => String(t.id) === String(activeId));
 
-        if (!activeExists && !activeId && convs.length > 0) {
+        if (!activeId && convs.length > 0) {
           const firstId = convs[0].id;
           activeThreadIdRef.current = firstId;
           setActiveThreadId(firstId);
@@ -2156,7 +2210,7 @@ function LLMClient() {
               return [...others, ...msgs];
             });
 
-            const t = convs.find((x: { id: any }) => x.id === firstId);
+            const t = convs.find((x) => x.id === firstId);
             if (t?.sessionId) setSessionId(t.sessionId);
 
             setMessages(
@@ -2191,16 +2245,24 @@ function LLMClient() {
   const bootNewThreadOnceRef = useRef(false);
   useEffect(() => {
     if (!hydrated) return;
-    if (!cacheLoadedRef.current) return; //   新增：快取還沒讀完，不要 auto-newThread
+    if (!cacheLoadedRef.current) return;
     if (bootNewThreadOnceRef.current) return;
+
+    const hasThread = !!searchParams.get("thread");
+    const hasCase =
+      !!searchParams.get("caseId") ||
+      !!searchParams.get("caseld") ||
+      !!searchParams.get("caseid");
+
+    if (hasThread || hasCase) return;
+
     bootNewThreadOnceRef.current = true;
 
     if (!activeThreadId) {
       newThread();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, activeThreadId]);
-
+  }, [hydrated, activeThreadId, searchParams]);
   function autoResizeTextarea() {
     const el = inputRef.current;
     if (!el) return;
@@ -2289,6 +2351,36 @@ function LLMClient() {
     });
   }
 
+  //   上傳完成後，更新 message 中的檔案 URL（從 local blob 換成 server URL）
+  function updateMessageFilesToServerUrl(
+    messageId: number,
+    uploadedMap: Record<string, string>
+  ) {
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id !== messageId || !msg.files?.length) return msg;
+
+        return {
+          ...msg,
+          files: msg.files.map((f) => {
+            const nextUrl = uploadedMap[f.id];
+            if (!nextUrl) return f;
+
+            if (f.url?.startsWith("blob:")) {
+              URL.revokeObjectURL(f.url);
+            }
+
+            return {
+              ...f,
+              serverUrl: nextUrl,
+              url: nextUrl,
+            };
+          }),
+        };
+      })
+    );
+  }
+  //   新增：上傳完成後，立刻丟一則 assistant 訊息（你要的效果）
   function appendAssistantMessage(
     threadId: string,
     text: string,
@@ -2327,8 +2419,10 @@ function LLMClient() {
       raw: undefined,
     }));
 
+    const userMessageId = Date.now();
+
     const userMessage: ChatMessage = {
-      id: Date.now(),
+      id: userMessageId,
       role: "user",
       content: text || "（已上傳檔案）",
       files: filesSnapshot.length ? filesSnapshot : undefined,
@@ -2344,14 +2438,11 @@ function LLMClient() {
 
     resetMainInputBox();
 
-    setPendingFiles((prev) => {
-      cleanupPendingFiles(prev);
-      return [];
-    });
+    setPendingFiles([]);
 
     setLoading(true);
     try {
-      if (!API_BASE) {
+      if (!HAS_BACKEND) {
         const answerText = fakeLLMReply(firstUserText);
 
         const botMessage: ChatMessage = {
@@ -2372,7 +2463,6 @@ function LLMClient() {
         setLoading(false);
         return;
       }
-
       const isPubmedOnly = ragMode === "pubmed_only";
       const isSoapOnly = ragMode === "soap_only";
 
@@ -2382,6 +2472,8 @@ function LLMClient() {
       let summaryForUI = ""; //  新增：給聊天室看的摘要
 
       if (wantFile) {
+        const uploadedMap: Record<string, string> = {};
+
         for (const f of filesToUpload) {
           if (!f.raw) continue;
 
@@ -2394,8 +2486,12 @@ function LLMClient() {
 
           const urlRel = String(up?.legacy_url ?? up?.url ?? up?.path ?? "");
           const abs = toAbsUrl(urlRel);
-          f.serverUrl = abs || urlRel;
+          const finalUrl = abs || urlRel;
 
+          f.serverUrl = finalUrl;
+          if (finalUrl) {
+            uploadedMap[f.id] = finalUrl;
+          }
           //  1) 聊天室立即顯示摘要
           if (summary.trim()) {
             summaryForUI += `\n\n【${fn}】摘要\n${summary.trim()}`;
@@ -2424,6 +2520,10 @@ function LLMClient() {
             threadIdAtSend,
             ` 已解析上傳檔案：${filesToUpload.length} 份\n${summaryForUI.trim()}`
           );
+        }
+        //  4) 上傳完成後，更新 message 中的檔案 URL（從 local blob 換成 server URL）
+        if (Object.keys(uploadedMap).length > 0) {
+          updateMessageFilesToServerUrl(userMessageId, uploadedMap);
         }
       }
 
@@ -2607,11 +2707,10 @@ function LLMClient() {
         alert("目前沒有可匯出的內容");
         return;
       }
-      if (!API_BASE) {
+      if (!HAS_BACKEND) {
         alert("尚未設定 NEXT_PUBLIC_BACKEND_URL，無法匯出");
         return;
       }
-
       const payload = {
         session_id: (sessionId || "").trim(),
         user_id: (uidRef.current || userId || "guest").trim(),
@@ -2786,11 +2885,10 @@ function LLMClient() {
               {isImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={file.url}
+                  src={toAbsUrl(file.serverUrl || file.url)}
                   alt={file.name}
                   className="w-8 h-8 object-cover rounded-lg"
-                />
-              ) : (
+                />) : (
                 <div className="w-8 h-8 flex items-center justify-center rounded-lg border">
                   <i className="fa-regular fa-file text-[11px]" />
                 </div>
@@ -2928,6 +3026,7 @@ function LLMClient() {
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
 
       if (userMode === "guest" || isGuestUid(uid)) {
+        setHistoryPreviewThreadId(activeThreadIdRef.current || historyThreads[0]?.id || "");
         setIsHistoryOpen(true);
         return;
       }
@@ -2942,6 +3041,9 @@ function LLMClient() {
           String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
         );
       });
+      setHistoryPreviewThreadId(
+        activeThreadIdRef.current || threads[0]?.id || historyThreads[0]?.id || ""
+      );
 
       setIsHistoryOpen(true);
     } catch (e: any) {
@@ -2972,12 +3074,23 @@ function LLMClient() {
   //   這段邏輯只在「網址有 caseId 參數」時觸發，且會把 caseId 當成唯一 seed（不管其他參數），適合從 S1 的「用 AI 解讀影像檢測結果」按鈕點進來的情境
   useEffect(() => {
     const threadId = searchParams.get("thread");
-    if (!threadId) return;
+
+    if (!threadId) {
+      loadedThreadFromUrlRef.current = "";
+      return;
+    }
+
+    if (loadedThreadFromUrlRef.current === threadId) return;
+    loadedThreadFromUrlRef.current = threadId;
 
     loadThreadToMain(threadId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   useEffect(() => {
+    const threadId = searchParams.get("thread");
+    if (threadId) return;
+
     const caseIdStr =
       searchParams.get("caseId") ??
       searchParams.get("caseld") ??
@@ -2986,8 +3099,6 @@ function LLMClient() {
 
     if (!caseIdStr) {
       bootOnceRef.current = "";
-      setSeedImageUrl("");
-      setSeedDetections([]);
       return;
     }
 
@@ -3001,12 +3112,45 @@ function LLMClient() {
       localStorage.setItem("gab_last_case_id", String(caseIdStr));
     }
 
-    const ensureThreadIdForBoot = () => {
-      return ensureActiveThreadIdForSend();
-    };
+    const uid = (uidRef.current || userId || "guest").trim() || "guest";
+    const localThreadId = `t-${Date.now()}`;
+    const localSessionId = `${uid}::${makeUuid()}`;
 
-    const threadIdAtBoot = ensureThreadIdForBoot();
+    activeThreadIdRef.current = localThreadId;
+    setActiveThreadId(localThreadId);
+    setSessionId(localSessionId);
 
+    ensureThreadExists(localThreadId, {
+      title: "新對話",
+      updatedAt: nowText(),
+      preview: "",
+      messageCount: 0,
+      sessionId: localSessionId,
+    });
+
+    const threadIdAtBoot = localThreadId;
+
+    setSeedImageUrl("");
+    setSeedDetections([]);
+    setActiveView("llm");
+    setMessages([
+      {
+        id: Date.now(),
+        role: "assistant",
+        content: WELCOME_TEXT,
+      },
+    ]);
+
+    setPendingFiles((prev) => {
+      cleanupPendingFiles(prev);
+      return [];
+    });
+
+    resetMainInputBox();
+
+    setIsHistoryOpen(false);
+
+    setHistoryPreviewThreadId("");
     (async () => {
       try {
         const r = await fetch(BOOT_URL, {
@@ -3164,7 +3308,7 @@ function LLMClient() {
         ]);
 
         pushHistoryMessage(threadIdAtBoot, "assistant", msg);
-        
+
         bumpThreadOnMessage(threadIdAtBoot, msg, 1);
       }
     })();
@@ -3184,11 +3328,14 @@ function LLMClient() {
     >
       <HistoryOverlay
         isOpen={isHistoryOpen}
-        onClose={() => setIsHistoryOpen(false)}
+        onClose={() => {
+          setIsHistoryOpen(false);
+          setHistoryPreviewThreadId("");
+        }}
         historyThreads={historyThreads}
         historyMessages={historyMessages}
-        activeThreadId={activeThreadId}
-        onSelectThread={(id) => loadThreadToMain(id)}
+        activeThreadId={historyPreviewThreadId || activeThreadId}
+        onSelectThread={(id) => setHistoryPreviewThreadId(id)}
         onLoadThreadToMain={(id) => loadThreadToMain(id)}
         onNewThread={() => newThread()}
         onRenameThread={renameThread}
@@ -3415,10 +3562,8 @@ function LLMClient() {
                     <SideRow
                       iconClass="fa-regular fa-message"
                       label="新對話"
-                      active={activeView === "llm"}
                       onClick={() => newThread()}
-                    />
-                  </div>
+                    />                  </div>
                   <SideRow
                     iconClass="fa-solid fa-folder-tree"
                     label="資源管理"
@@ -3467,7 +3612,6 @@ function LLMClient() {
                 <SideIconButton
                   iconClass="fa-regular fa-message"
                   label="新對話"
-                  active={activeView === "llm"}
                   onClick={() => newThread()}
                 />
 
@@ -3569,14 +3713,12 @@ function LLMClient() {
                   <SideRow
                     iconClass="fa-regular fa-message"
                     label="新對話"
-                    active={activeView === "llm"}
                     onClick={() => {
                       newThread();
                       setIsMobileNavOpen(false);
                     }}
                   />
                 </div>
-
                 <div className="px-2">
                   <div className="flex items-center gap-2 px-3 py-2 rounded-xl opacity-90">
                     <i className="fa-solid fa-diagram-project text-[14px] opacity-80" />
