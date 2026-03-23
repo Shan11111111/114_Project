@@ -1,14 +1,15 @@
 # image_service.py
 import os
 import uuid
+import json
 from typing import List, Dict, Any, Optional
 
 from db import get_connection
 
+
 # ==========================================
 #  跨主機通用：自動尋找 BoneOrthoSystem 根目錄
 # ==========================================
-
 def find_project_root(target_folder="BoneOrthoSystem") -> str:
     """
     從當前檔案一路往上找，直到找到名叫 target_folder 的資料夾。
@@ -19,10 +20,8 @@ def find_project_root(target_folder="BoneOrthoSystem") -> str:
     while True:
         parent = os.path.dirname(current_path)
         if parent == current_path:
-            # 已到達磁碟根目錄仍找不到
             raise RuntimeError(f"❌ 無法找到 {target_folder} 根目錄")
 
-        # 找目錄名是否吻合
         if os.path.basename(parent) == target_folder:
             return parent
 
@@ -35,7 +34,7 @@ PROJECT_ROOT = find_project_root()
 # 最終存圖片的資料夾
 DEFAULT_IMAGE_DIR = os.path.join(PROJECT_ROOT, "public", "bone_images")
 
-# 確保資料夾存在（跨主機保證可運作）
+# 確保資料夾存在
 os.makedirs(DEFAULT_IMAGE_DIR, exist_ok=True)
 
 print("📌 IMAGE_SAVE_DIR =", DEFAULT_IMAGE_DIR)
@@ -49,7 +48,6 @@ def save_file_to_disk(
     original_filename: str,
     save_dir: str = DEFAULT_IMAGE_DIR,
 ) -> str:
-
     os.makedirs(save_dir, exist_ok=True)
 
     ext = os.path.splitext(original_filename)[1] or ".png"
@@ -73,23 +71,22 @@ def insert_bone_image(
     content_type: Optional[str] = None,
     bone_id: Optional[int] = None,
 ) -> int:
-
     conn = get_connection()
     try:
         cur = conn.cursor()
         cur.execute(
             """
-        INSERT INTO dbo.Bone_Images (
-            bone_id,
-            image_name,
-            image_path,
-            content_type,
-            image_data,
-            created_at
-        )
-        OUTPUT INSERTED.image_id
-        VALUES (?, ?, ?, ?, NULL, GETDATE())
-        """,
+            INSERT INTO dbo.Bone_Images (
+                bone_id,
+                image_name,
+                image_path,
+                content_type,
+                image_data,
+                created_at
+            )
+            OUTPUT INSERTED.image_id
+            VALUES (?, ?, ?, ?, NULL, GETDATE())
+            """,
             (bone_id, image_name, image_path, content_type),
         )
         new_id = cur.fetchone()[0]
@@ -107,21 +104,20 @@ def insert_image_case(
     user_id: Optional[int] = None,
     source: str = "api_upload",
 ) -> int:
-
     conn = get_connection()
     try:
         cur = conn.cursor()
         cur.execute(
             """
-        INSERT INTO vision.ImageCase (
-            UserId,
-            BoneImageId,
-            Source,
-            CreatedAt
-        )
-        OUTPUT INSERTED.ImageCaseId
-        VALUES (?, ?, ?, GETDATE())
-        """,
+            INSERT INTO vision.ImageCase (
+                UserId,
+                BoneImageId,
+                Source,
+                CreatedAt
+            )
+            OUTPUT INSERTED.ImageCaseId
+            VALUES (?, ?, ?, GETDATE())
+            """,
             (user_id, bone_image_id, source),
         )
         new_id = cur.fetchone()[0]
@@ -133,12 +129,13 @@ def insert_image_case(
 
 # ========================================================
 # (4) 寫入 vision.ImageDetection
+#     ✅ 新增 CreatedByUserId
 # ========================================================
-import json
-from typing import Any, Dict, List
-from db import get_connection
-
-def insert_image_detections(image_case_id: int, boxes: List[Dict[str, Any]]) -> None:
+def insert_image_detections(
+    image_case_id: int,
+    boxes: List[Dict[str, Any]],
+    user_id: Optional[int] = None,   # ✅ 新增這個參數
+) -> None:
     conn = get_connection()
     try:
         cur = conn.cursor()
@@ -161,11 +158,11 @@ def insert_image_detections(image_case_id: int, boxes: List[Dict[str, Any]]) -> 
             cls_id = box.get("cls_id")
             label41 = int(cls_id) if cls_id is not None else 0
 
-            # ✅ poly 存 DB（保持 0~1 normalized）
+            # poly 存 DB（保持 0~1 normalized）
             poly_json = json.dumps(poly4, ensure_ascii=False) if poly4 else None
             poly_is_norm = 1
 
-            # ✅ P1~P4
+            # P1~P4
             if poly4:
                 (p1x, p1y), (p2x, p2y), (p3x, p3y), (p4x, p4y) = poly4
                 cx = (p1x + p2x + p3x + p4x) / 4.0
@@ -189,29 +186,31 @@ def insert_image_detections(image_case_id: int, boxes: List[Dict[str, Any]]) -> 
                     Confidence,
                     X1, Y1, X2, Y2,
                     PolyJson,
-                    PolyIsNormalized,
                     P1X, P1Y, P2X, P2Y, P3X, P3Y, P4X, P4Y,
+                    PolyIsNormalized,
                     Cx, Cy,
-                    CreatedAt
+                    CreatedAt,
+                    CreatedByUserId
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?)
                 """,
                 (
                     image_case_id,
                     bone_id,
-                    None,
+                    None,   # SmallBoneId
                     label41,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
+                    None,   # Attr206
+                    None,   # Side
+                    None,   # Finger
+                    None,   # Phalanx
+                    None,   # SerialNumber
                     confidence,
                     x1, y1, x2, y2,
                     poly_json,
-                    poly_is_norm,
                     p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y,
+                    poly_is_norm,
                     cx, cy,
+                    user_id,   # ✅ 寫進 CreatedByUserId
                 ),
             )
 
@@ -219,8 +218,10 @@ def insert_image_detections(image_case_id: int, boxes: List[Dict[str, Any]]) -> 
     finally:
         conn.close()
 
+
 # ========================================================
 # (5) 一次完成存圖＋三張表
+#     ✅ 把 user_id 一路傳進 detection
 # ========================================================
 def save_case_and_detections(
     image_bytes: bytes,
@@ -230,7 +231,6 @@ def save_case_and_detections(
     user_id: Optional[int] = None,
     source: str = "api_upload",
 ) -> int:
-
     # 儲存到 public/bone_images
     image_path = save_file_to_disk(image_bytes, original_filename)
 
@@ -246,6 +246,11 @@ def save_case_and_detections(
         source=source,
     )
 
-    insert_image_detections(image_case_id, boxes)
+    # ✅ 這裡把 user_id 傳進去
+    insert_image_detections(
+        image_case_id=image_case_id,
+        boxes=boxes,
+        user_id=user_id,
+    )
 
     return image_case_id

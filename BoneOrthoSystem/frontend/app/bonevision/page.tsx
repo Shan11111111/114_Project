@@ -8,6 +8,7 @@ import React, {
   MouseEvent,
 } from "react";
 import { useRouter } from "next/navigation";
+import { getUser } from "../lib/auth";
 
 const API_BASE = (
   process.env.NEXT_PUBLIC_BACKEND_URL ||
@@ -60,6 +61,14 @@ type SampleImage = {
   category: string;
 };
 
+type AuthUser = {
+  id?: number | string | null;
+  user_id?: number | string | null;
+  username?: string | null;
+  email?: string | null;
+  roles?: string | null;
+} | null;
+
 export default function BoneVisionPage() {
   const router = useRouter();
 
@@ -78,6 +87,8 @@ export default function BoneVisionPage() {
   const [galleryFilter, setGalleryFilter] = useState<SampleCategory>("全部");
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [samples, setSamples] = useState<SampleImage[]>([]);
+
+  const [currentUser, setCurrentUser] = useState<AuthUser>(null);
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
@@ -198,9 +209,33 @@ export default function BoneVisionPage() {
   }, [isGalleryOpen]);
 
   useEffect(() => {
+    const syncUser = () => {
+      try {
+        const user = getUser() as AuthUser;
+        setCurrentUser(user);
+        console.log(">>> getUser() =", user);
+      } catch (err) {
+        console.error("讀取登入者失敗", err);
+        setCurrentUser(null);
+      }
+    };
+
+    syncUser();
+
+    const onAuthChanged = () => syncUser();
+    window.addEventListener("auth-changed", onAuthChanged);
+
+    return () => {
+      window.removeEventListener("auth-changed", onAuthChanged);
+    };
+  }, []);
+
+  useEffect(() => {
     const loadSamples = async () => {
       try {
-        const res = await fetch(`${API_BASE}/sample-images`);
+        const res = await fetch(`${API_BASE}/sample-images`, {
+          credentials: "include",
+        });
         if (!res.ok) {
           throw new Error(`無法載入範例影像庫：${res.status}`);
         }
@@ -247,10 +282,9 @@ export default function BoneVisionPage() {
         id: idx,
         cls_name: b.cls_name ?? `class_${b.cls_id ?? idx}`,
         conf: typeof b.conf === "number" ? b.conf : 0,
-        poly: (b.poly as number[][]).map((p) => [
-          Number(p[0]),
-          Number(p[1]),
-        ]),
+        poly: Array.isArray(b.poly)
+          ? (b.poly as number[][]).map((p) => [Number(p[0]), Number(p[1])])
+          : [],
         bone_info: b.bone_info ?? null,
         sub_label: b.sub_label ?? null,
       })
@@ -267,13 +301,25 @@ export default function BoneVisionPage() {
     }
   };
 
+  const getCurrentUserId = (): string | null => {
+    const uid = currentUser?.id ?? currentUser?.user_id ?? null;
+    return uid != null && String(uid).trim() !== "" ? String(uid) : null;
+  };
+
   const detectWithFile = async (targetFile: File) => {
     const fd = new FormData();
     fd.append("file", targetFile);
 
+    // 有登入才傳 user_id，沒登入就不傳
+    const currentUserId = getCurrentUserId();
+    if (currentUserId) {
+      fd.append("user_id", currentUserId);
+    }
+
     const res = await fetch(PREDICT_URL, {
       method: "POST",
       body: fd,
+      credentials: "include",
     });
 
     if (!res.ok) {
@@ -302,7 +348,9 @@ export default function BoneVisionPage() {
       setLoading(true);
       setErrorMsg(null);
 
-      const res = await fetch(`${API_BASE}${sample.download_url}`);
+      const res = await fetch(`${API_BASE}${sample.download_url}`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("無法載入範例圖片");
 
       const blob = await res.blob();
@@ -326,7 +374,9 @@ export default function BoneVisionPage() {
 
   const handleDownloadSampleImage = async (sample: SampleImage) => {
     try {
-      const res = await fetch(`${API_BASE}${sample.download_url}`);
+      const res = await fetch(`${API_BASE}${sample.download_url}`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("下載失敗");
 
       const blob = await res.blob();
@@ -351,6 +401,7 @@ export default function BoneVisionPage() {
       alert("請先選擇 X 光圖片");
       return;
     }
+
     setLoading(true);
     setErrorMsg(null);
 
@@ -436,6 +487,8 @@ export default function BoneVisionPage() {
             <h2 className="text-sm font-semibold mb-3">資料與設定</h2>
 
             <div className="space-y-2">
+              
+
               <span className="text-xs text-slate-400">上傳 X 光影像</span>
 
               <label className="block">

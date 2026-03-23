@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 import pyodbc
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse, FileResponse
 from ultralytics import YOLO
 from PIL import Image
@@ -232,11 +232,15 @@ def download_sample_image(image_id: int):
 
 
 @router.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(
+    file: UploadFile = File(...),
+    user_id: Optional[int] = Form(None),
+):
     try:
         print(">>> /predict HIT")
         print(">>> filename =", file.filename)
         print(">>> content_type =", file.content_type)
+        print(">>> user_id =", user_id)
 
         image_bytes = await file.read()
         print(">>> bytes =", len(image_bytes))
@@ -265,7 +269,7 @@ async def predict(file: UploadFile = File(...)):
                 original_filename=file.filename,
                 content_type=file.content_type,
                 boxes=[],
-                user_id=None,
+                user_id=user_id,
                 source="api_upload",
             )
             return {
@@ -317,7 +321,7 @@ async def predict(file: UploadFile = File(...)):
             original_filename=file.filename,
             content_type=file.content_type,
             boxes=boxes,
-            user_id=None,
+            user_id=user_id,
             source="api_upload",
         )
 
