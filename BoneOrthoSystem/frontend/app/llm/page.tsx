@@ -1867,7 +1867,9 @@ function LLMClient() {
 
     setIsHistoryOpen(false);
     setTimeout(() => inputRef.current?.focus(), 60);
-  } function ensureThreadExists(
+  }
+
+  function ensureThreadExists(
     threadId: string,
     patch?: Partial<HistoryThread>
   ) {
@@ -2026,84 +2028,87 @@ function LLMClient() {
     return localThreadId;
   }
   async function newThread() {
-  if (hasUnsavedDraft()) {
-    const ok = confirm("你有尚未送出的內容，確定要開新對話嗎？");
-    if (!ok) return;
-  }
+    if (hasUnsavedDraft()) {
+      const ok = confirm("你有尚未送出的內容，確定要開新對話嗎？");
+      if (!ok) return;
+    }
 
-  const curId = activeThreadIdRef.current;
+    const curId = activeThreadIdRef.current;
 
-  if (curId && isBlankNewThread(curId)) {
-    resetSeedAndCaseIdInUrl();
-    setActiveView("llm");
-    setIsHistoryOpen(false);
-    setIsMobileNavOpen(false);
+    if (curId && isBlankNewThread(curId)) {
+      activeThreadIdRef.current = curId;
+      setActiveThreadId(curId);
 
-    setMessages([
-      {
-        id: Date.now(),
-        role: "assistant",
-        content: WELCOME_TEXT,
-      },
-    ]);
+      resetSeedAndCaseIdInUrl();
+      setActiveView("llm");
+      setIsHistoryOpen(false);
+      setIsMobileNavOpen(false);
 
-    resetMainInputBox();
+      setMessages([
+        {
+          id: Date.now(),
+          role: "assistant",
+          content: WELCOME_TEXT,
+        },
+      ]);
 
-    setPendingFiles((prev) => {
-      cleanupPendingFiles(prev);
-      return [];
-    });
+      resetMainInputBox();
 
-    setTimeout(() => inputRef.current?.focus(), 60);
-    return;
-  }
+      setPendingFiles((prev) => {
+        cleanupPendingFiles(prev);
+        return [];
+      });
 
-  if (creatingThreadRef.current) return;
-  creatingThreadRef.current = true;
+      setTimeout(() => inputRef.current?.focus(), 60);
+      return;
+    }
 
-  try {
-    resetSeedAndCaseIdInUrl();
+    if (creatingThreadRef.current) return;
+    creatingThreadRef.current = true;
 
-    const uid = (uidRef.current || userId || "guest").trim() || "guest";
-    const localThreadId = `t-${Date.now()}`;
-    const localSessionId = `${uid}::${crypto?.randomUUID?.() ?? `tmp-${Date.now()}`}`;
+    try {
+      resetSeedAndCaseIdInUrl();
 
-    activeThreadIdRef.current = localThreadId;
+      const uid = (uidRef.current || userId || "guest").trim() || "guest";
+      const localThreadId = `t-${Date.now()}`;
+      const localSessionId = `${uid}::${crypto?.randomUUID?.() ?? `tmp-${Date.now()}`}`;
 
-    setActiveView("llm");
-    setActiveThreadId(localThreadId);
-    setSessionId(localSessionId);
+      activeThreadIdRef.current = localThreadId;
 
-    ensureThreadExists(localThreadId, {
-      title: "新對話",
-      updatedAt: nowText(),
-      preview: "",
-      messageCount: 0,
-      sessionId: localSessionId,
-    });
+      setActiveView("llm");
+      setActiveThreadId(localThreadId);
+      setSessionId(localSessionId);
 
-    setMessages([
-      {
-        id: Date.now(),
-        role: "assistant",
-        content: WELCOME_TEXT,
-      },
-    ]);
+      ensureThreadExists(localThreadId, {
+        title: "新對話",
+        updatedAt: nowText(),
+        preview: "",
+        messageCount: 0,
+        sessionId: localSessionId,
+      });
 
-    resetMainInputBox();
+      setMessages([
+        {
+          id: Date.now(),
+          role: "assistant",
+          content: WELCOME_TEXT,
+        },
+      ]);
 
-    setPendingFiles((prev) => {
-      cleanupPendingFiles(prev);
-      return [];
-    });
+      resetMainInputBox();
 
-    setIsHistoryOpen(false);
-    setIsMobileNavOpen(false);
-    setTimeout(() => inputRef.current?.focus(), 60);
-  } finally {
-    creatingThreadRef.current = false;
-  }
-}  //自動抓取會員清單
+      setPendingFiles((prev) => {
+        cleanupPendingFiles(prev);
+        return [];
+      });
+
+      setIsHistoryOpen(false);
+      setIsMobileNavOpen(false);
+      setTimeout(() => inputRef.current?.focus(), 60);
+    } finally {
+      creatingThreadRef.current = false;
+    }
+  }  //自動抓取會員清單
   useEffect(() => {
     if (!hydrated) return;
     if (userMode !== "member") return;
@@ -2317,7 +2322,10 @@ function LLMClient() {
     const threadIdAtSend = ensureActiveThreadIdForSend();
     const firstUserText = text || "（已上傳檔案）";
 
-    const filesSnapshot = pendingFiles.map((f) => ({ ...f }));
+    const filesSnapshot = pendingFiles.map((f) => ({
+      ...f,
+      raw: undefined,
+    }));
 
     const userMessage: ChatMessage = {
       id: Date.now(),
@@ -2336,25 +2344,30 @@ function LLMClient() {
 
     resetMainInputBox();
 
-    setPendingFiles([]);
+    setPendingFiles((prev) => {
+      cleanupPendingFiles(prev);
+      return [];
+    });
 
     setLoading(true);
-
     try {
       if (!API_BASE) {
         const answerText = fakeLLMReply(firstUserText);
+
         const botMessage: ChatMessage = {
           id: Date.now() + 1,
           role: "assistant",
-          content: answerText,
+          content: String(answerText),
           resources: [],
         };
+
         setMessages((prev) => [...prev, botMessage]);
-
-
         pushHistoryMessage(threadIdAtSend, "assistant", String(answerText));
-
-        bumpThreadOnMessage(threadIdAtSend, String(answerText).slice(0, 80), 1);
+        bumpThreadOnMessage(
+          threadIdAtSend,
+          String(answerText).slice(0, 80),
+          1
+        );
 
         setLoading(false);
         return;
@@ -2498,15 +2511,17 @@ function LLMClient() {
         resources: botResources,
       };
 
+      const finalThreadId = cid || threadIdAtSend;
+
       setMessages((prev) => [...prev, botMessage]);
       pushHistoryMessage(
-        activeThreadIdRef.current || threadIdAtSend,
+        finalThreadId,
         "assistant",
         String(answerText)
       );
 
       bumpThreadOnMessage(
-        activeThreadIdRef.current || threadIdAtSend,
+        finalThreadId,
         String(answerText).slice(0, 80),
         1
       );
@@ -2523,13 +2538,8 @@ function LLMClient() {
         },
       ]);
 
-      pushHistoryMessage(
-        activeThreadIdRef.current || threadIdAtSend,
-        "assistant",
-        msg
-      );
-
-      bumpThreadOnMessage(activeThreadIdRef.current || threadIdAtSend, msg, 1);
+      pushHistoryMessage(threadIdAtSend, "assistant", msg);
+      bumpThreadOnMessage(threadIdAtSend, msg, 1);
     } finally {
       setLoading(false);
     }
@@ -3128,14 +3138,16 @@ function LLMClient() {
           },
         ]);
 
+        const finalThreadId = cid || threadIdAtBoot;
+
         pushHistoryMessage(
-          activeThreadIdRef.current || threadIdAtBoot,
+          finalThreadId,
           "assistant",
           String(answerText)
         );
 
         bumpThreadOnMessage(
-          activeThreadIdRef.current || threadIdAtBoot,
+          finalThreadId,
           String(answerText).slice(0, 80),
           1
         );
@@ -3151,13 +3163,9 @@ function LLMClient() {
           },
         ]);
 
-        pushHistoryMessage(
-          activeThreadIdRef.current || threadIdAtBoot,
-          "assistant",
-          msg
-        );
-
-        bumpThreadOnMessage(activeThreadIdRef.current || threadIdAtBoot, msg, 1);
+        pushHistoryMessage(threadIdAtBoot, "assistant", msg);
+        
+        bumpThreadOnMessage(threadIdAtBoot, msg, 1);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3180,25 +3188,8 @@ function LLMClient() {
         historyThreads={historyThreads}
         historyMessages={historyMessages}
         activeThreadId={activeThreadId}
-        onSelectThread={async (id) => {
-          setActiveThreadId(id);
-
-          if (id.startsWith("t-") || userMode !== "member") {
-            return;
-          }
-
-          try {
-            const msgs = await fetchConversationMessages(id);
-
-            setHistoryMessages((prev) => {
-              const withoutThis = prev.filter((m) => m.threadId !== id);
-              return [...withoutThis, ...msgs];
-            });
-          } catch (e: any) {
-            console.error(e);
-            alert(e?.message || "讀取對話內容失敗");
-          }
-        }} onLoadThreadToMain={(id) => loadThreadToMain(id)}
+        onSelectThread={(id) => loadThreadToMain(id)}
+        onLoadThreadToMain={(id) => loadThreadToMain(id)}
         onNewThread={() => newThread()}
         onRenameThread={renameThread}
         onDeleteThread={deleteThread}
