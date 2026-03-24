@@ -12,7 +12,7 @@ import { getUser } from "../lib/auth";
 
 const API_BASE = (
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://localhost:8000"
+  "http://140.136.155.157:8000"
 ).replace(/\/+$/, "");
 
 const PREDICT_URL = `${API_BASE}/predict`;
@@ -231,41 +231,40 @@ export default function BoneVisionPage() {
   }, []);
 
   useEffect(() => {
-    const loadSamples = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/sample-images`, {
-          credentials: "include",
-        });
-        if (!res.ok) {
-          throw new Error(`無法載入範例影像庫：${res.status}`);
-        }
-
-        const data = await res.json();
-
-        const items: SampleImage[] = (data.items || []).map((item: any) => ({
-          id: Number(item.id),
-          bone_id: item.bone_id != null ? Number(item.bone_id) : null,
-          bone_en: item.bone_en ?? null,
-          bone_zh: item.bone_zh ?? null,
-          bone_region: item.bone_region ?? null,
-          bone_desc: item.bone_desc ?? null,
-          name: item.name ?? item.filename ?? `sample_${item.id}`,
-          filename: item.filename ?? `sample_${item.id}`,
-          image_path: item.image_path ?? "",
-          content_type: item.content_type ?? null,
-          preview_url: item.preview_url,
-          download_url: item.download_url,
-          category: item.bone_region?.trim() || "未分類",
-        }));
-
-        setSamples(items);
-      } catch (err) {
-        console.error(err);
+  const loadSamples = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/sample-images`);
+      if (!res.ok) {
+        throw new Error(`無法載入範例影像庫：${res.status}`);
       }
-    };
 
-    loadSamples();
-  }, []);
+      const data = await res.json();
+
+      const items: SampleImage[] = (data.items || []).map((item: any) => ({
+        id: Number(item.id),
+        bone_id: item.bone_id != null ? Number(item.bone_id) : null,
+        bone_en: item.bone_en ?? null,
+        bone_zh: item.bone_zh ?? null,
+        bone_region: item.bone_region ?? null,
+        bone_desc: item.bone_desc ?? null,
+        name: item.name ?? item.filename ?? `sample_${item.id}`,
+        filename: item.filename ?? `sample_${item.id}`,
+        image_path: item.image_path ?? "",
+        content_type: item.content_type ?? null,
+        preview_url: item.preview_url,
+        download_url: item.download_url,
+        category: item.bone_region?.trim() || "未分類",
+      }));
+
+      setSamples(items);
+    } catch (err) {
+      console.error("loadSamples failed:", err);
+      setErrorMsg("範例影像庫載入失敗");
+    }
+  };
+
+  loadSamples();
+}, []);
 
   const parsePredictResponse = (data: any) => {
     setRawResponse(data);
