@@ -3483,15 +3483,15 @@ function LLMClient() {
                             }}
                           >
                             {ragMode === "file_then_vector" &&
-                              "先用上傳檔案 → 不足再查向量庫"}
+                              "查詢上傳檔案與衛教智慧庫"}
                             {ragMode === "vector_only" &&
-                              "只查衛教向量庫（衛教教材庫）"}
+                              "查詢衛教智慧庫"}
                             {ragMode === "file_only" &&
-                              "只用上傳檔案（不查衛教向量庫）"}
+                              "查詢上傳檔案"}
                             {ragMode === "pubmed_only" &&
-                              "只查 PubMed(不查資料庫)"}
+                              "查詢 PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
                             {ragMode === "soap_only" &&
-                              "只查目前療法 (醫院 SOAP 紀錄)"}
+                              "查詢已授權的輔大醫院之去識別化soap記錄"}
 
 
                           </span>
@@ -3516,23 +3516,23 @@ function LLMClient() {
                             {[
                               {
                                 value: "file_then_vector",
-                                label: "先用上傳檔案 → 不足再查向量庫",
+                                label: "查詢上傳檔案與衛教智慧庫",
                               },
                               {
                                 value: "vector_only",
-                                label: "只查向量庫（你做好的教材庫）",
+                                label: "查詢衛教智慧庫",
                               },
                               {
                                 value: "file_only",
-                                label: "只用上傳檔案（不查向量庫）",
+                                label: "查詢上傳檔案",
                               },
                               {
                                 value: "pubmed_only",
-                                label: "只查 PubMed(不查資料庫)",
+                                label: "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎",
                               },
                               {
                                 value: "soap_only",
-                                label: "只查目前療法（醫院 SOAP 記錄）",
+                                label: "查詢已授權的輔大醫院之去識別化soap記錄",
                               },
                             ].map((opt) => {
                               const active = ragMode === opt.value;
