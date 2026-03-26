@@ -33,10 +33,9 @@ from shared.router import router as shared_router
 from s2_agent.s0_bridge import router as s0_bridge_router
 from s2_agent.s1_handoff import router as s1_handoff_router
 from s2_agent.ensure_title import router as ensure_title_router
-
+from auth.admin_router import router as auth_admin_router
 from s2_agent.legacy_agent.backend.app.main import app as s2_legacy_app
 from s4_mr_bridge.router import router as mr_router
-app.include_router(mr_router)
 
 
 from auth.router import router as auth_router
@@ -171,7 +170,8 @@ app.include_router(s0_bridge_router, prefix="/s2")
 app.include_router(s1_handoff_router)
 app.include_router(ensure_title_router)
 
-
+app.include_router(mr_router)
+app.include_router(auth_admin_router)
 app.include_router(auth_router)
 
 

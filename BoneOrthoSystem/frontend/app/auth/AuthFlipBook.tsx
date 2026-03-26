@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { apiJSON, setTokens, setUser } from "../lib/auth";
 
 type Step = "login" | "register" | "verify";
-type Role = "student" | "teacher" | "doctor" | "assistant" | "user";
+type Role = "student" | "teacher" | "doctor" | "assistant" | "manager" ;
 
 
 const API_BASE = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");

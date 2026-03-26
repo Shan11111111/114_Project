@@ -290,7 +290,7 @@ function RoleCards({
     desc: string;
     badge?: string;
   }> = [
-    { r: "manager", title: "manager", desc: "管理者" },
+    // { r: "manager", title: "manager", desc: "管理者" },
     { r: "student", title: "student", desc: "學生/學習用途" },
     {
       r: "teacher",

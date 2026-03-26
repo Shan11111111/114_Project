@@ -17,6 +17,7 @@ import React, {
 
 import S2PrivacyConsent from "./S2PrivacyConsent";
 import S2SensitiveInfoModal from "./S2SensitiveInfoModal";
+import { getUser } from "../lib/auth";
 import { detectSensitiveInfo, maskSensitiveInfo, type SensitiveHit } from "./piiGuard";
 
 type UploadedFile = {
@@ -118,11 +119,11 @@ const MAX_HEIGHT = 120;
 const WELCOME_TEXT = `嗨，我是 GalaBone LLM 知識小助手。
 
 我們的目標是成為骨科醫護的好幫手，幫你快速理解醫療報告、病歷記錄，甚至是 X 光影像裡的骨頭狀況。
-依據：本次未提供可追溯來源的資訊，僅供參考。
+依據：中華民國衛生福利部刊登資料庫、PubMed 文獻、以及我們團隊整理的骨科專業資料庫。
 
 使用說明：
 1. 你可以直接輸入醫療報告裡的文字，或是病歷記錄的內容，我會盡力幫你解釋。
-2. 可選擇不同的模式（例如：純文件 RAG、純向量 RAG、PubMed 文獻檢索等），讓我從不同的資料來源找答案。
+2. 如果你有 X 光影像的分析結果（例如骨折位置、骨頭名稱），也可以輸入給我，我會試著幫你理解那些專業術語。
 3. 請注意，GalaBone 的回覆是基於訓練資料和模型推論，可能不完全正確或適用於你的情況。任何醫療決策都應該諮詢專業醫護人員。
 4. 請勿輸入任何敏感個資或真實姓名，保護你的隱私安全。
 5. 如果你有任何建議或回饋，歡迎告訴我們，讓 GalaBone 變得更好！
@@ -3482,15 +3483,15 @@ function LLMClient() {
                             }}
                           >
                             {ragMode === "file_then_vector" &&
-                              "先用上傳檔案 → 不足再查向量庫"}
+                              "查詢上傳檔案與衛教知識庫"}
                             {ragMode === "vector_only" &&
-                              "只查衛教向量庫（衛教教材庫）"}
+                              "查詢衛教知識庫"}
                             {ragMode === "file_only" &&
-                              "只用上傳檔案（不查衛教向量庫）"}
+                              "查詢上傳檔案"}
                             {ragMode === "pubmed_only" &&
-                              "只查 PubMed(不查資料庫)"}
+                              "查詢 PubMed 美國國家醫學圖書館 (NLM) 開發的免費生醫文獻搜尋引擎"}
                             {ragMode === "soap_only" &&
-                              "只查目前療法 (醫院 SOAP 紀錄)"}
+                              "查詢輔大醫院SOAP去識別化紀錄數據)"}
 
 
                           </span>
