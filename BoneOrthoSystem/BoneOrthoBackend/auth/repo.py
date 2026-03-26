@@ -18,7 +18,7 @@ from .security import (
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
 
-ALLOWED_ROLES = {"user", "student", "teacher", "doctor", "assistant"}
+ALLOWED_ROLES = {"student", "teacher", "doctor", "assistant", "manager"}
 VERIFY_CODE_EXPIRE_MINUTES = int(os.getenv("AUTH_VERIFY_EXPIRE_MINUTES", "10"))
 
 
@@ -27,7 +27,7 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     return query_one(
         """
         SELECT TOP 1
-            id,              -- ✅ int PK
+            id,
             user_id, username, email, roles, states, password_hash, email_verified_at
         FROM dbo.[users]
         WHERE email = ?
@@ -41,7 +41,7 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     return query_one(
         """
         SELECT TOP 1
-            id,              -- ✅ int PK
+            id,
             user_id, username, email, roles, states, email_verified_at
         FROM dbo.[users]
         WHERE user_id = ?
@@ -64,9 +64,9 @@ def get_user_by_int_id(user_int_id: int) -> Optional[Dict[str, Any]]:
     )
 
 
-# ✅ 4) create_user：回傳也帶 id（插入後再查一次）
-def create_user(username: str, email: str, password: str, role: str = "user") -> Dict[str, Any]:
-    role = (role or "user").strip().lower()
+# ✅ 4) create_user：不要 user，預設改成 student
+def create_user(username: str, email: str, password: str, role: str = "student") -> Dict[str, Any]:
+    role = (role or "student").strip().lower()
     if role not in ALLOWED_ROLES:
         raise ValueError(f"role 不允許：{role}（僅允許 {sorted(ALLOWED_ROLES)}）")
 
@@ -81,7 +81,7 @@ def create_user(username: str, email: str, password: str, role: str = "user") ->
         [user_id, username, email, role, pw_hash],
     )
 
-    row = get_user_by_id(user_id)  # 已包含 id
+    row = get_user_by_id(user_id)
     return {
         "id": row["id"] if row else None,
         "user_id": user_id,

@@ -20,22 +20,22 @@ DB_PATH_PREFIX = "/data/bone_examples"
 
 
 FOLDER_TO_BONE_ID = {
-    "01_Cervical_Vertebrae_頸椎": 1,
-    "02_Thoracic_Vertebrae_胸椎": 2,
-    "03_Lumbar_Vertebrae_腰椎": 3,
-    "04_Clavicles_鎖骨": 4,
-    "05_Scapulae_肩胛骨": 5,
-    "06_Humeri_肱骨": 6,
-    "07_Ulnae_尺骨": 7,
-    "08_Radii_橈骨": 8,
-    "09_Carpals_腕骨": 9,
-    "10_Metacarpals_掌骨": 10,
-    "11_Phalanges_Hand_手部指骨": 11,
-    "12_Ribs_肋骨": 12,
-    "13_Sternum_胸骨": 13,
-    "14_Femora_股骨": 14,
-    "15_Tibiae_脛骨": 15,
-    "16_Fibulae_腓骨": 16,
+    "01_Cervical_Vertebrae_頸椎": 19,
+    "02_Thoracic_Vertebrae_胸椎": 20,
+    "03_Lumbar_Vertebrae_腰椎": 21,
+    "04_Clavicles_鎖骨": 26,
+    "05_Scapulae_肩胛骨": 27,
+    "06_Humeri_肱骨": 28,
+    "07_Ulnae_尺骨": 30,
+    "08_Radii_橈骨": 29,
+    "09_Carpals_腕骨": 31,
+    "10_Metacarpals_掌骨": 32,
+    "11_Phalanges_Hand_手部指骨": 33,
+    "12_Ribs_肋骨": 25,
+    "13_Sternum_胸骨": 24,
+    "14_Femora_股骨": 35,
+    "15_Tibiae_脛骨": 37,
+    "16_Fibulae_腓骨": 38,
 }
 
 

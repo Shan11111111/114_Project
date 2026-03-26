@@ -1,21 +1,25 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { getUser } from "../lib/auth";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
 
+function inferTypeFromFileName(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  if (["pdf", "txt", "doc", "docx", "ppt", "pptx", "md"].includes(ext)) {
+    return ext;
+  }
+  return "file";
+}
+
 export default function MaterialsUploader() {
   const [file, setFile] = useState<File | null>(null);
 
-  const [title, setTitle] = useState("測試教材");
-  const [type, setType] = useState("pdf");
-  const [language, setLanguage] = useState("zh-TW");
-  const [style, setStyle] = useState("edu");
-  const [userId, setUserId] = useState("teacher01");
-  const [boneId, setBoneId] = useState<string>("");
-  const [boneSmallId, setBoneSmallId] = useState<string>("");
-  const [conversationId, setConversationId] = useState<string>("");
+  const [userId, setUserId] = useState("");
+  const [isCheckingLogin, setIsCheckingLogin] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -23,19 +27,47 @@ export default function MaterialsUploader() {
 
   const uploadUrl = useMemo(() => `${API_BASE}/s2/materials/upload`, []);
 
+  useEffect(() => {
+    const syncAuth = () => {
+      const user = getUser();
+
+      console.log("=== MaterialsUploader syncAuth vUPLOADER-20260326-02 ===");
+      console.log("user =", user);
+      console.log("user_id =", user?.user_id);
+      console.log("id =", user?.id);
+
+      const uid = user?.user_id ?? (user?.id != null ? String(user.id) : "");
+
+      if (uid) {
+        setUserId(String(uid));
+        setIsLoggedIn(true);
+      } else {
+        setUserId("");
+        setIsLoggedIn(false);
+      }
+
+      setIsCheckingLogin(false);
+    };
+
+    syncAuth();
+    window.addEventListener("auth-changed", syncAuth);
+    return () => window.removeEventListener("auth-changed", syncAuth);
+  }, []);
+
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setFile(f);
     setErrorMsg(null);
     setRaw(null);
-
-    // 預設 title 用檔名（你也可以自己改）
-    const base = f.name.replace(/\.[^/.]+$/, "");
-    setTitle(base);
   };
 
   const onUpload = async () => {
+    if (!isLoggedIn || !userId) {
+      setErrorMsg("請先登入，未登入不可上傳教材");
+      return;
+    }
+
     if (!file) {
       setErrorMsg("請先選擇檔案");
       return;
@@ -46,6 +78,11 @@ export default function MaterialsUploader() {
     setRaw(null);
 
     try {
+      const title = file.name.replace(/\.[^/.]+$/, "");
+      const type = inferTypeFromFileName(file.name);
+      const language = "zh-TW";
+      const style = "edu";
+
       const fd = new FormData();
       fd.append("file", file);
       fd.append("title", title);
@@ -53,19 +90,14 @@ export default function MaterialsUploader() {
       fd.append("language", language);
       fd.append("style", style);
       fd.append("user_id", userId);
-
-      // ✅ 不要送空字串給後端（讓後端拿到 None）
-      if (boneId.trim()) fd.append("bone_id", boneId.trim());
-      if (boneSmallId.trim()) fd.append("bone_small_id", boneSmallId.trim());
-      if (conversationId.trim())
-        fd.append("conversation_id", conversationId.trim());
-
-      // 先塞空的 structure_json 就好
       fd.append("structure_json", "{}");
 
-      const res = await fetch(uploadUrl, { method: "POST", body: fd });
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
 
-      // 如果你又打到 3000，這裡會回 HTML（直接抓出來讓你看清楚）
       const contentType = res.headers.get("content-type") || "";
       const text = await res.text();
 
@@ -78,6 +110,12 @@ export default function MaterialsUploader() {
         : text;
 
       setRaw(data);
+      setFile(null);
+
+      const input = document.getElementById(
+        "materials-upload-input"
+      ) as HTMLInputElement | null;
+      if (input) input.value = "";
     } catch (e: any) {
       setErrorMsg(e?.message ?? "上傳失敗");
     } finally {
@@ -85,109 +123,47 @@ export default function MaterialsUploader() {
     }
   };
 
+  const notLoggedIn = !isCheckingLogin && !isLoggedIn;
+
   return (
-    <div className="card border border-slate-800 rounded-2xl">
-      <h2 className="text-sm font-semibold mb-3">上傳教材並建立索引</h2>
+    <div className="card border border-slate-800 rounded-2xl p-4">
+      <h2 className="text-sm font-semibold mb-3">
+        上傳教材並建立索引
+      </h2>
 
       <label className="block">
-        <span className="text-xs text-slate-400">選擇檔案（pdf/txt/docx…）</span>
+        <span className="text-xs text-slate-400">選擇檔案（pdf/txt/docx）</span>
         <input
+          id="materials-upload-input"
           type="file"
           onChange={onPick}
+          disabled={!isLoggedIn}
           className="mt-2 block w-full text-sm text-slate-200
                      file:mr-4 file:py-2 file:px-4
                      file:rounded-full file:border-0
                      file:text-sm file:font-semibold
                      file:bg-cyan-500 file:text-slate-900
-                     hover:file:bg-cyan-400 cursor-pointer"
+                     hover:file:bg-cyan-400 cursor-pointer
+                     disabled:opacity-50 disabled:cursor-not-allowed"
         />
       </label>
 
-      <div className="mt-4 grid grid-cols-1 gap-3 text-xs">
-        <div>
-          <div className="text-slate-400 mb-1">title</div>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <div className="text-slate-400 mb-1">type</div>
-            <input
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2"
-            />
-          </div>
-
-          <div>
-            <div className="text-slate-400 mb-1">language</div>
-            <input
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <div className="text-slate-400 mb-1">style</div>
-            <input
-              value={style}
-              onChange={(e) => setStyle(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2"
-            />
-          </div>
-
-          <div>
-            <div className="text-slate-400 mb-1">user_id</div>
-            <input
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <div className="text-slate-400 mb-1">bone_id（可空）</div>
-            <input
-              value={boneId}
-              onChange={(e) => setBoneId(e.target.value)}
-              placeholder="例如 8"
-              className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2"
-            />
-          </div>
-          <div>
-            <div className="text-slate-400 mb-1">bone_small_id（可空）</div>
-            <input
-              value={boneSmallId}
-              onChange={(e) => setBoneSmallId(e.target.value)}
-              placeholder="例如 206 細項"
-              className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2"
-            />
-          </div>
-        </div>
-
-        <div>
-          <div className="text-slate-400 mb-1">conversation_id（可空 GUID）</div>
-          <input
-            value={conversationId}
-            onChange={(e) => setConversationId(e.target.value)}
-            placeholder="例如 3fa85f64-5717-4562-b3fc-2c963f66afa6"
-            className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2"
-          />
-        </div>
+      <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/30 p-3 text-xs text-slate-300">
+        <div>檔名：{file?.name || "尚未選擇檔案"}</div>
+        <div>登入者：{isCheckingLogin ? "檢查登入中..." : userId || "請先登入"}</div>
       </div>
+
+      {notLoggedIn && (
+        <div className="mt-3 rounded-xl border border-amber-900/50 bg-amber-950/30 p-3">
+          <div className="text-xs text-amber-200">
+            請先登入，未登入不可上傳教材。
+          </div>
+        </div>
+      )}
 
       <button
         onClick={onUpload}
-        disabled={loading || !file}
+        disabled={loading || !file || !isLoggedIn || isCheckingLogin}
         className="mt-4 w-full rounded-xl py-3 text-sm font-semibold
                    bg-cyan-500 text-slate-900 shadow-lg shadow-cyan-500/40
                    disabled:opacity-50 disabled:cursor-not-allowed
@@ -208,10 +184,6 @@ export default function MaterialsUploader() {
           {raw ? JSON.stringify(raw, null, 2) : "// 尚無回傳"}
         </pre>
       </div>
-
-      <p className="mt-3 text-[11px] text-slate-500">
-        如果你看到一整坨 HTML（This page could not be found）= 你打到前端 3000，不是後端 8000。
-      </p>
     </div>
   );
 }

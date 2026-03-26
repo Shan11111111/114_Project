@@ -122,7 +122,7 @@ const WELCOME_TEXT = `嗨，我是 GalaBone LLM 知識小助手。
 
 使用說明：
 1. 你可以直接輸入醫療報告裡的文字，或是病歷記錄的內容，我會盡力幫你解釋。
-2. 如果你有 X 光影像的 URL，也可以直接丟給我，我會嘗試辨識骨頭狀況並解釋。
+2. 可選擇不同的模式（例如：純文件 RAG、純向量 RAG、PubMed 文獻檢索等），讓我從不同的資料來源找答案。
 3. 請注意，GalaBone 的回覆是基於訓練資料和模型推論，可能不完全正確或適用於你的情況。任何醫療決策都應該諮詢專業醫護人員。
 4. 請勿輸入任何敏感個資或真實姓名，保護你的隱私安全。
 5. 如果你有任何建議或回饋，歡迎告訴我們，讓 GalaBone 變得更好！
@@ -843,7 +843,7 @@ function ThreadMoreMenu({
 
   useEffect(() => {
     if (!open) return;
-    function onDown(e: MouseEvent) {
+    function onDown(e: globalThis.MouseEvent) {
       const t = e.target as HTMLElement;
       if (!rootRef.current) return;
       if (!rootRef.current.contains(t)) setOpen(false);
@@ -1161,18 +1161,13 @@ const HistoryOverlay = memo(function HistoryOverlay({
                 ) : (
                   filteredThreads.map((t) => {
                     const active = t.id === activeThreadId;
+
                     return (
-                      <button
-                        type="button"
+                      <div
                         key={t.id}
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSelectThread(t.id)}
-                        className="w-full text-left px-3 py-1.5 rounded-lg transition mb-1"
+                        className="w-full rounded-lg transition mb-1"
                         style={{
-                          backgroundColor: active
-                            ? NAV_ACTIVE_BG
-                            : "transparent",
+                          backgroundColor: active ? NAV_ACTIVE_BG : "transparent",
                         }}
                         onMouseEnter={(e) => {
                           if (active) return;
@@ -1183,26 +1178,38 @@ const HistoryOverlay = memo(function HistoryOverlay({
                           e.currentTarget.style.backgroundColor = "transparent";
                         }}
                       >
-                        <div className="flex items-center justify-between gap-1">
-                          <div className="text-sm font-medium truncate">
-                            {t.title}
+                        <div className="flex items-start justify-between gap-1">
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => onSelectThread(t.id)}
+                            className="min-w-0 flex-1 text-left px-3 py-1.5 rounded-lg"
+                          >
+                            <div className="text-sm font-medium truncate">{t.title}</div>
+
+                            <div className="text-[12px] opacity-70 mt-1 line-clamp-1">
+                              {t.preview}
+                            </div>
+                            <div className="text-[11px] opacity-50 mt-2">
+                              {t.messageCount} 則訊息
+                            </div>
+                          </button>
+
+                          <div
+                            className="shrink-0 pt-2 pr-2"
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                          >
+                            <ThreadMoreMenu
+                              threadId={t.id}
+                              NAV_HOVER_BG={NAV_HOVER_BG}
+                              onShare={() => onShareThread(t.id)}
+                              onDelete={() => onDeleteThread(t.id)}
+                            />
                           </div>
-
-                          <ThreadMoreMenu
-                            threadId={t.id}
-                            NAV_HOVER_BG={NAV_HOVER_BG}
-                            onShare={() => onShareThread(t.id)}
-                            onDelete={() => onDeleteThread(t.id)}
-                          />
                         </div>
-
-                        <div className="text-[12px] opacity-70 mt-1 line-clamp-1">
-                          {t.preview}
-                        </div>
-                        <div className="text-[11px] opacity-50 mt-2">
-                          {t.messageCount} 則訊息
-                        </div>
-                      </button>
+                      </div>
                     );
                   })
                 )}
@@ -2194,7 +2201,7 @@ function LLMClient() {
 
         const activeId = activeThreadIdRef.current;
         const activeExists =
-          !!activeId && convs.some((t) => String(t.id) === String(activeId));
+          !!activeId && convs.some((t: { id: any; }) => String(t.id) === String(activeId));
 
         if (!activeId && convs.length > 0) {
           const firstId = convs[0].id;
@@ -2210,7 +2217,7 @@ function LLMClient() {
               return [...others, ...msgs];
             });
 
-            const t = convs.find((x) => x.id === firstId);
+            const t = convs.find((x: { id: any; }) => x.id === firstId);
             if (t?.sessionId) setSessionId(t.sessionId);
 
             setMessages(
@@ -2307,7 +2314,7 @@ function LLMClient() {
   }, [draftText, isMultiLine]);
 
   useEffect(() => {
-    function onDown(e: MouseEvent) {
+    function onDown(e: globalThis.MouseEvent){
       const target = e.target as HTMLElement;
       if (!target.closest("[data-tool-menu-root]")) setShowToolMenu(false);
       if (!target.closest("[data-rag-dropdown-root]")) setRagOpen(false);
@@ -2699,7 +2706,7 @@ function LLMClient() {
     }));
   }
 
-  async function handleExport(type: "pdf" | "ppt") {
+  async function handleExport(type: "pdf" | "pptx") {
     setShowToolMenu(false);
 
     try {
@@ -2797,7 +2804,7 @@ function LLMClient() {
         <ToolMenuItem
           iconClass="fa-solid fa-file-powerpoint"
           label="匯出 PPT"
-          onClick={() => handleExport("ppt")}
+          onClick={() => handleExport("pptx")}
         />
       </div>
     );
@@ -2977,49 +2984,58 @@ function LLMClient() {
   }
 
   function SideThreadItem({
-    title,
-    meta,
-    active,
-    onClick,
-    threadId,
-  }: {
-    title: string;
-    meta?: string;
-    active?: boolean;
-    onClick: () => void;
-    threadId: string;
-  }) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className="w-full text-left px-3 py-1.5 rounded-lg transition"
-        style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
-        onMouseEnter={(e) => {
-          if (active) return;
-          e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
-        }}
-        onMouseLeave={(e) => {
-          if (active) return;
-          e.currentTarget.style.backgroundColor = "transparent";
-        }}
-        title={title}
-      >
-        <div className="flex items-center justify-between gap-2">
+  title,
+  meta,
+  active,
+  onClick,
+  threadId,
+}: {
+  title: string;
+  meta?: string;
+  active?: boolean;
+  onClick: () => void;
+  threadId: string;
+}) {
+  return (
+    <div
+      className="w-full rounded-lg transition"
+      style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
+      onMouseEnter={(e) => {
+        if (active) return;
+        e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
+      }}
+      onMouseLeave={(e) => {
+        if (active) return;
+        e.currentTarget.style.backgroundColor = "transparent";
+      }}
+      title={title}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onClick}
+          className="min-w-0 flex-1 text-left px-3 py-1.5 rounded-lg"
+        >
           <div className="text-[13px] font-medium truncate">{title}</div>
+          {meta ? <div className="text-[11px] opacity-50 mt-0.5 truncate">{meta}</div> : null}
+        </button>
 
-          <div className="shrink-0">
-            <ThreadMoreMenu
-              threadId={threadId}
-              NAV_HOVER_BG={NAV_HOVER_BG}
-              onShare={() => shareThread(threadId)}
-              onDelete={() => deleteThread(threadId)}
-            />
-          </div>
+        <div
+          className="shrink-0 pr-2"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <ThreadMoreMenu
+            threadId={threadId}
+            NAV_HOVER_BG={NAV_HOVER_BG}
+            onShare={() => shareThread(threadId)}
+            onDelete={() => deleteThread(threadId)}
+          />
         </div>
-      </button>
-    );
-  }
+      </div>
+    </div>
+  );
+}
 
   async function openHistory() {
     try {
@@ -3153,19 +3169,30 @@ function LLMClient() {
     setHistoryPreviewThreadId("");
     (async () => {
       try {
-        const r = await fetch(BOOT_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_case_id: caseId }),
-        });
+        let r: Response;
+
+        try {
+          r = await fetch(BOOT_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_case_id: caseId }),
+          });
+        } catch (err: any) {
+          throw new Error(
+            `bootstrap fetch 失敗：${err?.message || String(err)} ｜ BOOT_URL=${BOOT_URL}`
+          );
+        }
 
         const raw = await r.text();
         const data = safeJsonParse(raw);
 
-        if (!r.ok || !data) {
-          throw new Error(`bootstrap 失敗 ${r.status}：${raw.slice(0, 250)}`);
+        if (!r.ok) {
+          throw new Error(`bootstrap HTTP ${r.status}：${raw.slice(0, 500)}`);
         }
 
+        if (!data) {
+          throw new Error(`bootstrap 回傳不是合法 JSON：${raw.slice(0, 500)}`);
+        }
         const bootSession = data.session_id ? String(data.session_id) : "";
         if (bootSession) setSessionId(bootSession);
 
@@ -4078,7 +4105,6 @@ function LLMClient() {
     </div>
   );
 }
-
 
 export default function Page() {
   return (

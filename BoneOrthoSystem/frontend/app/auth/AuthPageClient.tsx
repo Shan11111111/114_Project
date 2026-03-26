@@ -152,7 +152,7 @@ type LoginOut = {
   refresh_token: string;
   token_type?: string;
 };
-type Role = "user" | "student" | "teacher" | "doctor" | "assistant";
+type Role = "manager" | "student" | "teacher" | "doctor" | "assistant";
 
 type Flow = {
   registeredEmail?: string;
@@ -290,21 +290,21 @@ function RoleCards({
     desc: string;
     badge?: string;
   }> = [
-    { r: "user", title: "user", desc: "一般使用者（預設）" },
+    { r: "manager", title: "manager", desc: "管理者" },
     { r: "student", title: "student", desc: "學生/學習用途" },
     {
       r: "teacher",
       title: "teacher",
-      desc: "教學/帶課（通常要審核）",
+      desc: "教學/帶課（未來要審核）",
       badge: "review",
     },
     {
       r: "doctor",
       title: "doctor",
-      desc: "臨床/醫師（通常要審核）",
+      desc: "專業醫療人員/醫師（未來要審核）",
       badge: "review",
     },
-    { r: "assistant", title: "assistant", desc: "助教/研究助理" },
+    { r: "assistant", title: "assistant", desc: "研究人員/專題成員/研究助理" },
   ];
   return (
     <div className="roleGrid">
@@ -349,7 +349,7 @@ export default function AuthPageClient() {
 
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
-  const [role, setRole] = useState<Role>("user");
+  const [role, setRole] = useState<Role>("student");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
 
@@ -914,7 +914,7 @@ export default function AuthPageClient() {
                   <div className="blockTop">
                     <div className="lab">角色（role）</div>
                     <div className="msg">
-                      後端要白名單：user/student/teacher/doctor/assistant
+                     後端要白名單：student/teacher/doctor/assistant/manager
                     </div>
                   </div>
                   <RoleCards value={role} onChange={setRole} disabled={busy} />

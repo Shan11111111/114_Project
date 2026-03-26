@@ -5,17 +5,18 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator, AliasChoices
 
-# ✅ 允許的角色白名單
-ALLOWED_ROLES = {"user", "student", "teacher", "doctor", "assistant"}
+# ✅ 允許的角色白名單：不要 user，要 manager
+ALLOWED_ROLES = {"student", "teacher", "doctor", "assistant", "manager"}
+
 
 class RegisterIn(BaseModel):
     username: str = Field(..., min_length=1, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=256)
 
-    # ✅ 你要的是 role（但相容 roles）
+    # ✅ API 用 role，仍相容 roles；預設改成 student
     role: str = Field(
-        default="user",
+        default="student",
         validation_alias=AliasChoices("role", "roles"),
         description="Requested role (API uses role; DB column is roles).",
     )
@@ -23,7 +24,7 @@ class RegisterIn(BaseModel):
     @field_validator("role")
     @classmethod
     def role_whitelist(cls, v: str) -> str:
-        vv = (v or "user").strip().lower()
+        vv = (v or "student").strip().lower()
         if vv not in ALLOWED_ROLES:
             raise ValueError(f"role 不允許：{vv}（僅允許 {sorted(ALLOWED_ROLES)}）")
         return vv
@@ -57,8 +58,8 @@ class TokenOut(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: Optional[int] = None          # ✅ 新增：users.id (int)
-    user_id: str                      # uuid string（原本保留）
+    id: Optional[int] = None
+    user_id: str
     username: Optional[str] = None
     email: Optional[str] = None
     roles: Optional[str] = None

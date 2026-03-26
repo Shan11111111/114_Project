@@ -25,8 +25,8 @@ MODEL_PATH = BASE_DIR / "model" / "best.pt"
 PROJECT_ROOT = BASE_DIR.parent
 
 # 範例影像 image_id 範圍
-SAMPLE_ID_START = 3421
-SAMPLE_ID_END = 3693
+SAMPLE_ID_START = 3741
+SAMPLE_ID_END = 3952
 
 _model = None  # 懶載入用
 

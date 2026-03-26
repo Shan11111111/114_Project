@@ -3,7 +3,8 @@ npm install          # 第一次才需要
 
 npm run dev
 
-要開就這個:指令不用dev上面那個
+有更新要開就這個:指令不用dev上面那個
+npm run build
 npm run start
 
 安裝套件

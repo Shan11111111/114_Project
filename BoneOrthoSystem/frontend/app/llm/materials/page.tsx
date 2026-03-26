@@ -5,7 +5,7 @@ export default function MaterialsPage() {
   return (
     <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 12 }}>
-        教材管理（RAG）
+        教材管理（Qdrant 資料庫管理）
       </h1>
 
       <div style={{ display: "grid", gap: 16 }}>

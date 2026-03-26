@@ -104,6 +104,16 @@ export default function BoneVisionPage() {
 
   const clampZoom = (z: number) => Math.min(2, Math.max(0.5, z));
 
+  const cleanBoneZh = (value?: string | null) => {
+    if (!value) return "未分類";
+    return value.replace(/\s*[\(（][^\)）]*[\)）]\s*$/, "").trim();
+  };
+
+  const cleanText = (value?: string | null) => {
+    if (!value) return "";
+    return value.replace(/\s*[\(（][^\)）]*[\)）]\s*$/, "").trim();
+  };
+
   const handleZoomIn = () => setZoom((z) => clampZoom(z + 0.1));
   const handleZoomOut = () => setZoom((z) => clampZoom(z - 0.1));
   const handleResetView = () => {
@@ -231,40 +241,41 @@ export default function BoneVisionPage() {
   }, []);
 
   useEffect(() => {
-  const loadSamples = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/sample-images`);
-      if (!res.ok) {
-        throw new Error(`無法載入範例影像庫：${res.status}`);
+    const loadSamples = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/sample-images`);
+        if (!res.ok) {
+          throw new Error(`無法載入範例影像庫：${res.status}`);
+        }
+
+        const data = await res.json();
+
+        const items: SampleImage[] = (data.items || []).map((item: any) => ({
+          id: Number(item.id),
+          bone_id: item.bone_id != null ? Number(item.bone_id) : null,
+          bone_en: item.bone_en ?? null,
+          bone_zh: item.bone_zh ?? null,
+          bone_region: item.bone_region ?? null,
+          bone_desc: item.bone_desc ?? null,
+          name: item.name ?? item.filename ?? `sample_${item.id}`,
+          filename: item.filename ?? `sample_${item.id}`,
+          image_path: item.image_path ?? "",
+          content_type: item.content_type ?? null,
+          preview_url: item.preview_url,
+          download_url: item.download_url,
+          category: cleanBoneZh(item.bone_zh),
+        }));
+
+        console.log("sample-images count =", items.length);
+        setSamples(items);
+      } catch (err) {
+        console.error("loadSamples failed:", err);
+        setErrorMsg("範例影像庫載入失敗");
       }
+    };
 
-      const data = await res.json();
-
-      const items: SampleImage[] = (data.items || []).map((item: any) => ({
-        id: Number(item.id),
-        bone_id: item.bone_id != null ? Number(item.bone_id) : null,
-        bone_en: item.bone_en ?? null,
-        bone_zh: item.bone_zh ?? null,
-        bone_region: item.bone_region ?? null,
-        bone_desc: item.bone_desc ?? null,
-        name: item.name ?? item.filename ?? `sample_${item.id}`,
-        filename: item.filename ?? `sample_${item.id}`,
-        image_path: item.image_path ?? "",
-        content_type: item.content_type ?? null,
-        preview_url: item.preview_url,
-        download_url: item.download_url,
-        category: item.bone_region?.trim() || "未分類",
-      }));
-
-      setSamples(items);
-    } catch (err) {
-      console.error("loadSamples failed:", err);
-      setErrorMsg("範例影像庫載入失敗");
-    }
-  };
-
-  loadSamples();
-}, []);
+    loadSamples();
+  }, []);
 
   const parsePredictResponse = (data: any) => {
     setRawResponse(data);
@@ -309,7 +320,6 @@ export default function BoneVisionPage() {
     const fd = new FormData();
     fd.append("file", targetFile);
 
-    // 有登入才傳 user_id，沒登入就不傳
     const currentUserId = getCurrentUserId();
     if (currentUserId) {
       fd.append("user_id", currentUserId);
@@ -347,9 +357,7 @@ export default function BoneVisionPage() {
       setLoading(true);
       setErrorMsg(null);
 
-      const res = await fetch(`${API_BASE}${sample.download_url}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`${API_BASE}${sample.download_url}`);
       if (!res.ok) throw new Error("無法載入範例圖片");
 
       const blob = await res.blob();
@@ -373,9 +381,7 @@ export default function BoneVisionPage() {
 
   const handleDownloadSampleImage = async (sample: SampleImage) => {
     try {
-      const res = await fetch(`${API_BASE}${sample.download_url}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`${API_BASE}${sample.download_url}`);
       if (!res.ok) throw new Error("下載失敗");
 
       const blob = await res.blob();
@@ -437,7 +443,7 @@ export default function BoneVisionPage() {
     ...Array.from(
       new Set(
         samples
-          .map((img) => img.bone_region?.trim() || "未分類")
+          .map((img) => cleanBoneZh(img.bone_zh))
           .filter((v): v is string => Boolean(v))
       )
     ),
@@ -446,9 +452,7 @@ export default function BoneVisionPage() {
   const filteredSamples =
     galleryFilter === "全部"
       ? samples
-      : samples.filter(
-          (img) => (img.bone_region?.trim() || "未分類") === galleryFilter
-        );
+      : samples.filter((img) => cleanBoneZh(img.bone_zh) === galleryFilter);
 
   const modalSurfaceClass = isDarkMode
     ? "border-slate-800 bg-slate-950 text-slate-100"
@@ -486,8 +490,6 @@ export default function BoneVisionPage() {
             <h2 className="text-sm font-semibold mb-3">資料與設定</h2>
 
             <div className="space-y-2">
-              
-
               <span className="text-xs text-slate-400">上傳 X 光影像</span>
 
               <label className="block">
@@ -626,9 +628,7 @@ export default function BoneVisionPage() {
                   {detections.length > 0 && (
                     <svg
                       className="absolute inset-0 w-full h-full pointer-events-none"
-                      viewBox={`0 0 ${imgBox.width || 100} ${
-                        imgBox.height || 100
-                      }`}
+                      viewBox={`0 0 ${imgBox.width || 100} ${imgBox.height || 100}`}
                       preserveAspectRatio="none"
                     >
                       {!showOnlyActive &&
@@ -739,11 +739,11 @@ export default function BoneVisionPage() {
                       <p>
                         <span className="text-slate-400">骨頭名稱：</span>
                         <span className="font-semibold text-slate-100">
-                          {activeBox.bone_info?.bone_zh ?? "—"}{" "}
+                          {cleanBoneZh(activeBox.bone_info?.bone_zh) ?? "—"}{" "}
                         </span>
                         <span className="text-slate-500">
-                          {activeBox.bone_info?.bone_en
-                            ? `(${activeBox.bone_info.bone_en})`
+                          {cleanText(activeBox.bone_info?.bone_en)
+                            ? `(${cleanText(activeBox.bone_info?.bone_en)})`
                             : ""}
                         </span>
                       </p>
@@ -891,7 +891,7 @@ export default function BoneVisionPage() {
                         <div
                           className={`absolute top-4 left-4 z-10 rounded-full px-3 py-1 text-[11px] border ${categoryBadgeClass}`}
                         >
-                          {sample.bone_region || "未分類"}
+                          {cleanBoneZh(sample.bone_zh)}
                         </div>
 
                         <div
@@ -899,7 +899,7 @@ export default function BoneVisionPage() {
                         >
                           <img
                             src={`${API_BASE}${sample.preview_url}`}
-                            alt={sample.bone_zh || sample.name}
+                            alt={cleanBoneZh(sample.bone_zh) || sample.name}
                             className="max-h-[245px] max-w-[88%] object-contain"
                           />
                         </div>
@@ -907,11 +907,11 @@ export default function BoneVisionPage() {
 
                       <div className="p-5">
                         <h4 className="text-xl font-semibold">
-                          {sample.bone_zh || sample.name}
+                          {cleanBoneZh(sample.bone_zh) || sample.name}
                         </h4>
 
                         <p className={`mt-2 text-sm ${modalTextSubClass}`}>
-                          {sample.bone_en || "未提供英文名稱"}
+                          {cleanText(sample.bone_en) || "未提供英文名稱"}
                         </p>
 
                         <p className={`mt-1 text-xs ${modalTextSubClass}`}>
