@@ -60,15 +60,17 @@ def find_project_root(target_folder="BoneOrthoSystem") -> str:
 DEV_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://140.136.155.157:3000" 
+    "http://140.136.155.157:3000",
+    "http://140.136.155.157",
 ]
+
 
 
 # ✅ CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    # allow_origins=DEV_ORIGINS,
+    # allow_origins=["*"],
+    allow_origins=DEV_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
