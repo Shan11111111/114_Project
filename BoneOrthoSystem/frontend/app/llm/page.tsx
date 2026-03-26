@@ -3484,10 +3484,10 @@ function LLMClient() {
                           >
                             {ragMode === "file_then_vector" &&
                               "查詢上傳檔案與衛教智慧庫"}
-                            {ragMode === "vector_only" &&
+                            {/* {ragMode === "vector_only" &&
                               "查詢衛教智慧庫"}
-                            {ragMode === "file_only" &&
-                              "查詢上傳檔案"}
+                            {/* {ragMode === "file_only" &&
+                              "查詢上傳檔案"} */}
                             {ragMode === "pubmed_only" &&
                               "查詢 PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
                             {ragMode === "soap_only" &&
@@ -3518,14 +3518,14 @@ function LLMClient() {
                                 value: "file_then_vector",
                                 label: "查詢上傳檔案與衛教智慧庫",
                               },
-                              {
-                                value: "vector_only",
-                                label: "查詢衛教智慧庫",
-                              },
-                              {
-                                value: "file_only",
-                                label: "查詢上傳檔案",
-                              },
+                              // {
+                              //   value: "vector_only",
+                              //   label: "查詢衛教智慧庫",
+                              // },
+                              // {
+                              //   value: "file_only",
+                              //   label: "查詢上傳檔案",
+                              // },
                               {
                                 value: "pubmed_only",
                                 label: "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎",
@@ -3769,12 +3769,12 @@ function LLMClient() {
                     <option value="file_then_vector">
                       查詢上傳檔案與衛教智慧庫
                     </option>
-                    <option value="vector_only">
+                    {/* <option value="vector_only">
                       查詢衛教智慧庫
                     </option>
                     <option value="file_only">
                       查詢上傳檔案
-                    </option>
+                    </option> */}
                     <option value="pubmed_only">
                       查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎
                     </option>
