@@ -560,7 +560,7 @@ export default function BoneVisionPage() {
         <section className="w-full lg:w-8/20">
           <div className="card border border-slate-800 rounded-2xl h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold">影像預覽與結果</h2>
+              <h2 className="text-sm font-semibold">影像預覽與結果test</h2>
               <div className="flex items-center gap-2 text-xs text-slate-300">
                 <span>Zoom</span>
                 <button
