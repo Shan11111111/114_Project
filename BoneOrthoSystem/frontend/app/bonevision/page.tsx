@@ -7,7 +7,7 @@ import React, {
   useCallback,
   MouseEvent,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getUser } from "../lib/auth";
 
 const API_BASE = (
@@ -17,17 +17,19 @@ const API_BASE = (
 ).replace(/\/+$/, "");
 
 const PREDICT_URL = `${API_BASE}/predict`;
+const HISTORY_LIST_URL = `${API_BASE}/history`;
 
 type PolyPoint = [number, number];
 
+
 type BoneInfo =
   | {
-      bone_id: number;
-      bone_en: string;
-      bone_zh: string;
-      bone_region: string;
-      bone_desc: string;
-    }
+    bone_id: number;
+    bone_en: string;
+    bone_zh: string;
+    bone_region: string;
+    bone_desc: string;
+  }
   | null;
 
 type DetectionBox = {
@@ -68,10 +70,69 @@ type AuthUser = {
   username?: string | null;
   email?: string | null;
   roles?: string | null;
+  resolved_user_id?: number | null;
 } | null;
+
+type HistoryListItem = {
+  image_case_id: number;
+  user_id?: number | null;
+  bone_image_id?: number | null;
+  source?: string | null;
+  created_at?: string | null;
+  image_name?: string | null;
+  image_path?: string | null;
+  content_type?: string | null;
+  detection_count?: number | null;
+};
+
+type HistoryDetailDetection = {
+  detection_id: number;
+  image_case_id: number;
+  bone_id?: number | null;
+  small_bone_id?: number | null;
+  label41?: number | string | null;
+  attr206?: number | string | null;
+  side?: string | null;
+  finger?: string | null;
+  phalanx?: string | null;
+  serial_number?: number | null;
+  confidence?: number | null;
+  x1?: number | null;
+  y1?: number | null;
+  x2?: number | null;
+  y2?: number | null;
+  created_at?: string | null;
+  poly_json?: string | null;
+  p1x?: number | null;
+  p1y?: number | null;
+  p2x?: number | null;
+  p2y?: number | null;
+  p3x?: number | null;
+  p3y?: number | null;
+  p4x?: number | null;
+  p4y?: number | null;
+  poly_is_normalized?: boolean | null;
+  cx?: number | null;
+  cy?: number | null;
+  created_by_user_id?: number | null;
+};
+
+type HistoryDetail = {
+  image_case_id: number;
+  user_id?: number | null;
+  bone_image_id?: number | null;
+  source?: string | null;
+  created_at?: string | null;
+  image_name?: string | null;
+  image_path?: string | null;
+  content_type?: string | null;
+  detection_count?: number | null;
+  detections: HistoryDetailDetection[];
+};
 
 export default function BoneVisionPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -85,11 +146,20 @@ export default function BoneVisionPage() {
   const [showOnlyActive, setShowOnlyActive] = useState(false);
 
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [galleryFilter, setGalleryFilter] = useState<SampleCategory>("全部");
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [samples, setSamples] = useState<SampleImage[]>([]);
 
   const [currentUser, setCurrentUser] = useState<AuthUser>(null);
+
+  const [historyList, setHistoryList] = useState<HistoryListItem[]>([]);
+  const [historyKeyword, setHistoryKeyword] = useState("");
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<number | null>(null);
+  const [selectedHistoryDetail, setSelectedHistoryDetail] = useState<HistoryDetail | null>(null);
+  const [loadingHistoryDetail, setLoadingHistoryDetail] = useState(false);
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
@@ -113,6 +183,20 @@ export default function BoneVisionPage() {
   const cleanText = (value?: string | null) => {
     if (!value) return "";
     return value.replace(/\s*[\(（][^\)）]*[\)）]\s*$/, "").trim();
+  };
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleString("zh-TW", {
+      hour12: false,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   const handleZoomIn = () => setZoom((z) => clampZoom(z + 0.1));
@@ -204,10 +288,13 @@ export default function BoneVisionPage() {
   }, []);
 
   useEffect(() => {
-    if (!isGalleryOpen) return;
+    if (!isGalleryOpen && !isHistoryOpen) return;
 
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") setIsGalleryOpen(false);
+      if (e.key === "Escape") {
+        setIsGalleryOpen(false);
+        setIsHistoryOpen(false);
+      }
     };
 
     document.addEventListener("keydown", onKeyDown);
@@ -217,14 +304,35 @@ export default function BoneVisionPage() {
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = "";
     };
-  }, [isGalleryOpen]);
+  }, [isGalleryOpen, isHistoryOpen]);
 
   useEffect(() => {
+    const normalizeNumericId = (value: unknown): number | null => {
+      const num = Number(value);
+      return Number.isInteger(num) && num > 0 ? num : null;
+    };
+
     const syncUser = () => {
       try {
-        const user = getUser() as AuthUser;
-        setCurrentUser(user);
-        console.log(">>> getUser() =", user);
+        const rawUser = getUser() as AuthUser;
+        console.log(">>> getUser() raw =", rawUser);
+
+        if (!rawUser) {
+          setCurrentUser(null);
+          return;
+        }
+
+        const resolvedUserId =
+          normalizeNumericId(rawUser.user_id) ??
+          normalizeNumericId(rawUser.id);
+
+        const fixedUser: AuthUser = {
+          ...rawUser,
+          resolved_user_id: resolvedUserId,
+        };
+
+        console.log(">>> getUser() fixed =", fixedUser);
+        setCurrentUser(fixedUser);
       } catch (err) {
         console.error("讀取登入者失敗", err);
         setCurrentUser(null);
@@ -313,9 +421,152 @@ export default function BoneVisionPage() {
   };
 
   const getCurrentUserId = (): string | null => {
-    const uid = currentUser?.id ?? currentUser?.user_id ?? null;
-    return uid != null && String(uid).trim() !== "" ? String(uid) : null;
+    const resolved = currentUser?.resolved_user_id;
+    if (typeof resolved === "number" && Number.isInteger(resolved) && resolved > 0) {
+      return String(resolved);
+    }
+    return null;
   };
+
+  const parseHistoryPoly = (polyJson?: string | null): PolyPoint[] => {
+    if (!polyJson) return [];
+    try {
+      const parsed = JSON.parse(polyJson);
+
+      const rawPoly = Array.isArray(parsed) ? parsed : parsed?.poly;
+      if (!Array.isArray(rawPoly)) return [];
+
+      return rawPoly
+        .map((p: any) => {
+          if (Array.isArray(p) && p.length >= 2) {
+            return [Number(p[0]), Number(p[1])] as PolyPoint;
+          }
+          return null;
+        })
+        .filter(Boolean) as PolyPoint[];
+    } catch {
+      return [];
+    }
+  };
+
+  const applyHistoryDetailToCanvas = (detail: HistoryDetail) => {
+    const detailPreviewUrl =
+      detail.bone_image_id != null
+        ? `${API_BASE}/sample-images/${detail.bone_image_id}/preview`
+        : detail.image_path
+          ? `${API_BASE}${detail.image_path}`
+          : null;
+
+    if (detailPreviewUrl) {
+      setPreviewUrl(detailPreviewUrl);
+    }
+
+    const restoredBoxes: DetectionBox[] = (detail.detections || []).map(
+      (d, idx) => ({
+        id: idx,
+        cls_name:
+          d.label41 != null ? `label41=${d.label41}` : `Detection ${idx + 1}`,
+        conf: typeof d.confidence === "number" ? d.confidence : 0,
+        poly: parseHistoryPoly(d.poly_json),
+        bone_info: null,
+        sub_label: null,
+      })
+    );
+
+    setDetections(restoredBoxes);
+    setActiveId(restoredBoxes.length ? restoredBoxes[0].id : null);
+    setShowOnlyActive(false);
+    setImageCaseId(detail.image_case_id);
+    setRawResponse(detail);
+    handleResetView();
+  };
+
+  const loadHistoryList = async () => {
+  const safeUserId = getCurrentUserId();
+
+  console.log(">>> currentUser =", currentUser);
+  console.log(">>> resolved_user_id =", currentUser?.resolved_user_id);
+  console.log(">>> safeUserId =", safeUserId);
+
+  if (!safeUserId) {
+    setHistoryError("目前登入資訊中沒有可用的數字 user_id");
+    setHistoryList([]);
+    setLoadingHistory(false);
+    return;
+  }
+
+  try {
+    setLoadingHistory(true);
+    setHistoryError(null);
+
+    const url = `${HISTORY_LIST_URL}?user_id=${encodeURIComponent(safeUserId)}`;
+    console.log(">>> history url =", url);
+
+    const res = await fetch(url, {
+      credentials: "include",
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`載入歷史紀錄失敗 ${res.status}：${text}`);
+    }
+
+    const data = await res.json();
+    setHistoryList(Array.isArray(data.items) ? data.items : []);
+  } catch (err: any) {
+    console.error(err);
+    setHistoryError(err.message ?? "載入歷史紀錄失敗");
+    setHistoryList([]);
+  } finally {
+    setLoadingHistory(false);
+  }
+};
+
+  const loadHistoryDetail = async (caseId: number, applyToCanvas = false) => {
+    try {
+      setLoadingHistoryDetail(true);
+      setHistoryError(null);
+
+      const res = await fetch(`${HISTORY_LIST_URL}/${caseId}`, {
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`載入歷史詳情失敗 ${res.status}：${text}`);
+      }
+
+      const detail: HistoryDetail = await res.json();
+      setSelectedHistoryId(caseId);
+      setSelectedHistoryDetail(detail);
+
+      if (applyToCanvas) {
+        applyHistoryDetailToCanvas(detail);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setHistoryError(err.message ?? "載入歷史詳情失敗");
+    } finally {
+      setLoadingHistoryDetail(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isHistoryOpen) return;
+    if (!currentUser) return;
+
+    loadHistoryList();
+  }, [isHistoryOpen, currentUser]);
+
+  useEffect(() => {
+    const caseIdRaw = searchParams.get("caseId");
+    if (!caseIdRaw) return;
+
+    const caseId = Number(caseIdRaw);
+    if (!Number.isFinite(caseId)) return;
+
+    loadHistoryDetail(caseId, true);
+  }, [searchParams]);
 
   const detectWithFile = async (targetFile: File) => {
     const fd = new FormData();
@@ -455,6 +706,22 @@ export default function BoneVisionPage() {
       ? samples
       : samples.filter((img) => cleanBoneZh(img.bone_zh) === galleryFilter);
 
+  const filteredHistoryList = historyList.filter((item) => {
+    const keyword = historyKeyword.trim().toLowerCase();
+    if (!keyword) return true;
+
+    const haystack = [
+      item.image_name ?? "",
+      item.image_case_id ?? "",
+      item.created_at ?? "",
+      item.source ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(keyword);
+  });
+
   const modalSurfaceClass = isDarkMode
     ? "border-slate-800 bg-slate-950 text-slate-100"
     : "border-slate-200 bg-white text-slate-900";
@@ -490,22 +757,24 @@ export default function BoneVisionPage() {
           <div className="card border border-slate-800/70 shadow-xl shadow-slate-900/40">
             <h2 className="text-sm font-semibold mb-3">資料與設定</h2>
 
-            <div className="space-y-2">
-              <span className="text-xs text-slate-400">上傳 X 光影像</span>
+            <div className="space-y-3">
+              <div>
+                <span className="text-xs text-slate-400">上傳 X 光影像</span>
 
-              <label className="block">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="block w-full text-sm text-slate-200
-                             file:mr-4 file:py-2.5 file:px-4
-                             file:rounded-full file:border-0
-                             file:text-sm file:font-semibold
-                             file:bg-cyan-500 file:text-slate-900
-                             hover:file:bg-cyan-400 cursor-pointer"
-                />
-              </label>
+                <label className="block mt-1">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="block w-full text-sm text-slate-200
+                   file:mr-4 file:py-2.5 file:px-4
+                   file:rounded-full file:border-0
+                   file:text-sm file:font-semibold
+                   file:bg-cyan-500 file:text-slate-900
+                   hover:file:bg-cyan-400 cursor-pointer"
+                  />
+                </label>
+              </div>
 
               <button
                 type="button"
@@ -514,9 +783,9 @@ export default function BoneVisionPage() {
                   setIsGalleryOpen(true);
                 }}
                 className="w-full rounded-full py-2.5 text-sm font-semibold
-                           border border-cyan-500/40 text-cyan-300
-                           bg-cyan-500/10 hover:bg-cyan-500/15
-                           transition-colors"
+               border border-cyan-500/40 text-cyan-300
+               bg-cyan-500/10 hover:bg-cyan-500/15
+               transition-colors"
               >
                 查看範例影像庫
               </button>
@@ -526,19 +795,29 @@ export default function BoneVisionPage() {
               onClick={handleDetect}
               disabled={loading || !file}
               className="mt-4 w-full rounded-xl py-3 text-sm font-semibold
-                         bg-cyan-500 text-slate-900 shadow-lg shadow-cyan-500/40
-                         disabled:opacity-50 disabled:cursor-not-allowed
-                         hover:bg-cyan-400 transition-colors"
+             bg-cyan-500 text-slate-900 shadow-lg shadow-cyan-500/40
+             disabled:opacity-50 disabled:cursor-not-allowed
+             hover:bg-cyan-400 transition-colors"
             >
               {loading ? "辨識中..." : "開始辨識（模型）"}
             </button>
 
-            <div className="mt-3 text-[11px] text-slate-400">
-              ImageCaseId：{" "}
-              <span className="text-cyan-300 font-mono">
-                {imageCaseId ?? "—"}
-              </span>
-            </div>
+            <div className="mt-3 border-t border-slate-600/40" />
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsHistoryOpen(true);
+                setSelectedHistoryId(null);
+                setSelectedHistoryDetail(null);
+              }}
+              className="mt-3 w-full rounded-lg py-2 text-sm font-medium
+             border border-slate-600/60 text-slate-200
+             hover:bg-slate-700/40 hover:border-slate-400
+             transition-all"
+            >
+              歷史紀錄
+            </button>
 
             {errorMsg && (
               <p className="mt-3 text-xs text-red-400 whitespace-pre-wrap">
@@ -560,7 +839,7 @@ export default function BoneVisionPage() {
         <section className="w-full lg:w-8/20">
           <div className="card border border-slate-800 rounded-2xl h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold">影像預覽與結果test</h2>
+              <h2 className="text-sm font-semibold">影像預覽與結果</h2>
               <div className="flex items-center gap-2 text-xs text-slate-300">
                 <span>Zoom</span>
                 <button
@@ -587,11 +866,10 @@ export default function BoneVisionPage() {
 
                 <button
                   onClick={() => setShowOnlyActive((v) => !v)}
-                  className={`ml-2 px-2 py-1 rounded-full border text-[11px] ${
-                    showOnlyActive
-                      ? "border-cyan-400 bg-cyan-500/20 text-cyan-300"
-                      : "border-slate-600 hover:bg-slate-700 text-slate-300"
-                  }`}
+                  className={`ml-2 px-2 py-1 rounded-full border text-[11px] ${showOnlyActive
+                    ? "border-cyan-400 bg-cyan-500/20 text-cyan-300"
+                    : "border-slate-600 hover:bg-slate-700 text-slate-300"
+                    }`}
                 >
                   {showOnlyActive ? "顯示全部框" : "只顯示目前框"}
                 </button>
@@ -700,11 +978,10 @@ export default function BoneVisionPage() {
                     <button
                       key={box.id}
                       onClick={() => setActiveId(box.id)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                        activeId === box.id
-                          ? "bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40"
-                          : "bg-slate-800 text-slate-100 hover:bg-slate-700"
-                      }`}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${activeId === box.id
+                        ? "bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40"
+                        : "bg-slate-800 text-slate-100 hover:bg-slate-700"
+                        }`}
                     >
                       {box.cls_name}
                       {box.sub_label ? ` - ${box.sub_label}` : ""}{" "}
@@ -819,9 +1096,8 @@ export default function BoneVisionPage() {
       {isGalleryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
-            className={`absolute inset-0 ${
-              isDarkMode ? "bg-black/70" : "bg-black/35"
-            }`}
+            className={`absolute inset-0 ${isDarkMode ? "bg-black/70" : "bg-black/35"
+              }`}
             onClick={() => setIsGalleryOpen(false)}
           />
 
@@ -829,11 +1105,10 @@ export default function BoneVisionPage() {
             className={`relative w-full max-w-7xl max-h-[88vh] rounded-[28px] overflow-hidden shadow-2xl border ${modalSurfaceClass}`}
           >
             <div
-              className={`absolute inset-x-0 top-0 h-28 pointer-events-none ${
-                isDarkMode
-                  ? "bg-gradient-to-r from-cyan-500/10 via-sky-500/5 to-fuchsia-500/10"
-                  : "bg-gradient-to-r from-cyan-500/8 via-sky-500/6 to-fuchsia-500/8"
-              }`}
+              className={`absolute inset-x-0 top-0 h-28 pointer-events-none ${isDarkMode
+                ? "bg-gradient-to-r from-cyan-500/10 via-sky-500/5 to-fuchsia-500/10"
+                : "bg-gradient-to-r from-cyan-500/8 via-sky-500/6 to-fuchsia-500/8"
+                }`}
             />
 
             <div
@@ -862,11 +1137,10 @@ export default function BoneVisionPage() {
                     key={option}
                     type="button"
                     onClick={() => setGalleryFilter(option)}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                      galleryFilter === option
-                        ? "bg-cyan-500 text-slate-900"
-                        : filterInactiveClass
-                    }`}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${galleryFilter === option
+                      ? "bg-cyan-500 text-slate-900"
+                      : filterInactiveClass
+                      }`}
                   >
                     {option}
                   </button>
@@ -945,6 +1219,209 @@ export default function BoneVisionPage() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isHistoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className={`absolute inset-0 ${isDarkMode ? "bg-black/70" : "bg-black/35"
+              }`}
+            onClick={() => setIsHistoryOpen(false)}
+          />
+
+          <div
+            className={`relative w-full max-w-6xl max-h-[85vh] rounded-[28px] overflow-hidden shadow-2xl border ${modalSurfaceClass}`}
+          >
+            <div className={`px-7 py-6 border-b ${modalBorderClass}`}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-2xl font-bold tracking-tight">歷史紀錄</h3>
+                  <p className={`text-sm mt-2 ${modalTextSubClass}`}>
+                    查看個人辨識歷程與後續紀錄
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryOpen(false)}
+                  className={`px-5 py-3 rounded-2xl border text-sm font-medium transition-colors ${modalButtonClass}`}
+                >
+                  關閉
+                </button>
+              </div>
+            </div>
+
+            {!currentUser ? (
+              <div className="px-8 py-16 flex flex-col items-center justify-center text-center">
+                <p className="text-lg font-semibold">
+                  請先登入或註冊後查看歷史紀錄
+                </p>
+
+                <p className={`mt-2 text-sm ${modalTextSubClass}`}>
+                  登入後即可查看個人辨識歷程與後續紀錄
+                </p>
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/login")}
+                    className="rounded-2xl px-6 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
+                  >
+                    前往登入
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => router.push("/register")}
+                    className={`rounded-2xl px-6 py-3 text-sm font-semibold border transition-colors ${secondaryActionClass}`}
+                  >
+                    前往註冊
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className={`grid grid-cols-1 md:grid-cols-[320px_minmax(0,1fr)] h-[60vh] ${modalSubBgClass}`}>
+                <div className={`border-r ${modalBorderClass} p-4 flex flex-col`}>
+                  <input
+                    type="text"
+                    value={historyKeyword}
+                    onChange={(e) => setHistoryKeyword(e.target.value)}
+                    placeholder="搜尋歷史紀錄"
+                    className={`rounded-2xl border px-4 py-3 text-sm outline-none ${isDarkMode
+                      ? "border-slate-700 bg-slate-900 text-slate-100 placeholder:text-slate-500"
+                      : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
+                      }`}
+                  />
+
+                  <div className="mt-4 flex-1 overflow-y-auto space-y-3">
+                    {loadingHistory && (
+                      <div className={`text-sm ${modalTextSubClass}`}>載入中...</div>
+                    )}
+
+                    {!loadingHistory && historyError && (
+                      <div className="text-sm text-red-400">{historyError}</div>
+                    )}
+
+                    {!loadingHistory && !historyError && filteredHistoryList.length === 0 && (
+                      <div className={`text-sm ${modalTextSubClass}`}>尚無歷史紀錄</div>
+                    )}
+
+                    {!loadingHistory &&
+                      !historyError &&
+                      filteredHistoryList.map((item) => {
+                        const selected = selectedHistoryId === item.image_case_id;
+                        return (
+                          <button
+                            key={item.image_case_id}
+                            type="button"
+                            onClick={() => loadHistoryDetail(item.image_case_id)}
+                            className={`w-full text-left rounded-2xl border p-4 transition-colors ${selected
+                              ? isDarkMode
+                                ? "border-cyan-400 bg-cyan-500/10"
+                                : "border-cyan-500 bg-cyan-50"
+                              : isDarkMode
+                                ? "border-slate-800 bg-slate-900 hover:bg-slate-800"
+                                : "border-slate-200 bg-white hover:bg-slate-50"
+                              }`}
+                          >
+                            <div className="text-sm font-semibold">
+                              {item.image_name || `案例 ${item.image_case_id}`}
+                            </div>
+                            <div className={`mt-1 text-xs ${modalTextSubClass}`}>
+                              {formatDateTime(item.created_at)}
+                            </div>
+                            <div className="mt-2 text-xs text-cyan-400">
+                              偵測數量：{item.detection_count ?? 0}
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+
+                <div className="p-6 overflow-y-auto">
+                  {!selectedHistoryDetail ? (
+                    <div className={`h-full flex items-center justify-center text-sm ${modalTextSubClass}`}>
+                      請從左側選擇一筆歷史紀錄
+                    </div>
+                  ) : loadingHistoryDetail ? (
+                    <div className={`text-sm ${modalTextSubClass}`}>載入詳細資料中...</div>
+                  ) : (
+                    <div className="space-y-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className={`text-sm ${modalTextSubClass}`}>
+                            {formatDateTime(selectedHistoryDetail.created_at)}
+                          </div>
+                          <h4 className="mt-1 text-2xl font-bold">
+                            {selectedHistoryDetail.image_name || `案例 ${selectedHistoryDetail.image_case_id}`}
+                          </h4>
+                          <div className={`mt-2 text-sm ${modalTextSubClass}`}>
+                            偵測數量：{selectedHistoryDetail.detection_count ?? 0}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            applyHistoryDetailToCanvas(selectedHistoryDetail);
+                            setIsHistoryOpen(false);
+                            router.push(`/bonevision?caseId=${selectedHistoryDetail.image_case_id}`);
+                          }}
+                          className="rounded-2xl px-5 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
+                        >
+                          回到這次辨識
+                        </button>
+                      </div>
+
+                      {selectedHistoryDetail.bone_image_id != null && (
+                        <div className={`rounded-3xl border p-4 ${cardClass}`}>
+                          <div className={`mb-3 text-sm ${modalTextSubClass}`}>影像預覽</div>
+                          <div className="flex items-center justify-center">
+                            <img
+                              src={`${API_BASE}/sample-images/${selectedHistoryDetail.bone_image_id}/preview`}
+                              alt={selectedHistoryDetail.image_name || "history preview"}
+                              className="max-h-[280px] max-w-full object-contain rounded-2xl"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className={`rounded-3xl border p-4 ${cardClass}`}>
+                        <div className={`mb-3 text-sm ${modalTextSubClass}`}>辨識項目</div>
+                        {selectedHistoryDetail.detections.length === 0 ? (
+                          <div className={`text-sm ${modalTextSubClass}`}>這筆紀錄沒有 detection。</div>
+                        ) : (
+                          <div className="space-y-3">
+                            {selectedHistoryDetail.detections.map((d, idx) => (
+                              <div
+                                key={d.detection_id}
+                                className={`rounded-2xl border px-4 py-3 ${isDarkMode ? "border-slate-800" : "border-slate-200"}`}
+                              >
+                                <div className="text-sm font-semibold">
+                                  {d.label41 != null ? `label41=${d.label41}` : `Detection ${idx + 1}`}
+                                </div>
+                                <div className={`mt-1 text-xs ${modalTextSubClass}`}>
+                                  confidence: {typeof d.confidence === "number" ? d.confidence.toFixed(3) : "—"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div
+              className={`px-8 py-4 border-t text-xs ${modalBorderClass} ${modalTextSubClass}`}
+            >
+              提示：按 ESC 可關閉
             </div>
           </div>
         </div>
