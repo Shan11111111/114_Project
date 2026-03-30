@@ -1,6 +1,7 @@
 "use client";
 
 import React, {
+  Suspense,
   useState,
   useRef,
   useEffect,
@@ -133,6 +134,20 @@ type HistoryDetail = {
 };
 
 export default function BoneVisionPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-sm text-slate-400">
+          載入 Bone Vision...
+        </div>
+      }
+    >
+      <BoneVisionPageInner />
+    </Suspense>
+  );
+}
+
+function BoneVisionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
