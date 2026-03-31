@@ -36,6 +36,7 @@ type ChatResource = {
   display_title?: string;
   url?: string;
   download_url?: string;
+  external_url?: string;
   source_type?: string;
   page?: string;
   snippet?: string;
@@ -1552,6 +1553,7 @@ function LLMClient() {
                 : String(r?.title ?? "未命名來源"),
               url: r?.url ? String(r.url) : undefined,
               download_url: r?.download_url ? String(r.download_url) : undefined,
+              external_url: r?.external_url ? String(r.external_url) : undefined,
               source_type: r?.source_type ? String(r.source_type) : undefined,
               page: r?.page ? String(r.page) : undefined,
               snippet: r?.snippet ? String(r.snippet) : undefined,
@@ -2623,6 +2625,7 @@ function LLMClient() {
             : String(r?.title ?? "未命名來源"),
           url: r?.url ? String(r.url) : undefined,
           download_url: r?.download_url ? String(r.download_url) : undefined,
+          external_url: r?.external_url ? String(r.external_url) : undefined,
           source_type: r?.source_type ? String(r.source_type) : undefined,
           page: r?.page ? String(r.page) : undefined,
           snippet: r?.snippet ? String(r.snippet) : undefined,
@@ -2836,203 +2839,196 @@ function LLMClient() {
   }
 
   function ResourceCarousel({ resources }: { resources: ChatResource[] }) {
-  const [index, setIndex] = useState(0);
+    const [index, setIndex] = useState(0);
 
-  const safeResources = Array.isArray(resources) ? resources : [];
-  const total = safeResources.length;
+    const safeResources = Array.isArray(resources) ? resources : [];
+    const total = safeResources.length;
 
-  useEffect(() => {
-    if (index > total - 1) {
-      setIndex(0);
-    }
-  }, [index, total]);
+    useEffect(() => {
+      if (index > total - 1) {
+        setIndex(0);
+      }
+    }, [index, total]);
 
-  const goPrev = useCallback(() => {
-    setIndex((prev) => (prev - 1 + total) % total);
-  }, [total]);
+    const goPrev = useCallback(() => {
+      setIndex((prev) => (prev - 1 + total) % total);
+    }, [total]);
 
-  const goNext = useCallback(() => {
-    setIndex((prev) => (prev + 1) % total);
-  }, [total]);
+    const goNext = useCallback(() => {
+      setIndex((prev) => (prev + 1) % total);
+    }, [total]);
 
-  if (!total) return null;
+    if (!total) return null;
 
-  const r = safeResources[index];
-  const displayTitle =
-    (r.display_title || r.title || `參考資料 ${index + 1}`).trim();
+    const r = safeResources[index];
+    const displayTitle =
+      (r.display_title || r.title || `參考資料 ${index + 1}`).trim();
 
-  const resolvedViewUrl =
-    r.url
-      ? toAbsUrl(r.url)
-      : (r.material_id
-          ? `${API_BASE}/s2/llm/materials/${r.material_id}/view`
-          : "");
+    const isUploadsUrl = (v?: string) =>
+      !!v && /\/uploads\//i.test(v);
 
-  const resolvedDownloadUrl =
-    r.download_url
-      ? toAbsUrl(r.download_url)
-      : (r.material_id
-          ? `${API_BASE}/s2/llm/materials/${r.material_id}/download`
-          : "");
+    const resolvedViewUrl =
+      r.material_id
+        ? `${API_BASE}/s2/llm/materials/${r.material_id}/view`
+        : (r.url && !isUploadsUrl(r.url) ? toAbsUrl(r.url) : "");
 
-  const metaParts = [
-    r.page ? `${r.page}` : "",
-    typeof r.score === "number" && !Number.isNaN(r.score)
-      ? `置信度 ${r.score.toFixed(3)}`
-      : "",
-  ].filter(Boolean);
+    const resolvedDownloadUrl =
+      r.material_id
+        ? `${API_BASE}/s2/llm/materials/${r.material_id}/download`
+        : (r.download_url && !isUploadsUrl(r.download_url) ? toAbsUrl(r.download_url) : "");
 
-  const cleanSnippet = (r.snippet || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 180);
+    const metaParts = [
+      r.page ? `${r.page}` : "",
+      typeof r.score === "number" && !Number.isNaN(r.score)
+        ? `置信度 ${r.score.toFixed(3)}`
+        : "",
+    ].filter(Boolean);
 
-  return (
-    <div className="mt-2">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[11px] font-semibold opacity-70">參考資料</div>
+    const cleanSnippet = (r.snippet || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 180);
 
-        {total > 1 && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={goPrev}
-              className="w-7 h-7 rounded-full border flex items-center justify-center text-[11px]"
-              style={{ borderColor: "rgba(148,163,184,0.30)" }}
-              title="上一張"
-            >
-              <i className="fa-solid fa-chevron-left" />
-            </button>
+    return (
+      <div className="mt-2">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[11px] font-semibold opacity-70">參考資料</div>
 
-            <div className="text-[11px] opacity-60 min-w-[52px] text-center">
-              {index + 1} / {total}
+          {total > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={goPrev}
+                className="w-7 h-7 rounded-full border flex items-center justify-center text-[11px]"
+                style={{ borderColor: "rgba(148,163,184,0.30)" }}
+                title="上一張"
+              >
+                <i className="fa-solid fa-chevron-left" />
+              </button>
+
+              <div className="text-[11px] opacity-60 min-w-[52px] text-center">
+                {index + 1} / {total}
+              </div>
+
+              <button
+                type="button"
+                onClick={goNext}
+                className="w-7 h-7 rounded-full border flex items-center justify-center text-[11px]"
+                style={{ borderColor: "rgba(148,163,184,0.30)" }}
+                title="下一張"
+              >
+                <i className="fa-solid fa-chevron-right" />
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={goNext}
-              className="w-7 h-7 rounded-full border flex items-center justify-center text-[11px]"
-              style={{ borderColor: "rgba(148,163,184,0.30)" }}
-              title="下一張"
-            >
-              <i className="fa-solid fa-chevron-right" />
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div
-        className="rounded-xl border px-3 py-2 text-xs"
-        style={{
-          borderColor: "rgba(148,163,184,0.25)",
-          backgroundColor: "rgba(148,163,184,0.06)",
-        }}
-      >
-        <div className="font-medium break-words">{displayTitle}</div>
-
-        {metaParts.length > 0 && (
-          <div className="mt-1 text-[11px] opacity-60">
-            {metaParts.join(" ｜ ")}
-          </div>
-        )}
-
-        {cleanSnippet && (
-          <div
-            className="mt-2 break-words opacity-80 text-[12px] leading-relaxed"
-            style={{
-              display: "-webkit-box",
-              WebkitLineClamp: 4,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-            }}
-          >
-            {cleanSnippet}
-            {r.snippet && r.snippet.length > 180 ? "…" : ""}
-          </div>
-        )}
-
-        <div className="mt-2 flex flex-wrap gap-2">
-          {resolvedViewUrl && (
-            <a
-              href={resolvedViewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 rounded-full border text-[11px]"
-              style={{ borderColor: "rgba(148,163,184,0.30)" }}
-            >
-              查看文件
-            </a>
-          )}
-
-          {resolvedDownloadUrl && (
-            <a
-              href={resolvedDownloadUrl}
-              download
-              className="px-3 py-1.5 rounded-full border text-[11px]"
-              style={{ borderColor: "rgba(148,163,184,0.30)" }}
-            >
-              下載
-            </a>
           )}
         </div>
+
+        <div
+          className="rounded-xl border px-3 py-2 text-xs"
+          style={{
+            borderColor: "rgba(148,163,184,0.25)",
+            backgroundColor: "rgba(148,163,184,0.06)",
+          }}
+        >
+          <div className="font-medium break-words">{displayTitle}</div>
+
+          {metaParts.length > 0 && (
+            <div className="mt-1 text-[11px] opacity-60">
+              {metaParts.join(" ｜ ")}
+            </div>
+          )}
+
+          {cleanSnippet && (
+            <div
+              className="mt-2 break-words opacity-80 text-[12px] leading-relaxed"
+              style={{
+                display: "-webkit-box",
+                WebkitLineClamp: 4,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {cleanSnippet}
+              {r.snippet && r.snippet.length > 180 ? "…" : ""}
+            </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            {resolvedViewUrl ? (
+              <a href={resolvedViewUrl} target="_blank" rel="noreferrer">
+                查看文件
+              </a>
+            ) : r.external_url ? (
+              <a href={r.external_url} target="_blank" rel="noreferrer">
+                前往連結
+              </a>
+            ) : null}
+
+            {resolvedDownloadUrl ? (
+              <a href={resolvedDownloadUrl} target="_blank" rel="noreferrer">
+                下載
+              </a>
+            ) : null}
+          </div>
+        </div>
       </div>
-    </div>
-  );
-}
-
-  function renderResources(resources?: ChatResource[]) {
-  if (!resources || resources.length === 0) return null;
-
-  // 1) 先去重：同一份教材只留一筆，優先用 material_id
-  const bestByKey = new Map<string, ChatResource>();
-
-  for (const r of resources) {
-    const key =
-      (r.material_id && `mid:${r.material_id}`) ||
-      (r.display_title && `title:${r.display_title.trim().toLowerCase()}`) ||
-      (r.title && `title:${r.title.trim().toLowerCase()}`) ||
-      (r.url && `url:${r.url}`) ||
-      (r.download_url && `download:${r.download_url}`) ||
-      `fallback:${Math.random()}`;
-
-    const prev = bestByKey.get(key);
-
-    const prevScore =
-      typeof prev?.score === "number" && !Number.isNaN(prev.score)
-        ? prev.score
-        : -1;
-
-    const nextScore =
-      typeof r?.score === "number" && !Number.isNaN(r.score)
-        ? r.score
-        : -1;
-
-    // 同一份資料重複時，保留分數比較高的那筆
-    if (!prev || nextScore > prevScore) {
-      bestByKey.set(key, r);
-    }
+    );
   }
 
-  const deduped = Array.from(bestByKey.values()).sort((a, b) => {
-    const aScore =
-      typeof a?.score === "number" && !Number.isNaN(a.score) ? a.score : -1;
-    const bScore =
-      typeof b?.score === "number" && !Number.isNaN(b.score) ? b.score : -1;
-    return bScore - aScore;
-  });
+  function renderResources(resources?: ChatResource[]) {
+    if (!resources || resources.length === 0) return null;
 
-  // 2) 先挑 >= 0.5 的
-  const highScore = deduped.filter(
-    (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
-  );
+    // 1) 先去重：同一份教材只留一筆，優先用 material_id
+    const bestByKey = new Map<string, ChatResource>();
 
-  // 3) 有高分就只顯示高分；沒有就顯示原本去重後的資料
-  const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
+    for (const r of resources) {
+      const key =
+        (r.material_id && `mid:${r.material_id}`) ||
+        (r.url && `url:${r.url}`) ||
+        (r.download_url && `download:${r.download_url}`) ||
+        (r.external_url && `ext:${r.external_url}`) ||
+        (r.display_title && `title:${r.display_title.trim().toLowerCase()}`) ||
+        (r.title && `title:${r.title.trim().toLowerCase()}`) ||
+        `fallback:${Math.random()}`;
 
-  if (finalResources.length === 0) return null;
+      const prev = bestByKey.get(key);
 
-  return <ResourceCarousel resources={finalResources} />;
-}
+      const prevScore =
+        typeof prev?.score === "number" && !Number.isNaN(prev.score)
+          ? prev.score
+          : -1;
+
+      const nextScore =
+        typeof r?.score === "number" && !Number.isNaN(r.score)
+          ? r.score
+          : -1;
+
+      // 同一份資料重複時，保留分數比較高的那筆
+      if (!prev || nextScore > prevScore) {
+        bestByKey.set(key, r);
+      }
+    }
+
+    const deduped = Array.from(bestByKey.values()).sort((a, b) => {
+      const aScore =
+        typeof a?.score === "number" && !Number.isNaN(a.score) ? a.score : -1;
+      const bScore =
+        typeof b?.score === "number" && !Number.isNaN(b.score) ? b.score : -1;
+      return bScore - aScore;
+    });
+
+    // 2) 先挑 >= 0.5 的
+    const highScore = deduped.filter(
+      (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
+    );
+
+    // 3) 有高分就只顯示高分；沒有就顯示原本去重後的資料
+    const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
+
+    if (finalResources.length === 0) return null;
+
+    return <ResourceCarousel resources={finalResources} />;
+  }
 
   function renderMessageFiles(files?: UploadedFile[]) {
     if (!files || files.length === 0) return null;
@@ -3447,7 +3443,7 @@ function LLMClient() {
             ) || "";
         }
 
-        const bootResources: ChatResource[] = Array.isArray(resp?.resources)
+        const botResources: ChatResource[] = Array.isArray(resp?.resources)
           ? resp.resources.map((r: any) => ({
             title: String(r?.title ?? "未命名來源"),
             display_title: r?.display_title
@@ -3455,16 +3451,17 @@ function LLMClient() {
               : String(r?.title ?? "未命名來源"),
             url: r?.url ? String(r.url) : undefined,
             download_url: r?.download_url ? String(r.download_url) : undefined,
+            external_url: r?.external_url ? String(r.external_url) : undefined,
             source_type: r?.source_type ? String(r.source_type) : undefined,
             page: r?.page ? String(r.page) : undefined,
             snippet: r?.snippet ? String(r.snippet) : undefined,
+            material_id: r?.material_id ? String(r.material_id) : undefined,
             score:
               typeof r?.score === "number"
                 ? r.score
                 : r?.score != null
                   ? Number(r.score)
                   : undefined,
-            material_id: r?.material_id ? String(r.material_id) : undefined,
           }))
           : [];
 
@@ -3474,7 +3471,7 @@ function LLMClient() {
             id: Date.now() + 1,
             role: "assistant",
             content: String(answerText),
-            resources: bootResources,
+            resources: botResources,
           },
         ]);
 

@@ -1,7 +1,9 @@
 # 這個 main.py 是 S2 Legacy Agent 的核心後端服務，提供聊天、檔案上傳、對話管理等 API。
+
 from __future__ import annotations
 
 import json
+
 import re
 import sys
 import uuid
@@ -147,6 +149,7 @@ def _format_sources_for_text(sources: list[dict] | None) -> str:
     for i, s in enumerate(sources, 1):
         if not isinstance(s, dict):
             continue
+    
 
         title = (
             s.get("title")
@@ -198,6 +201,14 @@ def _build_resources(sources: list[dict] | None) -> list[ChatResource]:
         if not isinstance(s, dict):
             continue
 
+        # 先過濾低分來源
+        try:
+            score = s.get("score")
+            if score is not None and float(score) < 0.65:
+                continue
+        except Exception:
+            pass
+
         title = (
             s.get("title")
             or s.get("file")
@@ -229,10 +240,8 @@ def _build_resources(sources: list[dict] | None) -> list[ChatResource]:
         if not url and file_stem_str:
             candidates = []
 
-            # 先試原字串
             candidates.append(file_stem_str)
 
-            # 再試補副檔名
             lower_name = file_stem_str.lower()
             if not any(lower_name.endswith(ext) for ext in allowed_exts):
                 for ext in allowed_exts:
@@ -282,6 +291,7 @@ def _build_resources(sources: list[dict] | None) -> list[ChatResource]:
                 source_type=str(source_type) if source_type else None,
                 page=page,
                 snippet=str(snippet)[:300] if snippet else None,
+                score=float(s.get("score")) if s.get("score") is not None else None,
             )
         )
 
@@ -641,9 +651,82 @@ def agent_chat(req: ChatRequest):
             clean_q_for_answer = clean_q
 
         #  3) 用 doc_rag（命中才會引用 doc/網址 chunk）
-        ans_text, sources = answer_with_doc_rag(clean_q_for_answer, session)
+        # ans_text, sources = answer_with_doc_rag(clean_q_for_answer, session)
+        
+        has_fresh_uploads = False
+        for m in req.messages:
+            if getattr(m, "role", None) != "user":
+                continue
+
+            msg_type = getattr(m, "type", None)
+            msg_url = getattr(m, "url", None)
+            msg_content = getattr(m, "content", None) or ""
+
+            if msg_type in {"image", "file"} and msg_url:
+                has_fresh_uploads = True
+                break
+
+            if "/uploads/" in str(msg_content):
+                has_fresh_uploads = True
+                break
+
+        ans_text, sources = answer_with_doc_rag(
+            clean_q_for_answer,
+            session,
+            has_fresh_uploads=has_fresh_uploads,
+        )
+        
+        
+        print("DEBUG clean_q =", clean_q)
+        print("DEBUG clean_q_for_answer =", clean_q_for_answer)
+        print("DEBUG rag_mode =", rag_mode)
+
+        print("DEBUG source scores start")
+        for i, s in enumerate(sources or [], 1):
+            try:
+                title = s.get("title") or s.get("display_title") or f"source-{i}"
+                score = s.get("score")
+                source_type = s.get("source_type") or s.get("kind")
+                page = s.get("page")
+                chunk = s.get("chunk")
+                print(
+                    f"[{i}] score={score} | type={source_type} | page={page} | chunk={chunk} | title={title}"
+                )
+            except Exception as e:
+                print(f"[{i}] source print failed: {e}")
+        print("DEBUG source scores end")
+        
         # ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
         ans_text_out = (ans_text or "").strip()
+
+        # 問題很短時，至少要求主關鍵詞要真的出現在來源裡
+        if len(clean_q) <= 12:
+            filtered_sources = []
+            main_terms = []
+
+            if "血友病" in clean_q:
+                main_terms.append("血友病")
+            if "骨質疏鬆" in clean_q:
+                main_terms.append("骨質疏鬆")
+            if "停經" in clean_q:
+                main_terms.append("停經")
+            if "糖尿病" in clean_q:
+                main_terms.append("糖尿病")
+
+            for s in sources or []:
+                blob = " ".join([
+                    str(s.get("title") or ""),
+                    str(s.get("snippet") or ""),
+                    str(s.get("text") or ""),
+                ])
+
+                if main_terms and not any(term in blob for term in main_terms):
+                    continue
+
+                filtered_sources.append(s)
+
+            sources = filtered_sources
+
         resources = _build_resources(sources)
 
         print("DEBUG sources =", sources)

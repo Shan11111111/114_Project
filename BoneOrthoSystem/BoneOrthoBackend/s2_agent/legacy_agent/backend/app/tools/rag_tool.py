@@ -18,7 +18,7 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "bone_edu_docs")
 
 EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 TOP_K = int(os.getenv("RAG_TOP_K", "6"))
-MIN_RAG_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.5"))
+MIN_RAG_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.65"))
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 qdrant = (
@@ -27,6 +27,22 @@ qdrant = (
     else QdrantClient(url=QDRANT_URL)
 )
 
+_GUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+def _is_guid_like(v: Any) -> bool:
+    if v is None:
+        return False
+    s = str(v).strip()
+    return bool(_GUID_RE.fullmatch(s))
+
+
+def _is_https_url(v: Any) -> bool:
+    if v is None:
+        return False
+    s = str(v).strip()
+    return s.startswith("https://")
 
 def _sanitize_for_llm(text: str) -> str:
     s = str(text or "")
@@ -111,10 +127,35 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
 
     page = payload.get("page") or payload.get("pageno") or payload.get("page_no")
     chunk = payload.get("chunk") or payload.get("chunk_id") or payload.get("chunk_index")
-    material_id = payload.get("material_id")
 
-    base_view_path = f"/s2/llm/materials/{material_id}/view" if material_id else None
-    base_download_path = f"/s2/llm/materials/{material_id}/download" if material_id else None
+    raw_material_id = payload.get("material_id")
+    material_id = str(raw_material_id).strip() if raw_material_id is not None else None
+    safe_material_id = material_id if _is_guid_like(material_id) else None
+
+    raw_url = str(
+        payload.get("url")
+        or payload.get("download_url")
+        or payload.get("file_url")
+        or payload.get("path")
+        or ""
+    ).strip()
+
+    source_type = str(payload.get("source_type") or payload.get("kind") or payload.get("type") or "qdrant").strip().lower()
+
+    # upload 不要進參考資料可點連結
+    if source_type == "upload":
+        base_view_path = None
+        base_download_path = None
+        external_url = None
+    elif safe_material_id:
+        base_view_path = f"/s2/llm/materials/{safe_material_id}/view"
+        base_download_path = f"/s2/llm/materials/{safe_material_id}/download"
+        external_url = raw_url if _is_https_url(raw_url) else None
+    else:
+        # 外部網站 / 其他可公開網址
+        base_view_path = raw_url if raw_url and not re.search(r"/uploads/", raw_url, re.I) else None
+        base_download_path = raw_url if raw_url and not re.search(r"/uploads/", raw_url, re.I) else None
+        external_url = raw_url if _is_https_url(raw_url) else None
 
     raw_snippet = payload.get("snippet") or payload.get("text") or payload.get("content") or ""
     snippet = ""
@@ -154,12 +195,13 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         "chunk": chunk,
         "url": base_view_path,
         "download_url": base_download_path,
+        "external_url": external_url,
         "score": float(score) if score is not None else None,
         "snippet": snippet,
-        "kind": payload.get("kind") or payload.get("type") or "qdrant",
+        "kind": source_type,
         "material_id": material_id,
+        "source_type": source_type,
     }
-
 
 def _build_history_context(session: dict | None, keep_last: int = 6) -> str:
     if not session:
@@ -354,7 +396,25 @@ def answer_with_rag(user_q: str, session: dict | None = None) -> Tuple[str, List
         return "檢索有命中，但生成回答時發生錯誤（請看後端 log）。", sources
     
     
-    
+def _is_material_source(s: Dict[str, Any]) -> bool:
+    if not isinstance(s, dict):
+        return False
+
+    source_type = (s.get("source_type") or s.get("kind") or "").strip().lower()
+
+    # upload 只供回答，不進參考資料區
+    if source_type == "upload":
+        return False
+
+    raw_material_id = s.get("material_id")
+
+    if source_type in {"material", "teaching_material", "db_material", "doc_index", "qdrant", "url"}:
+        return True
+
+    if raw_material_id:
+        return True
+
+    return False
     
 def _doc_source_to_prompt_block(s: Dict[str, Any], idx: int) -> str:
     title = _sanitize_for_llm(s.get("title") or f"doc-{idx}")
@@ -369,33 +429,72 @@ def _normalize_doc_sources(doc_sources: List[Dict[str, Any]]) -> List[Dict[str, 
         if not isinstance(s, dict):
             continue
 
+        source_type = (s.get("source_type") or s.get("kind") or "").strip().lower()
+
+        # upload 可回答，但不要進參考資料區
+        if source_type == "upload":
+            continue
+
+        if not _is_material_source(s):
+            continue
+
         text = _sanitize_for_llm(s.get("text") or "")
         snippet = re.sub(r"\s+", " ", text)[:160].strip()
-        
         if len(text) > 160:
             snippet += "…"
+
+        raw_material_id = s.get("material_id")
+        material_id = str(raw_material_id).strip() if raw_material_id is not None else None
+        safe_material_id = material_id if _is_guid_like(material_id) else None
+
+        raw_url = str(
+            s.get("url")
+            or s.get("download_url")
+            or s.get("file_url")
+            or s.get("path")
+            or ""
+        ).strip()
+
+        if safe_material_id:
+            view_url = f"/s2/llm/materials/{safe_material_id}/view"
+            download_url = f"/s2/llm/materials/{safe_material_id}/download"
+            external_url = raw_url if _is_https_url(raw_url) else None
+        else:
+            # 非教材 GUID：只允許公開 https 網址
+            if _is_https_url(raw_url):
+                view_url = raw_url
+                download_url = raw_url
+                external_url = raw_url
+            else:
+                view_url = None
+                download_url = None
+                external_url = None
 
         out.append(
             {
                 "title": _sanitize_for_llm(s.get("title") or "未命名文件"),
                 "display_title": _sanitize_for_llm(s.get("title") or "未命名文件"),
-                "page": None,
-                "chunk": s.get("chunk_index"),
-                "url": s.get("url"),
-                "download_url": s.get("url"),
+                "page": s.get("page") or s.get("pageno") or s.get("page_no"),
+                "chunk": s.get("chunk") or s.get("chunk_id") or s.get("chunk_index"),
+                "url": view_url,
+                "download_url": download_url,
+                "external_url": external_url,
                 "score": float(s.get("score") or 0.0),
                 "snippet": snippet,
-                "kind": s.get("source_type") or "doc_index",
-                "material_id": s.get("material_id"),
-                "source_type": s.get("source_type") or "doc_index",
+                "kind": source_type,
+                "material_id": material_id,
+                "source_type": source_type,
                 "text": text,
             }
         )
 
     return out
 
-
-def answer_with_doc_rag(user_q: str, session: dict | None = None) -> Tuple[str, List[Dict[str, Any]]]:
+def answer_with_doc_rag(
+    user_q: str,
+    session: dict | None = None,
+    has_fresh_uploads: bool = False,
+) -> Tuple[str, List[Dict[str, Any]]]:
     user_q = (user_q or "").strip()
     if not user_q:
         return "你問的內容是空的，我沒辦法檢索。請再輸入一次。", []
@@ -403,9 +502,11 @@ def answer_with_doc_rag(user_q: str, session: dict | None = None) -> Tuple[str, 
     retrieval_query = _build_retrieval_query(user_q, session, keep_last_user=3)
     history_context = _build_history_context(session, keep_last=6)
 
-    # 1) 先查本地 doc index
     doc_sources_raw: List[Dict[str, Any]] = []
-    if doc_rag_enabled():
+    vector_sources: List[Dict[str, Any]] = []
+
+    # 1) 有新上傳檔案時，先查 doc/file
+    if doc_rag_enabled() and has_fresh_uploads:
         try:
             doc_sources_raw = doc_retrieve(retrieval_query, top_k=TOP_K)
             if not doc_sources_raw and retrieval_query != user_q:
@@ -414,61 +515,99 @@ def answer_with_doc_rag(user_q: str, session: dict | None = None) -> Tuple[str, 
             print(f"❌ doc_rag retrieve error: {e}")
             doc_sources_raw = []
 
-    # 2) 有命中文件索引，就優先用文件索引回答
-    if doc_sources_raw:
-        sources = _normalize_doc_sources(doc_sources_raw)
+    # 2) 不管有沒有新檔，都查既有向量知識庫當補充
+    try:
+        vector_sources = retrieve_sources(retrieval_query, top_k=TOP_K)
+        if not vector_sources and retrieval_query != user_q:
+            vector_sources = retrieve_sources(user_q, top_k=TOP_K)
+    except Exception as e:
+        print(f"❌ vector_rag retrieve error: {e}")
+        vector_sources = []
 
-        context_lines = []
-        for i, s in enumerate(doc_sources_raw, 1):
-            context_lines.append(_doc_source_to_prompt_block(s, i))
+    # 3) 給 LLM 的上下文：doc + vector 混合
+    context_lines: List[str] = []
 
-        context = "\n\n".join(context_lines)
+    for i, s in enumerate(doc_sources_raw, 1):
+        context_lines.append(f"【上傳檔案來源 #{i}】\n{_doc_source_to_prompt_block(s, i)}")
 
-        system = (
-            "你是骨科衛教/判讀輔助的助手。你只能根據【提供的文件檢索片段】回答。\n"
-            "如果片段不足以支持結論，必須明確說資料不足，不要自行腦補。\n"
-            "回答要清楚、專業口語化、可直接給老師看。\n"
-            "不要在正文中輸出 source、【Sources】、【參考資料】、來源編號、score、頁碼或任何引用清單。\n"
-            "若使用者問題像是追問，請優先結合【最近對話歷史】理解主詞與上下文。\n"
+    for i, s in enumerate(vector_sources, 1):
+        title = _sanitize_for_llm(s.get("display_title") or s.get("title") or f"kb-{i}")
+        snippet = _sanitize_for_llm(s.get("snippet") or "")
+        context_lines.append(f"【知識庫來源 #{i}】\n[{title}]\n{snippet}")
+
+    # 4) 前端參考資料：只顯示可公開/教材來源，不顯示 upload
+    doc_resources = _normalize_doc_sources(doc_sources_raw)
+    merged_resources = doc_resources + vector_sources
+
+    # 去重：優先用 material_id，其次 url/title
+    deduped_resources: List[Dict[str, Any]] = []
+    seen = set()
+    for s in merged_resources:
+        key = (
+            s.get("material_id")
+            or s.get("url")
+            or s.get("download_url")
+            or s.get("title")
         )
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped_resources.append(s)
 
-        prompt = (
-            f"【最近對話歷史】\n{history_context or '（無）'}\n\n"
-            f"【使用者問題】\n{user_q}\n\n"
-            f"【文件檢索片段（可引用）】\n{context}\n\n"
-            "請輸出：\n"
-            "1) 知識庫回答\n"
-            "2) 判讀/衛教重點（專業的敘述，請列點敘述）\n"
-            "3) 注意事項（你不確定就說不確定）\n"
-            "不要輸出 Sources、參考資料、來源編號、score、頁碼。\n"
+    if not context_lines:
+        print("DEBUG no doc/vector hit, fallback to vector rag default path")
+        return answer_with_rag(user_q, session)
+
+    context = "\n\n".join(context_lines)
+
+    system = (
+        "你是骨科衛教/判讀輔助的助手。你只能根據【提供的檢索片段】回答。\n"
+        "若上傳檔案內容不足，請優先再結合既有知識庫片段補充，不要只因檔案沒寫就直接結束。\n"
+        "如果整體片段仍不足以支持結論，必須明確說資料不足，不要自行腦補。\n"
+        "回答要清楚、專業口語化、可直接給老師看。\n"
+        "不要在正文中輸出 source、【Sources】、【參考資料】、來源編號、score、頁碼或任何引用清單。\n"
+        "若使用者問題像是追問，請優先結合【最近對話歷史】理解主詞與上下文。\n"
+    )
+
+    prompt = (
+        f"【最近對話歷史】\n{history_context or '（無）'}\n\n"
+        f"【使用者問題】\n{user_q}\n\n"
+        f"【檢索片段（可引用，含上傳檔案與既有知識庫）】\n{context}\n\n"
+        "請輸出：\n"
+        "1) 綜合回答\n"
+        "2) 判讀/衛教重點（列點）\n"
+        "3) 注意事項（你不確定就說不確定）\n"
+        "若上傳檔案沒有直接答案，但知識庫有相關內容，請明確補充說明。\n"
+        "不要輸出 Sources、參考資料、來源編號、score、頁碼。\n"
+    )
+
+    try:
+        safe_system = _sanitize_for_llm(system)
+        safe_prompt = _sanitize_for_llm(prompt)
+
+        chat = client.chat.completions.create(
+            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+            messages=[
+                {"role": "system", "content": safe_system},
+                {"role": "user", "content": safe_prompt},
+            ],
+            temperature=0.2,
         )
+        ans = chat.choices[0].message.content or ""
+        ans = re.split(
+            r"\n[-—–]*\s*\[?\s*(Sources|參考資料|Resources)\s*\]?\s*",
+            ans,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0]
 
-        try:
-            safe_system = _sanitize_for_llm(system)
-            safe_prompt = _sanitize_for_llm(prompt)
-            
-            chat = client.chat.completions.create(
-                model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-                messages=[
-                    {"role": "system", "content": safe_system},
-                    {"role": "user", "content": safe_prompt},
-                ],
-                temperature=0.2,
-            )
-            ans = chat.choices[0].message.content or ""
-            ans = re.split(
-                r"\n[-—–]*\s*\[?\s*(Sources|參考資料|Resources)\s*\]?\s*",
-                ans,
-                maxsplit=1,
-                flags=re.IGNORECASE,
-            )[0]
-            print("✅ DOC RAG HIT")
-            print("DEBUG doc retrieval_query =", retrieval_query)
-            return ans.strip(), sources
-        except Exception as e:
-            print(f"❌ DOC RAG answer failed: {e}")
-            return "文件檢索有命中，但生成回答時發生錯誤（請看後端 log）。", sources
+        print("✅ HYBRID DOC+VECTOR RAG HIT")
+        print("DEBUG doc retrieval_query =", retrieval_query)
+        print("DEBUG doc_sources =", len(doc_sources_raw))
+        print("DEBUG vector_sources =", len(vector_sources))
 
-    # 3) doc index 沒命中，退回原本 Qdrant RAG
-    print("DEBUG doc_rag no hit, fallback to vector rag")
-    return answer_with_rag(user_q, session)
+        return ans.strip(), deduped_resources
+
+    except Exception as e:
+        print(f"❌ HYBRID DOC+VECTOR RAG answer failed: {e}")
+        return "檢索有命中，但生成回答時發生錯誤（請看後端 log）。", deduped_resources
