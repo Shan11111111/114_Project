@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any, Iterable, Sequence, Tuple, Callabl
 
 import pyodbc
 
+
 # =========================
 # SQL Server Connection
 # =========================
@@ -237,6 +238,35 @@ def get_conversation_messages(conversation_id: str) -> List[Dict[str, Any]]:
 
     return rows
 
+def update_conversation_title(conversation_id: str, title: str) -> None:
+    conv_id = session_to_conversation_uuid(str(conversation_id))
+    sql = """
+    UPDATE agent.Conversation
+    SET Title = ?, UpdatedAt = SYSUTCDATETIME()
+    WHERE ConversationId = ?;
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, title, conv_id)
+        conn.commit()
+
+
+def delete_conversation(conversation_id: str) -> None:
+    conv_id = session_to_conversation_uuid(str(conversation_id))
+    sql1 = "DELETE FROM agent.ConversationMessage WHERE ConversationId = ?;"
+    sql2 = "DELETE FROM agent.Conversation WHERE ConversationId = ?;"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql1, conv_id)
+        cur.execute(sql2, conv_id)
+        conn.commit()
+
+
+def get_messages(conversation_id: str):
+    return get_conversation_messages(conversation_id)
+
+
+
 def add_message(
     conversation_id: str,
     role: str,
@@ -251,21 +281,64 @@ def add_message(
     raw = str(conversation_id)
     conv_id = session_to_conversation_uuid(raw)
     uid = (user_id or "guest").strip() or "guest"
-    ensure_conversation_exists(conv_id, user_id=uid, source="s2x")
-    # (你原本這裡就沒寫完，我不亂補，以免影響你們 S2 現況)
-    return conv_id
 
-def update_conversation_title(conversation_id: str, title: str) -> None:
-    conv_id = session_to_conversation_uuid(str(conversation_id))
+    ensure_conversation_exists(conv_id, user_id=uid, source="s2x")
+
+    meta: Dict[str, Any] = {}
+
+    if bone_id is not None:
+        meta["bone_id"] = bone_id
+    if small_bone_id is not None:
+        meta["small_bone_id"] = small_bone_id
+    if sources is not None:
+        meta["sources"] = sources
+
+    for key in ["source", "rag_mode", "session_id", "filetype", "url", "message_type"]:
+        if key in kwargs and kwargs[key] is not None:
+            meta[key] = kwargs[key]
+
+    meta_json = json.dumps(meta, ensure_ascii=False) if meta else None
+    message_id = str(uuid.uuid4())
+
     sql = """
-    UPDATE agent.Conversation
-    SET Title = ?, UpdatedAt = SYSUTCDATETIME()
-    WHERE ConversationId = ?;
+    INSERT INTO agent.ConversationMessage
+    (
+        MessageId,
+        ConversationId,
+        Role,
+        Content,
+        AttachmentsJson,
+        MetaJson,
+        CreatedAt
+    )
+    VALUES
+    (
+        ?, ?, ?, ?, ?, ?, SYSUTCDATETIME()
+    );
     """
+
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql, title, conv_id)
+        cur.execute(
+            sql,
+            message_id,
+            conv_id,
+            role,
+            content or "",
+            attachments_json,
+            meta_json,
+        )
+        cur.execute(
+            """
+            UPDATE agent.Conversation
+            SET UpdatedAt = SYSUTCDATETIME()
+            WHERE ConversationId = ?
+            """,
+            conv_id,
+        )
         conn.commit()
+
+    return conv_id
 
 def delete_conversation(conversation_id: str) -> None:
     conv_id = session_to_conversation_uuid(str(conversation_id))
