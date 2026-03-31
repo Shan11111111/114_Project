@@ -204,7 +204,7 @@ def _build_resources(sources: list[dict] | None) -> list[ChatResource]:
         # 先過濾低分來源
         try:
             score = s.get("score")
-            if score is not None and float(score) < 0.65:
+            if score is not None and float(score) < 0.55:
                 continue
         except Exception:
             pass
@@ -699,33 +699,48 @@ def agent_chat(req: ChatRequest):
         # ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
         ans_text_out = (ans_text or "").strip()
 
-        # 問題很短時，至少要求主關鍵詞要真的出現在來源裡
-        if len(clean_q) <= 12:
+        # 問題很短時，做較寬鬆的主題過濾，避免完全不相關來源混進來
+        if len(clean_q) <= 4:
             filtered_sources = []
-            main_terms = []
 
-            if "血友病" in clean_q:
-                main_terms.append("血友病")
-            if "骨質疏鬆" in clean_q:
-                main_terms.append("骨質疏鬆")
-            if "停經" in clean_q:
-                main_terms.append("停經")
-            if "糖尿病" in clean_q:
-                main_terms.append("糖尿病")
+            # 同義詞 / 簡寫 群組
+            synonym_groups = [
+                ["血友病"],
+                ["骨質疏鬆", "骨鬆", "骨質疏松"],
+                ["停經", "更年期", "停經後"],
+                ["糖尿病", "糖尿"],
+                ["退化性關節炎", "退化", "關節退化", "關節炎"],
+                ["高血壓", "血壓高"],
+                ["骨折", "斷掉", "裂掉"]
+            ]
+
+            matched_terms = []
+            for group in synonym_groups:
+                if any(term in clean_q for term in group):
+                    matched_terms.extend(group)
 
             for s in sources or []:
                 blob = " ".join([
                     str(s.get("title") or ""),
                     str(s.get("snippet") or ""),
                     str(s.get("text") or ""),
-                ])
+                ]).lower()
 
-                if main_terms and not any(term in blob for term in main_terms):
+                # 有抓到主題詞時，來源只要命中任一同義詞就保留
+                if matched_terms and not any(term.lower() in blob for term in matched_terms):
                     continue
 
                 filtered_sources.append(s)
 
-            sources = filtered_sources
+            # 保底：如果過濾完是空的，就不要覆蓋原本 sources
+            if filtered_sources:
+                sources = filtered_sources
+                    
+            
+            
+            
+            
+            
 
         resources = _build_resources(sources)
 
@@ -814,10 +829,27 @@ def api_get_conversation_messages(conversation_id: str):
     rows = get_messages(conversation_id)
 
     messages: list[ChatMessage] = []
-    for r in rows:
+    resources_by_msg_index: dict[int, list[ChatResource]] = {}
+
+    for idx, r in enumerate(rows):
         role = r.get("Role") or r.get("role")
         content = r.get("Content") or r.get("content")
-        attachments_json = r.get("AttachmentsJson") or r.get("attachments_json") or r.get("attachments")
+        attachments_json = (
+            r.get("AttachmentsJson")
+            or r.get("attachments_json")
+            or r.get("attachments")
+        )
+
+        meta_json = r.get("MetaJson") or r.get("meta_json") or r.get("meta")
+        sources_raw = None
+
+        if meta_json:
+            try:
+                meta_obj = json.loads(meta_json) if isinstance(meta_json, str) else meta_json
+                if isinstance(meta_obj, dict):
+                    sources_raw = meta_obj.get("sources")
+            except Exception:
+                sources_raw = None
 
         msg_type = "text"
         url = None
@@ -840,12 +872,19 @@ def api_get_conversation_messages(conversation_id: str):
 
         messages.append(m)
 
+        if role == "assistant" and isinstance(sources_raw, list):
+            resources_by_msg_index[idx] = _build_resources(sources_raw)
+
     cid = session_to_conversation_uuid(str(conversation_id))
     session = get_session(cid)
     session["messages"] = messages
 
-    return ChatResponse(messages=messages, actions=[], conversation_id=cid)
-
+    return ChatResponse(
+        messages=messages,
+        actions=[],
+        conversation_id=cid,
+        resources_by_msg_index=resources_by_msg_index,
+    )
 
 @app.delete("/agent/conversations/{conversation_id}")
 def api_delete_conversation(conversation_id: str):

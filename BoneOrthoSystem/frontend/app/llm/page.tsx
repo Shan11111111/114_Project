@@ -63,12 +63,17 @@ type HistoryThread = {
   sessionId?: string; //  新增：不顯示，只用於繼續聊天
 };
 
+type HistoryMessageWithResources = HistoryMessage & {
+  resources?: ChatResource[];
+};
+
 type HistoryMessage = {
   id: string;
   threadId: string;
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  resources?: ChatResource[];
 };
 
 type RagMode = "file_then_vector" | "vector_only" | "file_only" | "pubmed_only" | "soap_only";
@@ -1637,24 +1642,25 @@ function LLMClient() {
 
   //   新增：push 到 historyMessages（讓 overlay / reload 都有內容）
   function pushHistoryMessage(
-    threadId: string,
-    role: "user" | "assistant",
-    content: string
-  ) {
-    if (!threadId) return;
-    const createdAt = nowText();
-    setHistoryMessages((prev) => [
-      ...prev,
-      {
-        id: `${threadId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        threadId,
-        role,
-        content: String(content ?? ""),
-        createdAt,
-      },
-    ]);
-  }
-
+  threadId: string,
+  role: "user" | "assistant",
+  content: string,
+  resources?: ChatResource[]
+) {
+  if (!threadId) return;
+  const createdAt = nowText();
+  setHistoryMessages((prev) => [
+    ...prev,
+    {
+      id: `${threadId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      threadId,
+      role,
+      content: String(content ?? ""),
+      createdAt,
+      resources,
+    },
+  ]);
+}
   //   新增：用第一句生成 title（跟你 UI 現在的 18 字一致）
   function makeAutoTitleFromText(userText: string) {
     const t = (userText || "").trim().replace(/\s+/g, " ");
@@ -1800,11 +1806,12 @@ function LLMClient() {
       .filter((t: any) => t.id);
   }
 
-  async function fetchConversationMessages(cid: string) {
+  async function fetchConversationMessages(cid: string): Promise<HistoryMessageWithResources[]> {
     const res = await fetch(API.getMsgs(cid), {
       method: "GET",
       headers: buildAuthHeaders(),
     });
+
     const raw = await res.text();
     const data = safeJsonParse(raw);
 
@@ -1818,38 +1825,72 @@ function LLMClient() {
         ? data
         : [];
 
-    const mapped: HistoryMessage[] = items.map((m: any, idx: number) => ({
-      id: String(m.id ?? `${cid}-${idx}`),
-      threadId: cid,
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: String(m.content ?? m.message ?? ""),
-      createdAt: String(m.createdAt ?? m.created_at ?? m.time ?? ""),
-    }));
+    const resourcesByMsgIndex =
+      (data as any)?.resources_by_msg_index &&
+        typeof (data as any).resources_by_msg_index === "object"
+        ? (data as any).resources_by_msg_index
+        : {};
+
+    const mapped: HistoryMessageWithResources[] = items.map((m: any, idx: number) => {
+      const rawResources = Array.isArray(resourcesByMsgIndex?.[idx])
+        ? resourcesByMsgIndex[idx]
+        : [];
+
+      const resources: ChatResource[] = rawResources.map((r: any) => ({
+        title: String(r?.title ?? "未命名來源"),
+        display_title: r?.display_title
+          ? String(r.display_title)
+          : String(r?.title ?? "未命名來源"),
+        url: r?.url ? String(r.url) : undefined,
+        download_url: r?.download_url ? String(r.download_url) : undefined,
+        external_url: r?.external_url ? String(r.external_url) : undefined,
+        source_type: r?.source_type ? String(r.source_type) : undefined,
+        page: r?.page ? String(r.page) : undefined,
+        snippet: r?.snippet ? String(r.snippet) : undefined,
+        material_id: r?.material_id ? String(r.material_id) : undefined,
+        score:
+          typeof r?.score === "number"
+            ? r.score
+            : r?.score != null
+              ? Number(r.score)
+              : undefined,
+      }));
+
+      return {
+        id: String(m.id ?? `${cid}-${idx}`),
+        threadId: cid,
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: String(m.content ?? m.message ?? ""),
+        createdAt: String(m.createdAt ?? m.created_at ?? m.time ?? ""),
+        resources,
+      };
+    });
 
     return mapped;
   }
 
-  function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
-    const threadMsgs = historyMessages
-      .filter((m) => m.threadId === threadId)
-      .map((m, idx) => ({
-        id: Date.now() + idx,
-        role: m.role,
-        content: m.content,
-      }));
+ function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
+  const threadMsgs = historyMessages
+    .filter((m) => m.threadId === threadId)
+    .map((m, idx) => ({
+      id: Date.now() + idx,
+      role: m.role,
+      content: m.content,
+      resources: (m as HistoryMessageWithResources).resources,
+    }));
 
-    if (threadMsgs.length === 0) {
-      return [
-        {
-          id: 1,
-          role: "assistant",
-          content: WELCOME_TEXT,
-        },
-      ];
-    }
-
-    return threadMsgs;
+  if (threadMsgs.length === 0) {
+    return [
+      {
+        id: 1,
+        role: "assistant",
+        content: WELCOME_TEXT,
+      },
+    ];
   }
+
+  return threadMsgs;
+}
 
   function resetMainInputBox() {
     setDraftText("");
@@ -1931,6 +1972,7 @@ function LLMClient() {
               id: Date.now() + idx,
               role: m.role,
               content: m.content,
+              resources: (m as HistoryMessageWithResources).resources,
             }))
             : [
               {
@@ -2130,6 +2172,7 @@ function LLMClient() {
           id: Date.now(),
           role: "assistant",
           content: WELCOME_TEXT,
+          resources: [],
         },
       ]);
 
@@ -2243,6 +2286,7 @@ function LLMClient() {
                   id: Date.now() + idx,
                   role: m.role,
                   content: m.content,
+                  resources: (m as HistoryMessageWithResources).resources,
                 }))
                 : [
                   {
@@ -2406,25 +2450,24 @@ function LLMClient() {
   }
   //   新增：上傳完成後，立刻丟一則 assistant 訊息（你要的效果）
   function appendAssistantMessage(
-    threadId: string,
-    text: string,
-    resources?: ChatResource[]
-  ) {
-    const content = String(text ?? "");
-    if (!content.trim()) return;
+  threadId: string,
+  text: string,
+  resources?: ChatResource[]
+) {
+  const content = String(text ?? "");
+  if (!content.trim()) return;
 
-    const msg: ChatMessage = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
-      role: "assistant",
-      content,
-      resources,
-    };
+  const msg: ChatMessage = {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    role: "assistant",
+    content,
+    resources,
+  };
 
-    setMessages((prev) => [...prev, msg]);
-    pushHistoryMessage(threadId, "assistant", content);
-    bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
-  }
-
+  setMessages((prev) => [...prev, msg]);
+  pushHistoryMessage(threadId, "assistant", content, resources);
+  bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
+}
   async function reallySendMessage(
     e?: FormEvent,
     textOverride?: string,
@@ -2652,7 +2695,8 @@ function LLMClient() {
       pushHistoryMessage(
         finalThreadId,
         "assistant",
-        String(answerText)
+        String(answerText),
+        botResources
       );
 
       bumpThreadOnMessage(
@@ -2975,60 +3019,71 @@ function LLMClient() {
     );
   }
 
-  function renderResources(resources?: ChatResource[]) {
-    if (!resources || resources.length === 0) return null;
+function renderResources(resources?: ChatResource[]) {
+  if (!resources || resources.length === 0) return null;
 
-    // 1) 先去重：同一份教材只留一筆，優先用 material_id
-    const bestByKey = new Map<string, ChatResource>();
+  const bestByKey = new Map<string, ChatResource>();
 
-    for (const r of resources) {
-      const key =
-        (r.material_id && `mid:${r.material_id}`) ||
-        (r.url && `url:${r.url}`) ||
-        (r.download_url && `download:${r.download_url}`) ||
-        (r.external_url && `ext:${r.external_url}`) ||
-        (r.display_title && `title:${r.display_title.trim().toLowerCase()}`) ||
-        (r.title && `title:${r.title.trim().toLowerCase()}`) ||
-        `fallback:${Math.random()}`;
+  for (const r of resources) {
+    const normTitle = (r.display_title || r.title || "")
+      .trim()
+      .toLowerCase();
 
-      const prev = bestByKey.get(key);
+    const normPage = String(r.page || "").trim().toLowerCase();
+    const normSnippet = String(r.snippet || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase()
+      .slice(0, 120);
 
-      const prevScore =
-        typeof prev?.score === "number" && !Number.isNaN(prev.score)
-          ? prev.score
-          : -1;
+    const normChunk = String((r as any).chunk || "").trim().toLowerCase();
 
-      const nextScore =
-        typeof r?.score === "number" && !Number.isNaN(r.score)
-          ? r.score
-          : -1;
+    // 先用內容去重，再退回 url/material_id
+    const key =
+      (normTitle && (normPage || normChunk || normSnippet))
+        ? `content:${normTitle}|${normPage}|${normChunk}|${normSnippet}`
+        : (r.url && `url:${r.url}`) ||
+          (r.download_url && `download:${r.download_url}`) ||
+          (r.external_url && `ext:${r.external_url}`) ||
+          (r.material_id && `mid:${r.material_id}`) ||
+          (normTitle && `title:${normTitle}`) ||
+          `fallback:${Math.random()}`;
 
-      // 同一份資料重複時，保留分數比較高的那筆
-      if (!prev || nextScore > prevScore) {
-        bestByKey.set(key, r);
-      }
+    const prev = bestByKey.get(key);
+
+    const prevScore =
+      typeof prev?.score === "number" && !Number.isNaN(prev.score)
+        ? prev.score
+        : -1;
+
+    const nextScore =
+      typeof r?.score === "number" && !Number.isNaN(r.score)
+        ? r.score
+        : -1;
+
+    if (!prev || nextScore > prevScore) {
+      bestByKey.set(key, r);
     }
-
-    const deduped = Array.from(bestByKey.values()).sort((a, b) => {
-      const aScore =
-        typeof a?.score === "number" && !Number.isNaN(a.score) ? a.score : -1;
-      const bScore =
-        typeof b?.score === "number" && !Number.isNaN(b.score) ? b.score : -1;
-      return bScore - aScore;
-    });
-
-    // 2) 先挑 >= 0.5 的
-    const highScore = deduped.filter(
-      (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
-    );
-
-    // 3) 有高分就只顯示高分；沒有就顯示原本去重後的資料
-    const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
-
-    if (finalResources.length === 0) return null;
-
-    return <ResourceCarousel resources={finalResources} />;
   }
+
+  const deduped = Array.from(bestByKey.values()).sort((a, b) => {
+    const aScore =
+      typeof a?.score === "number" && !Number.isNaN(a.score) ? a.score : -1;
+    const bScore =
+      typeof b?.score === "number" && !Number.isNaN(b.score) ? b.score : -1;
+    return bScore - aScore;
+  });
+
+  const highScore = deduped.filter(
+    (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
+  );
+
+  const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
+
+  if (finalResources.length === 0) return null;
+
+  return <ResourceCarousel resources={finalResources} />;
+}
 
   function renderMessageFiles(files?: UploadedFile[]) {
     if (!files || files.length === 0) return null;
@@ -3480,7 +3535,8 @@ function LLMClient() {
         pushHistoryMessage(
           finalThreadId,
           "assistant",
-          String(answerText)
+          String(answerText),
+          botResources
         );
 
         bumpThreadOnMessage(

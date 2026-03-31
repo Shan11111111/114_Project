@@ -18,7 +18,7 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "bone_edu_docs")
 
 EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 TOP_K = int(os.getenv("RAG_TOP_K", "6"))
-MIN_RAG_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.65"))
+MIN_RAG_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.55"))
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 qdrant = (
@@ -36,6 +36,40 @@ def _is_guid_like(v: Any) -> bool:
         return False
     s = str(v).strip()
     return bool(_GUID_RE.fullmatch(s))
+
+
+
+def _expand_query_aliases(q: str) -> str:
+    q = (q or "").strip()
+    if not q:
+        return q
+
+    synonym_groups = [
+        ["骨質疏鬆", "骨鬆", "骨質疏松"],
+        ["血友病"],
+        ["停經", "更年期", "停經後"],
+        ["糖尿病", "糖尿"],
+        ["退化性關節炎", "退化", "關節退化", "關節炎"],
+        ["高血壓", "血壓高"],
+        ["骨折", "斷掉", "裂掉"],
+    ]
+
+    expanded = []
+    for group in synonym_groups:
+        if any(term in q for term in group):
+            expanded.extend(group)
+
+    seen = set()
+    merged = []
+    for term in [q] + expanded:
+        if term not in seen:
+            seen.add(term)
+            merged.append(term)
+
+    return " ".join(merged)
+
+
+
 
 
 def _is_https_url(v: Any) -> bool:
@@ -73,7 +107,7 @@ def _embed(text: str) -> List[float]:
     return r.data[0].embedding
 
 def _build_retrieval_query(user_q: str, session: dict | None, keep_last_user: int = 3) -> str:
-    user_q = (user_q or "").strip()
+    user_q = _expand_query_aliases((user_q or "").strip())
     if not session:
         return user_q
 
@@ -165,15 +199,19 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         text = re.sub(r"^(?:[\d\.\-\+\(\)\/%\sA-Za-z]{1,120})", "", text).strip()
 
         candidates = [
-            "骨質疏鬆",
-            "骨質密度",
-            "診斷",
-            "治療",
-            "預防",
-            "症狀",
-            "檢測",
-            "DXA",
-        ]
+    "骨質疏鬆",
+    "骨鬆",
+    "骨質"
+    "骨值疏鬆",
+    "骨質疏松",
+    "骨質密度",
+    "診斷",
+    "治療",
+    "預防",
+    "症狀",
+    "檢測",
+    "DXA",
+]
         cut_pos = None
         for kw in candidates:
             pos = text.find(kw)
