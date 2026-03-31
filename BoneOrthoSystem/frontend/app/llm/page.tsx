@@ -11,6 +11,7 @@ import React, {
   useRef,
   useState,
   useTransition,
+  useCallback,
   memo,
   Suspense,
 } from "react";
@@ -32,11 +33,14 @@ type UploadedFile = {
 
 type ChatResource = {
   title: string;
+  display_title?: string;
   url?: string;
   download_url?: string;
   source_type?: string;
   page?: string;
   snippet?: string;
+  score?: number;
+  material_id?: string;
 };
 
 type ChatMessage = {
@@ -119,7 +123,7 @@ const MAX_HEIGHT = 120;
 const WELCOME_TEXT = `嗨，我是 GalaBone LLM 知識小助手。
 
 我們的目標是成為骨科醫護的好幫手，幫你快速理解醫療報告、病歷記錄，甚至是 X 光影像裡的骨頭狀況。
-依據：中華民國衛生福利部刊登資料庫、PubMed 文獻、以及我們團隊整理的骨科專業資料庫。
+依據：各大醫院刊登衛教文件、PubMed 文獻、以及我們團隊整理的骨科專業資料庫。
 
 使用說明：
 1. 你可以直接輸入醫療報告裡的文字，或是病歷記錄的內容，我會盡力幫你解釋。
@@ -1543,11 +1547,21 @@ function LLMClient() {
           resources: Array.isArray((m as any).resources)
             ? (m as any).resources.map((r: any) => ({
               title: String(r?.title ?? "未命名來源"),
+              display_title: r?.display_title
+                ? String(r.display_title)
+                : String(r?.title ?? "未命名來源"),
               url: r?.url ? String(r.url) : undefined,
               download_url: r?.download_url ? String(r.download_url) : undefined,
               source_type: r?.source_type ? String(r.source_type) : undefined,
               page: r?.page ? String(r.page) : undefined,
               snippet: r?.snippet ? String(r.snippet) : undefined,
+              material_id: r?.material_id ? String(r.material_id) : undefined,
+              score:
+                typeof r?.score === "number"
+                  ? r.score
+                  : r?.score != null
+                    ? Number(r.score)
+                    : undefined,
             }))
             : undefined,
         }));
@@ -2315,7 +2329,7 @@ function LLMClient() {
   }, [draftText, isMultiLine]);
 
   useEffect(() => {
-    function onDown(e: globalThis.MouseEvent){
+    function onDown(e: globalThis.MouseEvent) {
       const target = e.target as HTMLElement;
       if (!target.closest("[data-tool-menu-root]")) setShowToolMenu(false);
       if (!target.closest("[data-rag-dropdown-root]")) setRagOpen(false);
@@ -2604,11 +2618,21 @@ function LLMClient() {
       const botResources: ChatResource[] = Array.isArray(data?.resources)
         ? data.resources.map((r: any) => ({
           title: String(r?.title ?? "未命名來源"),
+          display_title: r?.display_title
+            ? String(r.display_title)
+            : String(r?.title ?? "未命名來源"),
           url: r?.url ? String(r.url) : undefined,
           download_url: r?.download_url ? String(r.download_url) : undefined,
           source_type: r?.source_type ? String(r.source_type) : undefined,
           page: r?.page ? String(r.page) : undefined,
           snippet: r?.snippet ? String(r.snippet) : undefined,
+          material_id: r?.material_id ? String(r.material_id) : undefined,
+          score:
+            typeof r?.score === "number"
+              ? r.score
+              : r?.score != null
+                ? Number(r.score)
+                : undefined,
         }))
         : [];
 
@@ -2811,70 +2835,204 @@ function LLMClient() {
     );
   }
 
+  function ResourceCarousel({ resources }: { resources: ChatResource[] }) {
+  const [index, setIndex] = useState(0);
 
-  function renderResources(resources?: ChatResource[]) {
-    if (!resources || resources.length === 0) return null;
+  const safeResources = Array.isArray(resources) ? resources : [];
+  const total = safeResources.length;
 
-    return (
-      <div className="mt-2 space-y-2">
-        <div className="text-[11px] font-semibold opacity-70">
-          參考來源 / Resources
-        </div>
+  useEffect(() => {
+    if (index > total - 1) {
+      setIndex(0);
+    }
+  }, [index, total]);
 
-        {resources.map((r, idx) => (
+  const goPrev = useCallback(() => {
+    setIndex((prev) => (prev - 1 + total) % total);
+  }, [total]);
+
+  const goNext = useCallback(() => {
+    setIndex((prev) => (prev + 1) % total);
+  }, [total]);
+
+  if (!total) return null;
+
+  const r = safeResources[index];
+  const displayTitle =
+    (r.display_title || r.title || `參考資料 ${index + 1}`).trim();
+
+  const resolvedViewUrl =
+    r.url
+      ? toAbsUrl(r.url)
+      : (r.material_id
+          ? `${API_BASE}/s2/llm/materials/${r.material_id}/view`
+          : "");
+
+  const resolvedDownloadUrl =
+    r.download_url
+      ? toAbsUrl(r.download_url)
+      : (r.material_id
+          ? `${API_BASE}/s2/llm/materials/${r.material_id}/download`
+          : "");
+
+  const metaParts = [
+    r.page ? `${r.page}` : "",
+    typeof r.score === "number" && !Number.isNaN(r.score)
+      ? `置信度 ${r.score.toFixed(3)}`
+      : "",
+  ].filter(Boolean);
+
+  const cleanSnippet = (r.snippet || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] font-semibold opacity-70">參考資料</div>
+
+        {total > 1 && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={goPrev}
+              className="w-7 h-7 rounded-full border flex items-center justify-center text-[11px]"
+              style={{ borderColor: "rgba(148,163,184,0.30)" }}
+              title="上一張"
+            >
+              <i className="fa-solid fa-chevron-left" />
+            </button>
+
+            <div className="text-[11px] opacity-60 min-w-[52px] text-center">
+              {index + 1} / {total}
+            </div>
+
+            <button
+              type="button"
+              onClick={goNext}
+              className="w-7 h-7 rounded-full border flex items-center justify-center text-[11px]"
+              style={{ borderColor: "rgba(148,163,184,0.30)" }}
+              title="下一張"
+            >
+              <i className="fa-solid fa-chevron-right" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div
+        className="rounded-xl border px-3 py-2 text-xs"
+        style={{
+          borderColor: "rgba(148,163,184,0.25)",
+          backgroundColor: "rgba(148,163,184,0.06)",
+        }}
+      >
+        <div className="font-medium break-words">{displayTitle}</div>
+
+        {metaParts.length > 0 && (
+          <div className="mt-1 text-[11px] opacity-60">
+            {metaParts.join(" ｜ ")}
+          </div>
+        )}
+
+        {cleanSnippet && (
           <div
-            key={`${r.title || "resource"}-${idx}`}
-            className="rounded-xl border px-3 py-2 text-xs"
+            className="mt-2 break-words opacity-80 text-[12px] leading-relaxed"
             style={{
-              borderColor: "rgba(148,163,184,0.25)",
-              backgroundColor: "rgba(148,163,184,0.06)",
+              display: "-webkit-box",
+              WebkitLineClamp: 4,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
             }}
           >
-            <div className="font-medium break-words">
-              {r.title || `來源 ${idx + 1}`}
-            </div>
-
-            {(r.source_type || r.page) && (
-              <div className="mt-1 text-[11px] opacity-60">
-                {[r.source_type, r.page].filter(Boolean).join(" ｜ ")}
-              </div>
-            )}
-
-            {r.snippet && (
-              <div className="mt-2 whitespace-pre-wrap break-words opacity-80">
-                {r.snippet}
-              </div>
-            )}
-
-            <div className="mt-2 flex flex-wrap gap-2">
-              {r.url && (
-                <a
-                  href={toAbsUrl(r.url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-full border text-[11px]"
-                  style={{ borderColor: "rgba(148,163,184,0.30)" }}
-                >
-                  查看文件
-                </a>
-              )}
-
-              {(r.download_url || r.url) && (
-                <a
-                  href={toAbsUrl(r.download_url || r.url)}
-                  download
-                  className="px-3 py-1.5 rounded-full border text-[11px]"
-                  style={{ borderColor: "rgba(148,163,184,0.30)" }}
-                >
-                  下載
-                </a>
-              )}
-            </div>
+            {cleanSnippet}
+            {r.snippet && r.snippet.length > 180 ? "…" : ""}
           </div>
-        ))}
+        )}
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          {resolvedViewUrl && (
+            <a
+              href={resolvedViewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-full border text-[11px]"
+              style={{ borderColor: "rgba(148,163,184,0.30)" }}
+            >
+              查看文件
+            </a>
+          )}
+
+          {resolvedDownloadUrl && (
+            <a
+              href={resolvedDownloadUrl}
+              download
+              className="px-3 py-1.5 rounded-full border text-[11px]"
+              style={{ borderColor: "rgba(148,163,184,0.30)" }}
+            >
+              下載
+            </a>
+          )}
+        </div>
       </div>
-    );
+    </div>
+  );
+}
+
+  function renderResources(resources?: ChatResource[]) {
+  if (!resources || resources.length === 0) return null;
+
+  // 1) 先去重：同一份教材只留一筆，優先用 material_id
+  const bestByKey = new Map<string, ChatResource>();
+
+  for (const r of resources) {
+    const key =
+      (r.material_id && `mid:${r.material_id}`) ||
+      (r.display_title && `title:${r.display_title.trim().toLowerCase()}`) ||
+      (r.title && `title:${r.title.trim().toLowerCase()}`) ||
+      (r.url && `url:${r.url}`) ||
+      (r.download_url && `download:${r.download_url}`) ||
+      `fallback:${Math.random()}`;
+
+    const prev = bestByKey.get(key);
+
+    const prevScore =
+      typeof prev?.score === "number" && !Number.isNaN(prev.score)
+        ? prev.score
+        : -1;
+
+    const nextScore =
+      typeof r?.score === "number" && !Number.isNaN(r.score)
+        ? r.score
+        : -1;
+
+    // 同一份資料重複時，保留分數比較高的那筆
+    if (!prev || nextScore > prevScore) {
+      bestByKey.set(key, r);
+    }
   }
+
+  const deduped = Array.from(bestByKey.values()).sort((a, b) => {
+    const aScore =
+      typeof a?.score === "number" && !Number.isNaN(a.score) ? a.score : -1;
+    const bScore =
+      typeof b?.score === "number" && !Number.isNaN(b.score) ? b.score : -1;
+    return bScore - aScore;
+  });
+
+  // 2) 先挑 >= 0.5 的
+  const highScore = deduped.filter(
+    (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
+  );
+
+  // 3) 有高分就只顯示高分；沒有就顯示原本去重後的資料
+  const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
+
+  if (finalResources.length === 0) return null;
+
+  return <ResourceCarousel resources={finalResources} />;
+}
 
   function renderMessageFiles(files?: UploadedFile[]) {
     if (!files || files.length === 0) return null;
@@ -2985,58 +3143,58 @@ function LLMClient() {
   }
 
   function SideThreadItem({
-  title,
-  meta,
-  active,
-  onClick,
-  threadId,
-}: {
-  title: string;
-  meta?: string;
-  active?: boolean;
-  onClick: () => void;
-  threadId: string;
-}) {
-  return (
-    <div
-      className="w-full rounded-lg transition"
-      style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
-      onMouseEnter={(e) => {
-        if (active) return;
-        e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
-      }}
-      onMouseLeave={(e) => {
-        if (active) return;
-        e.currentTarget.style.backgroundColor = "transparent";
-      }}
-      title={title}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onClick}
-          className="min-w-0 flex-1 text-left px-3 py-1.5 rounded-lg"
-        >
-          <div className="text-[13px] font-medium truncate">{title}</div>
-          {meta ? <div className="text-[11px] opacity-50 mt-0.5 truncate">{meta}</div> : null}
-        </button>
+    title,
+    meta,
+    active,
+    onClick,
+    threadId,
+  }: {
+    title: string;
+    meta?: string;
+    active?: boolean;
+    onClick: () => void;
+    threadId: string;
+  }) {
+    return (
+      <div
+        className="w-full rounded-lg transition"
+        style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
+        onMouseEnter={(e) => {
+          if (active) return;
+          e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
+        }}
+        onMouseLeave={(e) => {
+          if (active) return;
+          e.currentTarget.style.backgroundColor = "transparent";
+        }}
+        title={title}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={onClick}
+            className="min-w-0 flex-1 text-left px-3 py-1.5 rounded-lg"
+          >
+            <div className="text-[13px] font-medium truncate">{title}</div>
+            {meta ? <div className="text-[11px] opacity-50 mt-0.5 truncate">{meta}</div> : null}
+          </button>
 
-        <div
-          className="shrink-0 pr-2"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <ThreadMoreMenu
-            threadId={threadId}
-            NAV_HOVER_BG={NAV_HOVER_BG}
-            onShare={() => shareThread(threadId)}
-            onDelete={() => deleteThread(threadId)}
-          />
+          <div
+            className="shrink-0 pr-2"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <ThreadMoreMenu
+              threadId={threadId}
+              NAV_HOVER_BG={NAV_HOVER_BG}
+              onShare={() => shareThread(threadId)}
+              onDelete={() => deleteThread(threadId)}
+            />
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   async function openHistory() {
     try {
@@ -3292,11 +3450,21 @@ function LLMClient() {
         const bootResources: ChatResource[] = Array.isArray(resp?.resources)
           ? resp.resources.map((r: any) => ({
             title: String(r?.title ?? "未命名來源"),
+            display_title: r?.display_title
+              ? String(r.display_title)
+              : String(r?.title ?? "未命名來源"),
             url: r?.url ? String(r.url) : undefined,
             download_url: r?.download_url ? String(r.download_url) : undefined,
             source_type: r?.source_type ? String(r.source_type) : undefined,
             page: r?.page ? String(r.page) : undefined,
             snippet: r?.snippet ? String(r.snippet) : undefined,
+            score:
+              typeof r?.score === "number"
+                ? r.score
+                : r?.score != null
+                  ? Number(r.score)
+                  : undefined,
+            material_id: r?.material_id ? String(r.material_id) : undefined,
           }))
           : [];
 

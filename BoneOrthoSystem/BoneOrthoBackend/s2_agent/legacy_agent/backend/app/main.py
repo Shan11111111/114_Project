@@ -176,8 +176,10 @@ def _format_sources_for_text(sources: list[dict] | None) -> str:
 
     if not lines:
         return ""
-
-    return "\n\n---\n【Sources】\n" + "\n".join(lines)
+    
+    # 注意：這裡的格式是給純文字回答用的，如果你要在前端做更好看的展示，建議直接用 sources 裡的結構化資料，不要這個文本版本。
+    return ""
+    # return "\n\n---\n【Sources】\n" + "\n".join(lines)
 
 
 
@@ -622,7 +624,8 @@ def agent_chat(req: ChatRequest):
 
         #  3) 用 doc_rag（命中才會引用 doc/網址 chunk）
         ans_text, sources = answer_with_doc_rag(clean_q_for_answer, session)
-        ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
+        # ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
+        ans_text_out = (ans_text or "").strip()
         resources = _build_resources(sources)
 
         print("DEBUG sources =", sources)

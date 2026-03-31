@@ -1,3 +1,5 @@
+# 這個檔案包含了 S2 Agent 教材相關的 API 路由，包含上傳、列出、下載、重建索引和刪除教材等功能。
+# BoneOrthoBackend/s2_agent/materials.py - 定義 S2 Agent 教材相關的 API 路由和處理邏輯
 from typing import Optional
 from pathlib import Path
 from uuid import uuid4, UUID
