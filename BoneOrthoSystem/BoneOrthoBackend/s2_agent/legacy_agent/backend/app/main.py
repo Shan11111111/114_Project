@@ -5,6 +5,9 @@ import json
 import re
 import sys
 import uuid
+
+from .tools.doc_tool import extract_text_and_summary, index_document
+
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -371,6 +374,21 @@ async def upload_file(file: UploadFile = File(...)):
             text, summary = extract_text_and_summary(fpath, safe_ext)
             result["text"] = text
             result["summary"] = summary
+
+            try:
+                indexed = index_document(
+                    text=text,
+                    title=original or fname,
+                    source_type="upload",
+                    material_id=fname,
+                    url=public_url,
+                    conversation_id=None,
+                    user_id=None,
+                )
+                result["indexed_chunks"] = indexed
+            except Exception as ie:
+                result["index_warning"] = f"index_document failed: {ie}"
+
         except Exception as e:
             result["text"] = None
             result["summary"] = None

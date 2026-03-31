@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 import re
+
+
 from typing import Any, Dict, List, Tuple
 
 from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
+from .doc_tool import retrieve as doc_retrieve, is_enabled as doc_rag_enabled
 
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
@@ -24,6 +27,27 @@ qdrant = (
     else QdrantClient(url=QDRANT_URL)
 )
 
+
+def _sanitize_for_llm(text: str) -> str:
+    s = str(text or "")
+
+    # 去掉 NUL
+    s = s.replace("\x00", " ")
+
+    # 去掉大多數控制字元，但保留 \n \t
+    s = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f]", " ", s)
+
+    # 去掉不合法 surrogate，避免 JSON / UTF-8 爆掉
+    s = s.encode("utf-8", "ignore").decode("utf-8", "ignore")
+
+    # 保守再清一次常見非字元區
+    s = re.sub(r"[\ud800-\udfff]", "", s)
+
+    # 收斂空白
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+
+    return s.strip()
 
 def _embed(text: str) -> List[float]:
     text = (text or "").strip()
@@ -328,3 +352,123 @@ def answer_with_rag(user_q: str, session: dict | None = None) -> Tuple[str, List
     except Exception as e:
         print(f"❌ LLM answer failed: {e}")
         return "檢索有命中，但生成回答時發生錯誤（請看後端 log）。", sources
+    
+    
+    
+    
+def _doc_source_to_prompt_block(s: Dict[str, Any], idx: int) -> str:
+    title = _sanitize_for_llm(s.get("title") or f"doc-{idx}")
+    text = _sanitize_for_llm(s.get("text") or "")
+    snippet = re.sub(r"\s+", " ", text)[:500].strip()
+    return f"[#{idx}] {title}\n{snippet}"
+
+def _normalize_doc_sources(doc_sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+
+    for s in doc_sources or []:
+        if not isinstance(s, dict):
+            continue
+
+        text = _sanitize_for_llm(s.get("text") or "")
+        snippet = re.sub(r"\s+", " ", text)[:160].strip()
+        
+        if len(text) > 160:
+            snippet += "…"
+
+        out.append(
+            {
+                "title": _sanitize_for_llm(s.get("title") or "未命名文件"),
+                "display_title": _sanitize_for_llm(s.get("title") or "未命名文件"),
+                "page": None,
+                "chunk": s.get("chunk_index"),
+                "url": s.get("url"),
+                "download_url": s.get("url"),
+                "score": float(s.get("score") or 0.0),
+                "snippet": snippet,
+                "kind": s.get("source_type") or "doc_index",
+                "material_id": s.get("material_id"),
+                "source_type": s.get("source_type") or "doc_index",
+                "text": text,
+            }
+        )
+
+    return out
+
+
+def answer_with_doc_rag(user_q: str, session: dict | None = None) -> Tuple[str, List[Dict[str, Any]]]:
+    user_q = (user_q or "").strip()
+    if not user_q:
+        return "你問的內容是空的，我沒辦法檢索。請再輸入一次。", []
+
+    retrieval_query = _build_retrieval_query(user_q, session, keep_last_user=3)
+    history_context = _build_history_context(session, keep_last=6)
+
+    # 1) 先查本地 doc index
+    doc_sources_raw: List[Dict[str, Any]] = []
+    if doc_rag_enabled():
+        try:
+            doc_sources_raw = doc_retrieve(retrieval_query, top_k=TOP_K)
+            if not doc_sources_raw and retrieval_query != user_q:
+                doc_sources_raw = doc_retrieve(user_q, top_k=TOP_K)
+        except Exception as e:
+            print(f"❌ doc_rag retrieve error: {e}")
+            doc_sources_raw = []
+
+    # 2) 有命中文件索引，就優先用文件索引回答
+    if doc_sources_raw:
+        sources = _normalize_doc_sources(doc_sources_raw)
+
+        context_lines = []
+        for i, s in enumerate(doc_sources_raw, 1):
+            context_lines.append(_doc_source_to_prompt_block(s, i))
+
+        context = "\n\n".join(context_lines)
+
+        system = (
+            "你是骨科衛教/判讀輔助的助手。你只能根據【提供的文件檢索片段】回答。\n"
+            "如果片段不足以支持結論，必須明確說資料不足，不要自行腦補。\n"
+            "回答要清楚、專業口語化、可直接給老師看。\n"
+            "不要在正文中輸出 source、【Sources】、【參考資料】、來源編號、score、頁碼或任何引用清單。\n"
+            "若使用者問題像是追問，請優先結合【最近對話歷史】理解主詞與上下文。\n"
+        )
+
+        prompt = (
+            f"【最近對話歷史】\n{history_context or '（無）'}\n\n"
+            f"【使用者問題】\n{user_q}\n\n"
+            f"【文件檢索片段（可引用）】\n{context}\n\n"
+            "請輸出：\n"
+            "1) 知識庫回答\n"
+            "2) 判讀/衛教重點（專業的敘述，請列點敘述）\n"
+            "3) 注意事項（你不確定就說不確定）\n"
+            "不要輸出 Sources、參考資料、來源編號、score、頁碼。\n"
+        )
+
+        try:
+            safe_system = _sanitize_for_llm(system)
+            safe_prompt = _sanitize_for_llm(prompt)
+            
+            chat = client.chat.completions.create(
+                model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": safe_system},
+                    {"role": "user", "content": safe_prompt},
+                ],
+                temperature=0.2,
+            )
+            ans = chat.choices[0].message.content or ""
+            ans = re.split(
+                r"\n[-—–]*\s*\[?\s*(Sources|參考資料|Resources)\s*\]?\s*",
+                ans,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0]
+            print("✅ DOC RAG HIT")
+            print("DEBUG doc retrieval_query =", retrieval_query)
+            return ans.strip(), sources
+        except Exception as e:
+            print(f"❌ DOC RAG answer failed: {e}")
+            return "文件檢索有命中，但生成回答時發生錯誤（請看後端 log）。", sources
+
+    # 3) doc index 沒命中，退回原本 Qdrant RAG
+    print("DEBUG doc_rag no hit, fallback to vector rag")
+    return answer_with_rag(user_q, session)
