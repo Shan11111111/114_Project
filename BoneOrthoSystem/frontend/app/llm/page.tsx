@@ -11,6 +11,7 @@ import React, {
   useRef,
   useState,
   useTransition,
+  useCallback,
   memo,
   Suspense,
 } from "react";
@@ -32,11 +33,15 @@ type UploadedFile = {
 
 type ChatResource = {
   title: string;
+  display_title?: string;
   url?: string;
   download_url?: string;
+  external_url?: string;
   source_type?: string;
   page?: string;
   snippet?: string;
+  score?: number;
+  material_id?: string;
 };
 
 type ChatMessage = {
@@ -58,12 +63,17 @@ type HistoryThread = {
   sessionId?: string; //  新增：不顯示，只用於繼續聊天
 };
 
+type HistoryMessageWithResources = HistoryMessage & {
+  resources?: ChatResource[];
+};
+
 type HistoryMessage = {
   id: string;
   threadId: string;
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  resources?: ChatResource[];
 };
 
 type RagMode = "file_then_vector" | "vector_only" | "file_only" | "pubmed_only" | "soap_only";
@@ -119,7 +129,7 @@ const MAX_HEIGHT = 120;
 const WELCOME_TEXT = `嗨，我是 GalaBone LLM 知識小助手。
 
 我們的目標是成為骨科醫護的好幫手，幫你快速理解醫療報告、病歷記錄，甚至是 X 光影像裡的骨頭狀況。
-依據：中華民國衛生福利部刊登資料庫、PubMed 文獻、以及我們團隊整理的骨科專業資料庫。
+依據：各大醫院刊登衛教之文件、PubMed 文獻、以及我們團隊整理的骨科專業資料庫。
 
 使用說明：
 1. 你可以直接輸入醫療報告裡的文字，或是病歷記錄的內容，我會盡力幫你解釋。
@@ -1543,11 +1553,22 @@ function LLMClient() {
           resources: Array.isArray((m as any).resources)
             ? (m as any).resources.map((r: any) => ({
               title: String(r?.title ?? "未命名來源"),
+              display_title: r?.display_title
+                ? String(r.display_title)
+                : String(r?.title ?? "未命名來源"),
               url: r?.url ? String(r.url) : undefined,
               download_url: r?.download_url ? String(r.download_url) : undefined,
+              external_url: r?.external_url ? String(r.external_url) : undefined,
               source_type: r?.source_type ? String(r.source_type) : undefined,
               page: r?.page ? String(r.page) : undefined,
               snippet: r?.snippet ? String(r.snippet) : undefined,
+              material_id: r?.material_id ? String(r.material_id) : undefined,
+              score:
+                typeof r?.score === "number"
+                  ? r.score
+                  : r?.score != null
+                    ? Number(r.score)
+                    : undefined,
             }))
             : undefined,
         }));
@@ -1621,24 +1642,25 @@ function LLMClient() {
 
   //   新增：push 到 historyMessages（讓 overlay / reload 都有內容）
   function pushHistoryMessage(
-    threadId: string,
-    role: "user" | "assistant",
-    content: string
-  ) {
-    if (!threadId) return;
-    const createdAt = nowText();
-    setHistoryMessages((prev) => [
-      ...prev,
-      {
-        id: `${threadId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        threadId,
-        role,
-        content: String(content ?? ""),
-        createdAt,
-      },
-    ]);
-  }
-
+  threadId: string,
+  role: "user" | "assistant",
+  content: string,
+  resources?: ChatResource[]
+) {
+  if (!threadId) return;
+  const createdAt = nowText();
+  setHistoryMessages((prev) => [
+    ...prev,
+    {
+      id: `${threadId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      threadId,
+      role,
+      content: String(content ?? ""),
+      createdAt,
+      resources,
+    },
+  ]);
+}
   //   新增：用第一句生成 title（跟你 UI 現在的 18 字一致）
   function makeAutoTitleFromText(userText: string) {
     const t = (userText || "").trim().replace(/\s+/g, " ");
@@ -1784,11 +1806,12 @@ function LLMClient() {
       .filter((t: any) => t.id);
   }
 
-  async function fetchConversationMessages(cid: string) {
+  async function fetchConversationMessages(cid: string): Promise<HistoryMessageWithResources[]> {
     const res = await fetch(API.getMsgs(cid), {
       method: "GET",
       headers: buildAuthHeaders(),
     });
+
     const raw = await res.text();
     const data = safeJsonParse(raw);
 
@@ -1802,38 +1825,72 @@ function LLMClient() {
         ? data
         : [];
 
-    const mapped: HistoryMessage[] = items.map((m: any, idx: number) => ({
-      id: String(m.id ?? `${cid}-${idx}`),
-      threadId: cid,
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: String(m.content ?? m.message ?? ""),
-      createdAt: String(m.createdAt ?? m.created_at ?? m.time ?? ""),
-    }));
+    const resourcesByMsgIndex =
+      (data as any)?.resources_by_msg_index &&
+        typeof (data as any).resources_by_msg_index === "object"
+        ? (data as any).resources_by_msg_index
+        : {};
+
+    const mapped: HistoryMessageWithResources[] = items.map((m: any, idx: number) => {
+      const rawResources = Array.isArray(resourcesByMsgIndex?.[idx])
+        ? resourcesByMsgIndex[idx]
+        : [];
+
+      const resources: ChatResource[] = rawResources.map((r: any) => ({
+        title: String(r?.title ?? "未命名來源"),
+        display_title: r?.display_title
+          ? String(r.display_title)
+          : String(r?.title ?? "未命名來源"),
+        url: r?.url ? String(r.url) : undefined,
+        download_url: r?.download_url ? String(r.download_url) : undefined,
+        external_url: r?.external_url ? String(r.external_url) : undefined,
+        source_type: r?.source_type ? String(r.source_type) : undefined,
+        page: r?.page ? String(r.page) : undefined,
+        snippet: r?.snippet ? String(r.snippet) : undefined,
+        material_id: r?.material_id ? String(r.material_id) : undefined,
+        score:
+          typeof r?.score === "number"
+            ? r.score
+            : r?.score != null
+              ? Number(r.score)
+              : undefined,
+      }));
+
+      return {
+        id: String(m.id ?? `${cid}-${idx}`),
+        threadId: cid,
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: String(m.content ?? m.message ?? ""),
+        createdAt: String(m.createdAt ?? m.created_at ?? m.time ?? ""),
+        resources,
+      };
+    });
 
     return mapped;
   }
 
-  function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
-    const threadMsgs = historyMessages
-      .filter((m) => m.threadId === threadId)
-      .map((m, idx) => ({
-        id: Date.now() + idx,
-        role: m.role,
-        content: m.content,
-      }));
+ function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
+  const threadMsgs = historyMessages
+    .filter((m) => m.threadId === threadId)
+    .map((m, idx) => ({
+      id: Date.now() + idx,
+      role: m.role,
+      content: m.content,
+      resources: (m as HistoryMessageWithResources).resources,
+    }));
 
-    if (threadMsgs.length === 0) {
-      return [
-        {
-          id: 1,
-          role: "assistant",
-          content: WELCOME_TEXT,
-        },
-      ];
-    }
-
-    return threadMsgs;
+  if (threadMsgs.length === 0) {
+    return [
+      {
+        id: 1,
+        role: "assistant",
+        content: WELCOME_TEXT,
+      },
+    ];
   }
+
+  return threadMsgs;
+}
 
   function resetMainInputBox() {
     setDraftText("");
@@ -1915,6 +1972,7 @@ function LLMClient() {
               id: Date.now() + idx,
               role: m.role,
               content: m.content,
+              resources: (m as HistoryMessageWithResources).resources,
             }))
             : [
               {
@@ -2114,6 +2172,7 @@ function LLMClient() {
           id: Date.now(),
           role: "assistant",
           content: WELCOME_TEXT,
+          resources: [],
         },
       ]);
 
@@ -2227,6 +2286,7 @@ function LLMClient() {
                   id: Date.now() + idx,
                   role: m.role,
                   content: m.content,
+                  resources: (m as HistoryMessageWithResources).resources,
                 }))
                 : [
                   {
@@ -2315,7 +2375,7 @@ function LLMClient() {
   }, [draftText, isMultiLine]);
 
   useEffect(() => {
-    function onDown(e: globalThis.MouseEvent){
+    function onDown(e: globalThis.MouseEvent) {
       const target = e.target as HTMLElement;
       if (!target.closest("[data-tool-menu-root]")) setShowToolMenu(false);
       if (!target.closest("[data-rag-dropdown-root]")) setRagOpen(false);
@@ -2390,25 +2450,24 @@ function LLMClient() {
   }
   //   新增：上傳完成後，立刻丟一則 assistant 訊息（你要的效果）
   function appendAssistantMessage(
-    threadId: string,
-    text: string,
-    resources?: ChatResource[]
-  ) {
-    const content = String(text ?? "");
-    if (!content.trim()) return;
+  threadId: string,
+  text: string,
+  resources?: ChatResource[]
+) {
+  const content = String(text ?? "");
+  if (!content.trim()) return;
 
-    const msg: ChatMessage = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
-      role: "assistant",
-      content,
-      resources,
-    };
+  const msg: ChatMessage = {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    role: "assistant",
+    content,
+    resources,
+  };
 
-    setMessages((prev) => [...prev, msg]);
-    pushHistoryMessage(threadId, "assistant", content);
-    bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
-  }
-
+  setMessages((prev) => [...prev, msg]);
+  pushHistoryMessage(threadId, "assistant", content, resources);
+  bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
+}
   async function reallySendMessage(
     e?: FormEvent,
     textOverride?: string,
@@ -2604,11 +2663,22 @@ function LLMClient() {
       const botResources: ChatResource[] = Array.isArray(data?.resources)
         ? data.resources.map((r: any) => ({
           title: String(r?.title ?? "未命名來源"),
+          display_title: r?.display_title
+            ? String(r.display_title)
+            : String(r?.title ?? "未命名來源"),
           url: r?.url ? String(r.url) : undefined,
           download_url: r?.download_url ? String(r.download_url) : undefined,
+          external_url: r?.external_url ? String(r.external_url) : undefined,
           source_type: r?.source_type ? String(r.source_type) : undefined,
           page: r?.page ? String(r.page) : undefined,
           snippet: r?.snippet ? String(r.snippet) : undefined,
+          material_id: r?.material_id ? String(r.material_id) : undefined,
+          score:
+            typeof r?.score === "number"
+              ? r.score
+              : r?.score != null
+                ? Number(r.score)
+                : undefined,
         }))
         : [];
 
@@ -2625,7 +2695,8 @@ function LLMClient() {
       pushHistoryMessage(
         finalThreadId,
         "assistant",
-        String(answerText)
+        String(answerText),
+        botResources
       );
 
       bumpThreadOnMessage(
@@ -2811,70 +2882,208 @@ function LLMClient() {
     );
   }
 
+  function ResourceCarousel({ resources }: { resources: ChatResource[] }) {
+    const [index, setIndex] = useState(0);
 
-  function renderResources(resources?: ChatResource[]) {
-    if (!resources || resources.length === 0) return null;
+    const safeResources = Array.isArray(resources) ? resources : [];
+    const total = safeResources.length;
+
+    useEffect(() => {
+      if (index > total - 1) {
+        setIndex(0);
+      }
+    }, [index, total]);
+
+    const goPrev = useCallback(() => {
+      setIndex((prev) => (prev - 1 + total) % total);
+    }, [total]);
+
+    const goNext = useCallback(() => {
+      setIndex((prev) => (prev + 1) % total);
+    }, [total]);
+
+    if (!total) return null;
+
+    const r = safeResources[index];
+    const displayTitle =
+      (r.display_title || r.title || `參考資料 ${index + 1}`).trim();
+
+    const isUploadsUrl = (v?: string) =>
+      !!v && /\/uploads\//i.test(v);
+
+    const resolvedViewUrl =
+      r.material_id
+        ? `${API_BASE}/s2/llm/materials/${r.material_id}/view`
+        : (r.url && !isUploadsUrl(r.url) ? toAbsUrl(r.url) : "");
+
+    const resolvedDownloadUrl =
+      r.material_id
+        ? `${API_BASE}/s2/llm/materials/${r.material_id}/download`
+        : (r.download_url && !isUploadsUrl(r.download_url) ? toAbsUrl(r.download_url) : "");
+
+    const metaParts = [
+      r.page ? `${r.page}` : "",
+      typeof r.score === "number" && !Number.isNaN(r.score)
+        ? `置信度 ${r.score.toFixed(3)}`
+        : "",
+    ].filter(Boolean);
+
+    const cleanSnippet = (r.snippet || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 180);
 
     return (
-      <div className="mt-2 space-y-2">
-        <div className="text-[11px] font-semibold opacity-70">
-          參考來源 / Resources
+      <div className="mt-2">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[11px] font-semibold opacity-70">參考資料</div>
+
+          {total > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={goPrev}
+                className="w-7 h-7 rounded-full border flex items-center justify-center text-[11px]"
+                style={{ borderColor: "rgba(148,163,184,0.30)" }}
+                title="上一張"
+              >
+                <i className="fa-solid fa-chevron-left" />
+              </button>
+
+              <div className="text-[11px] opacity-60 min-w-[52px] text-center">
+                {index + 1} / {total}
+              </div>
+
+              <button
+                type="button"
+                onClick={goNext}
+                className="w-7 h-7 rounded-full border flex items-center justify-center text-[11px]"
+                style={{ borderColor: "rgba(148,163,184,0.30)" }}
+                title="下一張"
+              >
+                <i className="fa-solid fa-chevron-right" />
+              </button>
+            </div>
+          )}
         </div>
 
-        {resources.map((r, idx) => (
-          <div
-            key={`${r.title || "resource"}-${idx}`}
-            className="rounded-xl border px-3 py-2 text-xs"
-            style={{
-              borderColor: "rgba(148,163,184,0.25)",
-              backgroundColor: "rgba(148,163,184,0.06)",
-            }}
-          >
-            <div className="font-medium break-words">
-              {r.title || `來源 ${idx + 1}`}
+        <div
+          className="rounded-xl border px-3 py-2 text-xs"
+          style={{
+            borderColor: "rgba(148,163,184,0.25)",
+            backgroundColor: "rgba(148,163,184,0.06)",
+          }}
+        >
+          <div className="font-medium break-words">{displayTitle}</div>
+
+          {metaParts.length > 0 && (
+            <div className="mt-1 text-[11px] opacity-60">
+              {metaParts.join(" ｜ ")}
             </div>
+          )}
 
-            {(r.source_type || r.page) && (
-              <div className="mt-1 text-[11px] opacity-60">
-                {[r.source_type, r.page].filter(Boolean).join(" ｜ ")}
-              </div>
-            )}
-
-            {r.snippet && (
-              <div className="mt-2 whitespace-pre-wrap break-words opacity-80">
-                {r.snippet}
-              </div>
-            )}
-
-            <div className="mt-2 flex flex-wrap gap-2">
-              {r.url && (
-                <a
-                  href={toAbsUrl(r.url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-full border text-[11px]"
-                  style={{ borderColor: "rgba(148,163,184,0.30)" }}
-                >
-                  查看文件
-                </a>
-              )}
-
-              {(r.download_url || r.url) && (
-                <a
-                  href={toAbsUrl(r.download_url || r.url)}
-                  download
-                  className="px-3 py-1.5 rounded-full border text-[11px]"
-                  style={{ borderColor: "rgba(148,163,184,0.30)" }}
-                >
-                  下載
-                </a>
-              )}
+          {cleanSnippet && (
+            <div
+              className="mt-2 break-words opacity-80 text-[12px] leading-relaxed"
+              style={{
+                display: "-webkit-box",
+                WebkitLineClamp: 4,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {cleanSnippet}
+              {r.snippet && r.snippet.length > 180 ? "…" : ""}
             </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            {resolvedViewUrl ? (
+              <a href={resolvedViewUrl} target="_blank" rel="noreferrer">
+                查看文件
+              </a>
+            ) : r.external_url ? (
+              <a href={r.external_url} target="_blank" rel="noreferrer">
+                前往連結
+              </a>
+            ) : null}
+
+            {resolvedDownloadUrl ? (
+              <a href={resolvedDownloadUrl} target="_blank" rel="noreferrer">
+                下載
+              </a>
+            ) : null}
           </div>
-        ))}
+        </div>
       </div>
     );
   }
+
+function renderResources(resources?: ChatResource[]) {
+  if (!resources || resources.length === 0) return null;
+
+  const bestByKey = new Map<string, ChatResource>();
+
+  for (const r of resources) {
+    const normTitle = (r.display_title || r.title || "")
+      .trim()
+      .toLowerCase();
+
+    const normPage = String(r.page || "").trim().toLowerCase();
+    const normSnippet = String(r.snippet || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase()
+      .slice(0, 120);
+
+    const normChunk = String((r as any).chunk || "").trim().toLowerCase();
+
+    // 先用內容去重，再退回 url/material_id
+    const key =
+      (normTitle && (normPage || normChunk || normSnippet))
+        ? `content:${normTitle}|${normPage}|${normChunk}|${normSnippet}`
+        : (r.url && `url:${r.url}`) ||
+          (r.download_url && `download:${r.download_url}`) ||
+          (r.external_url && `ext:${r.external_url}`) ||
+          (r.material_id && `mid:${r.material_id}`) ||
+          (normTitle && `title:${normTitle}`) ||
+          `fallback:${Math.random()}`;
+
+    const prev = bestByKey.get(key);
+
+    const prevScore =
+      typeof prev?.score === "number" && !Number.isNaN(prev.score)
+        ? prev.score
+        : -1;
+
+    const nextScore =
+      typeof r?.score === "number" && !Number.isNaN(r.score)
+        ? r.score
+        : -1;
+
+    if (!prev || nextScore > prevScore) {
+      bestByKey.set(key, r);
+    }
+  }
+
+  const deduped = Array.from(bestByKey.values()).sort((a, b) => {
+    const aScore =
+      typeof a?.score === "number" && !Number.isNaN(a.score) ? a.score : -1;
+    const bScore =
+      typeof b?.score === "number" && !Number.isNaN(b.score) ? b.score : -1;
+    return bScore - aScore;
+  });
+
+  const highScore = deduped.filter(
+    (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
+  );
+
+  const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
+
+  if (finalResources.length === 0) return null;
+
+  return <ResourceCarousel resources={finalResources} />;
+}
 
   function renderMessageFiles(files?: UploadedFile[]) {
     if (!files || files.length === 0) return null;
@@ -2985,58 +3194,58 @@ function LLMClient() {
   }
 
   function SideThreadItem({
-  title,
-  meta,
-  active,
-  onClick,
-  threadId,
-}: {
-  title: string;
-  meta?: string;
-  active?: boolean;
-  onClick: () => void;
-  threadId: string;
-}) {
-  return (
-    <div
-      className="w-full rounded-lg transition"
-      style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
-      onMouseEnter={(e) => {
-        if (active) return;
-        e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
-      }}
-      onMouseLeave={(e) => {
-        if (active) return;
-        e.currentTarget.style.backgroundColor = "transparent";
-      }}
-      title={title}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onClick}
-          className="min-w-0 flex-1 text-left px-3 py-1.5 rounded-lg"
-        >
-          <div className="text-[13px] font-medium truncate">{title}</div>
-          {meta ? <div className="text-[11px] opacity-50 mt-0.5 truncate">{meta}</div> : null}
-        </button>
+    title,
+    meta,
+    active,
+    onClick,
+    threadId,
+  }: {
+    title: string;
+    meta?: string;
+    active?: boolean;
+    onClick: () => void;
+    threadId: string;
+  }) {
+    return (
+      <div
+        className="w-full rounded-lg transition"
+        style={{ backgroundColor: active ? NAV_ACTIVE_BG : "transparent" }}
+        onMouseEnter={(e) => {
+          if (active) return;
+          e.currentTarget.style.backgroundColor = NAV_HOVER_BG;
+        }}
+        onMouseLeave={(e) => {
+          if (active) return;
+          e.currentTarget.style.backgroundColor = "transparent";
+        }}
+        title={title}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={onClick}
+            className="min-w-0 flex-1 text-left px-3 py-1.5 rounded-lg"
+          >
+            <div className="text-[13px] font-medium truncate">{title}</div>
+            {meta ? <div className="text-[11px] opacity-50 mt-0.5 truncate">{meta}</div> : null}
+          </button>
 
-        <div
-          className="shrink-0 pr-2"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <ThreadMoreMenu
-            threadId={threadId}
-            NAV_HOVER_BG={NAV_HOVER_BG}
-            onShare={() => shareThread(threadId)}
-            onDelete={() => deleteThread(threadId)}
-          />
+          <div
+            className="shrink-0 pr-2"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <ThreadMoreMenu
+              threadId={threadId}
+              NAV_HOVER_BG={NAV_HOVER_BG}
+              onShare={() => shareThread(threadId)}
+              onDelete={() => deleteThread(threadId)}
+            />
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   async function openHistory() {
     try {
@@ -3289,14 +3498,25 @@ function LLMClient() {
             ) || "";
         }
 
-        const bootResources: ChatResource[] = Array.isArray(resp?.resources)
+        const botResources: ChatResource[] = Array.isArray(resp?.resources)
           ? resp.resources.map((r: any) => ({
             title: String(r?.title ?? "未命名來源"),
+            display_title: r?.display_title
+              ? String(r.display_title)
+              : String(r?.title ?? "未命名來源"),
             url: r?.url ? String(r.url) : undefined,
             download_url: r?.download_url ? String(r.download_url) : undefined,
+            external_url: r?.external_url ? String(r.external_url) : undefined,
             source_type: r?.source_type ? String(r.source_type) : undefined,
             page: r?.page ? String(r.page) : undefined,
             snippet: r?.snippet ? String(r.snippet) : undefined,
+            material_id: r?.material_id ? String(r.material_id) : undefined,
+            score:
+              typeof r?.score === "number"
+                ? r.score
+                : r?.score != null
+                  ? Number(r.score)
+                  : undefined,
           }))
           : [];
 
@@ -3306,7 +3526,7 @@ function LLMClient() {
             id: Date.now() + 1,
             role: "assistant",
             content: String(answerText),
-            resources: bootResources,
+            resources: botResources,
           },
         ]);
 
@@ -3315,7 +3535,8 @@ function LLMClient() {
         pushHistoryMessage(
           finalThreadId,
           "assistant",
-          String(answerText)
+          String(answerText),
+          botResources
         );
 
         bumpThreadOnMessage(

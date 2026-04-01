@@ -36,7 +36,7 @@ from s2_agent.ensure_title import router as ensure_title_router
 from auth.admin_router import router as auth_admin_router
 from s2_agent.legacy_agent.backend.app.main import app as s2_legacy_app
 from s4_mr_bridge.router import router as mr_router
-
+from s2_agent.llm_materials_router import router as llm_materials_router
 
 from auth.router import router as auth_router
 # ==========================================
@@ -175,7 +175,7 @@ app.include_router(ensure_title_router)
 app.include_router(mr_router)
 app.include_router(auth_admin_router)
 app.include_router(auth_router)
-
+app.include_router(llm_materials_router)
 
 # ✅ legacy S2（維持你原本行為）
 app.mount("/s2x", s2_legacy_app)

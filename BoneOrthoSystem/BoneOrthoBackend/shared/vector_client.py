@@ -1,4 +1,3 @@
-# BoneOrthoBackend/shared/vector_client.py
 import os
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
@@ -11,6 +10,7 @@ from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
+    PayloadSchemaType,
 )
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
@@ -18,7 +18,6 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "bone_edu_docs")
 VECTOR_SIZE = int(os.getenv("EMBEDDING_DIM", "1536"))
 
-# === 新增：可用環境變數調參（放在 VECTOR_SIZE 那附近） ===
 DEFAULT_SCORE_THRESHOLD = float(os.getenv("QDRANT_SCORE_THRESHOLD", "0.15"))
 DEFAULT_QUERY_SCORE_THRESHOLD = float(os.getenv("QDRANT_QUERY_SCORE_THRESHOLD", "0.15"))
 DEFAULT_ENABLE_GIBBERISH_FILTER = os.getenv("QDRANT_ENABLE_GIBBERISH_FILTER", "0") == "1"
@@ -27,29 +26,33 @@ DEFAULT_DEBUG = os.getenv("QDRANT_DEBUG", "0") == "1"
 
 
 def is_gibberish(text: str) -> bool:
-    """
-    用於排除掃描 PDF / 亂碼頁面。
-    你可以依你們教材特性調整門檻。
-    """
     if not text:
         return True
+
     t = text.strip()
     if len(t) < 20:
         return True
 
-    # 常見亂碼符號 + 非可見字元
+    mojibake_markers = "åäçéèï¼ã¢âœ"
+    mojibake_count = sum(1 for ch in t if ch in mojibake_markers)
+    mojibake_ratio = mojibake_count / max(len(t), 1)
+
     bad = sum(1 for ch in t if ord(ch) < 32 or ch in "�˙ːʊ̊")
     ratio_bad = bad / max(len(t), 1)
 
-    # 中文/英數/常見標點視為 good
     good = sum(
         1
         for ch in t
-        if ("\u4e00" <= ch <= "\u9fff") or ch.isalnum() or ch in "，。,.%()/- \n\r\t：:、"
+        if ("\u4e00" <= ch <= "\u9fff") or ch.isalnum() or ch in "，。,.%()/- \n\r\t：:、;；[]{}"
     )
     ratio_good = good / max(len(t), 1)
 
-    return ratio_bad > 0.05 or ratio_good < 0.35
+    return (
+        ratio_bad > 0.05
+        or ratio_good < 0.35
+        or mojibake_ratio > 0.15   #過濾趴數
+    )
+    
 
 
 class VectorStore:
@@ -61,15 +64,37 @@ class VectorStore:
     # -----------------------------
     def ensure_collection(self) -> None:
         names = [c.name for c in self.client.get_collections().collections]
+
         if QDRANT_COLLECTION not in names:
             self.client.create_collection(
                 collection_name=QDRANT_COLLECTION,
                 vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
             )
 
+        # 建立常用 payload index，查詢 filter 會比較穩
+        index_fields = [
+            ("material_id", PayloadSchemaType.KEYWORD),
+            ("type", PayloadSchemaType.KEYWORD),
+            ("bone_id", PayloadSchemaType.INTEGER),
+            ("small_bone_id", PayloadSchemaType.INTEGER),
+            ("page", PayloadSchemaType.INTEGER),
+            ("slide", PayloadSchemaType.INTEGER),
+            ("chunk_index", PayloadSchemaType.INTEGER),
+        ]
+
+        for field_name, schema in index_fields:
+            try:
+                self.client.create_payload_index(
+                    collection_name=QDRANT_COLLECTION,
+                    field_name=field_name,
+                    field_schema=schema,
+                )
+            except Exception:
+                # 已存在或 client 版本差異時忽略
+                pass
+
     def collection_info(self) -> Dict[str, Any]:
         info = self.client.get_collection(QDRANT_COLLECTION)
-        # 回傳常用欄位（方便 debug）
         return {
             "name": QDRANT_COLLECTION,
             "points_count": getattr(info, "points_count", None),
@@ -86,12 +111,14 @@ class VectorStore:
             return
 
         points: List[PointStruct] = []
+
         for d in docs:
             emb = d.get("embedding")
             if not emb:
                 continue
 
             pid = d.get("id") or str(uuid4())
+
             payload = {
                 "text": d.get("text", ""),
                 "material_id": d.get("material_id"),
@@ -101,11 +128,13 @@ class VectorStore:
                 "style": d.get("style"),
                 "file_path": d.get("file_path") or d.get("source_file"),
                 "page": d.get("page"),
+                "slide": d.get("slide"),
                 "bone_id": d.get("bone_id"),
                 "small_bone_id": d.get("small_bone_id") or d.get("bone_small_id"),
                 "chunk_index": d.get("chunk_index"),
                 "tags": d.get("tags") or [],
             }
+
             points.append(PointStruct(id=pid, vector=emb, payload=payload))
 
         if not points:
@@ -142,11 +171,8 @@ class VectorStore:
             must.append(FieldCondition(key="small_bone_id", match=MatchValue(value=small_bone_id)))
 
         query_filter = Filter(must=must) if must else None
-
-        # 多撈一些，方便後面過濾
         limit = max(top_k * 3, top_k)
 
-        # 兼容不同 qdrant-client
         if hasattr(self.client, "search"):
             raw = self.client.search(
                 collection_name=QDRANT_COLLECTION,
@@ -169,28 +195,47 @@ class VectorStore:
         else:
             raise RuntimeError("Unsupported qdrant-client version: no search/query_points")
 
-        # 進行過濾
         hits: List[Any] = []
+        filtered_by_score = 0
+        filtered_by_empty = 0
+        filtered_by_placeholder = 0
+        filtered_by_gibberish = 0
+
         for p in raw:
             score = float(getattr(p, "score", 0) or 0)
             if score < score_threshold:
+                filtered_by_score += 1
                 continue
 
             payload = getattr(p, "payload", None) or {}
             text = (payload.get("text", "") or "").strip()
             if not text:
+                filtered_by_empty += 1
                 continue
 
-            if exclude_placeholders:
-                if text.startswith("[SCANNED/NO-TEXT PDF]") or text.startswith("[MISSING FILE]"):
-                    continue
+            if exclude_placeholders and (
+                text.startswith("[SCANNED/NO-TEXT PDF]") or text.startswith("[MISSING FILE]")
+            ):
+                filtered_by_placeholder += 1
+                continue
 
             if enable_gibberish_filter and is_gibberish(text):
+                filtered_by_gibberish += 1
                 continue
 
             hits.append(p)
             if len(hits) >= top_k:
                 break
+
+        if debug:
+            print(
+                "[QDRANT.search] "
+                f"raw={len(raw)} kept={len(hits)} top_k={top_k} "
+                f"score_threshold={score_threshold} "
+                f"filtered(score={filtered_by_score}, empty={filtered_by_empty}, "
+                f"placeholder={filtered_by_placeholder}, gibberish={filtered_by_gibberish}) "
+                f"bone_id={bone_id} small_bone_id={small_bone_id}"
+            )
 
         return hits
 
@@ -209,13 +254,13 @@ class VectorStore:
         exclude_placeholders: bool = DEFAULT_EXCLUDE_PLACEHOLDERS,
         debug: bool = DEFAULT_DEBUG,
     ) -> List[Dict[str, Any]]:
-
         """
         直接給文字 query → embedding → search → 回傳 dict list（方便 rag_tool 用）
         """
         qvec = embed_fn(query_text)
+
         raw = self.search(
-            qvec,
+            embedding=qvec,
             top_k=top_k,
             bone_id=bone_id,
             small_bone_id=small_bone_id,
@@ -225,15 +270,16 @@ class VectorStore:
             debug=debug,
         )
 
-        if debug:
-            print(f"[QDRANT] kept_hits={len(raw)} threshold={score_threshold} gibberish={enable_gibberish_filter} exclude_placeholders={exclude_placeholders}")
-
-
-
         hits: List[Dict[str, Any]] = []
         for p in raw:
             score = float(getattr(p, "score", 0) or 0)
             payload = getattr(p, "payload", None) or {}
-            hits.append({"score": score, "payload": payload})
+            hits.append({
+                "score": score,
+                "payload": payload,
+            })
+
+        if debug:
+            print(f"[QDRANT.query] query_text_len={len(query_text)} kept_hits={len(hits)}")
 
         return hits
