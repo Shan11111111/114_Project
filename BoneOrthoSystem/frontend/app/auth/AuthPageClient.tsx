@@ -450,27 +450,27 @@ export default function AuthPageClient() {
     if (tab === "register") {
       if (!userOk)
         return {
-          t: "填 username",
-          d: "至少 2 個字，不然像機器人帳號。",
+          t: "填暱稱",
+          d: "至少 2 個字以上。",
         };
       if (!emailOk)
         return {
-          t: "填有效 Email",
-          d: "要能收信的那種（不然你自己也會迷路）。",
+          t: "請填有效 Email",
+          d: "請先填能收信的那種，後續開通寄信服務才能繼續使用。",
         };
       if (!pwOk)
         return {
           t: "設定密碼",
           d: pwTooLong
-            ? "太長了（bcrypt 72 bytes 上限）"
-            : "至少 8 碼，混點字母數字更香。",
+            ? "太長了（bcrypt 72 字元 上限）"
+            : "至少 8 字元，混點字母數字更香。",
         };
-      if (!pw2Ok) return { t: "確認密碼", d: "兩次要一致，不然你未來會罵自己。" };
-      return { t: "建立帳號", d: "送出後立刻去驗證 Email，流程才算完。" };
+      if (!pw2Ok) return { t: "確認密碼", d: "兩次要一致，如果之後忘記密碼，請聯繫我們。" };
+      return { t: "建立帳號", d: "送出後立刻去驗證 Email，流程才算完成。" };
     }
 
     if (!emailOk) return { t: "填 Email", d: "用你註冊的 Email。" };
-    if (!pw) return { t: "填密碼", d: "你密碼沒填我也沒辦法（我不是通靈王）。" };
+    if (!pw) return { t: "填密碼", d: "你密碼沒填我也沒辦法讓你通過。" };
     return { t: "登入", d: "如果被擋，多半是還沒驗證 Email。" };
   }, [
     verifyOpen,
@@ -693,10 +693,10 @@ export default function AuthPageClient() {
       <div className="shell">
         <div className="top">
           <div className="brand">
-            <div className="logo">GB</div>
+            <div className="logo">G</div>
             <div className="brandTxt">
               <div className="name">GalaBone</div>
-              <div className="desc">Auth • interactive • modern</div>
+              <div className="desc">登入註冊小天地</div>
             </div>
           </div>
 
@@ -718,38 +718,38 @@ export default function AuthPageClient() {
 
           <aside className="leftPane">
             <div className="hero">
-              <div className="heroTitle">骨科影像系統入口</div>
+              <div className="heroTitle">GalaBone 入口</div>
               <div className="heroSub">
-                這裡是門禁，不是許願池。流程走完你就能進主系統。
+                歡迎使用我們的系統！請在右側登入或註冊帳號，完成 Email 驗證後即可使用。這裡是專為骨科醫師、學生、教師打造的影像分析與知識查詢平台。立即加入我們，開啟您的骨科影像分析之旅！
               </div>
 
               <div className="stats">
                 <div className="stat">
-                  <div className="k">Step</div>
+                  <div className="k">目前介面</div>
                   <div className="v">
                     {verifyOpen
                       ? "Verify"
                       : tab === "register"
-                      ? "Register"
-                      : "Login"}
+                      ? "註冊"
+                      : "登入"}
                   </div>
                 </div>
                 <div className="stat">
                   <div className="k">Email</div>
                   <div className="v">
-                    {email.trim() ? (emailOk ? "OK" : "Invalid") : "Empty"}
+                    {email.trim() ? (emailOk ? "格式合法" : "格式不合法") : "尚未填寫"}
                   </div>
                 </div>
                 <div className="stat">
-                  <div className="k">Flow</div>
+                  <div className="k">是否驗證</div>
                   <div className="v">
                     {flow.verifiedEmail
-                      ? "Verified"
+                      ? "已驗證"
                       : flow.verifySentEmail
-                      ? "Code Sent"
+                      ? "驗證碼已送出"
                       : flow.registeredEmail
-                      ? "Registered"
-                      : "New"}
+                      ? "已註冊"
+                      : "新使用者"}
                   </div>
                 </div>
               </div>
@@ -772,8 +772,9 @@ export default function AuthPageClient() {
                 </div>
 
                 <div className="smallNote">
-                  小提醒：後端收的是 <b>role</b>，資料庫欄位叫 <b>roles</b>{" "}
-                  沒關係，後端映射就好。
+                  尚無寄信服務，驗證碼會直接顯示在畫面上（dev code）。這樣測試流程比較快，也不怕收不到信。正式環境會改成寄信的。
+                  {/* 小提醒：後端收的是 <b>role</b>，資料庫欄位叫 <b>roles</b>{" "} */}
+                  {/* 沒關係，後端映射就好。 */}
                 </div>
               </div>
 
@@ -786,7 +787,7 @@ export default function AuthPageClient() {
                 >
                   我已登入 → 登出
                 </button>
-                <div className="muted">Dev UI / Demo friendly</div>
+                <div className="muted">GalaBone</div>
               </div>
             </div>
           </aside>
@@ -807,7 +808,7 @@ export default function AuthPageClient() {
               <div className="paneMeta">
                 <div className="metaChip">
                   <span className={cx("pill", verifyOpen && "on")} />
-                  Verify Drawer: {verifyOpen ? "On" : "Off"}
+                  email驗證:{verifyOpen ? "成功" : "尚未成功"}
                 </div>
               </div>
             </div>
@@ -816,7 +817,7 @@ export default function AuthPageClient() {
               <div className="form">
                 <div className="h1">登入</div>
                 <div className="sub">
-                  還沒驗證的帳號會被擋。別怪系統兇，怪流程沒走完。
+                  註冊完後，請先點擊我想驗證 Email，完成驗證流程，等待系統螢幕上顯示dev code，尚未開通寄信服務，感謝配合。
                 </div>
 
                 <Field
@@ -837,7 +838,7 @@ export default function AuthPageClient() {
                   type={showPw ? "text" : "password"}
                   autoComplete="current-password"
                   ok={pw.length > 0 && !pwTooLong}
-                  error={pwTooLong ? "密碼超過 72 bytes（bcrypt 上限）" : null}
+                  error={pwTooLong ? "密碼超過 72 字元（bcrypt 上限）" : null}
                   right={
                     <button
                       className="iconBtn"
@@ -851,11 +852,11 @@ export default function AuthPageClient() {
                   hint={
                     <span className="hintRow">
                       <span>
-                        Bytes: <b>{pwBytes}</b>/72
+                        密碼長度: <b>{pwBytes}</b>/72
                       </span>
                       <span className="sep">•</span>
                       <span>
-                        強度: <b>{pwScore}/5</b>
+                        密碼強度: <b>{pwScore}/5</b>
                       </span>
                     </span>
                   }
@@ -897,7 +898,7 @@ export default function AuthPageClient() {
               <div className="form">
                 <div className="h1">註冊</div>
                 <div className="sub">
-                  填完直接進驗證 drawer。你會感覺自己在用真的產品。
+                  請在註冊後，點擊我想驗證 Email，完成驗證流程，等待系統螢幕上顯示dev code，尚未開通寄信服務，感謝配合。
                 </div>
 
                 <Field
@@ -914,7 +915,7 @@ export default function AuthPageClient() {
                   <div className="blockTop">
                     <div className="lab">角色（role）</div>
                     <div className="msg">
-                     後端要白名單：student/teacher/doctor/assistant/manager
+                     請選擇你要註冊的身分:student/teacher/doctor/assistant，未來會根據不同角色開放不同功能，目前只是 demo，所以先選一個玩玩看就好，之後會有審核機制。
                     </div>
                   </div>
                   <RoleCards value={role} onChange={setRole} disabled={busy} />
@@ -941,7 +942,7 @@ export default function AuthPageClient() {
                     ok={pw.length > 0 && pwOk}
                     error={
                       pwTooLong
-                        ? "超過 72 bytes（bcrypt 上限）"
+                        ? "超過 72 字元（bcrypt 上限）"
                         : pw.length > 0 && pw.length < 8
                         ? "至少 8 碼"
                         : null
@@ -959,11 +960,11 @@ export default function AuthPageClient() {
                     hint={
                       <span className="hintRow">
                         <span>
-                          Bytes: <b>{pwBytes}</b>/72
+                          密碼長度: <b>{pwBytes}</b>/72
                         </span>
                         <span className="sep">•</span>
                         <span>
-                          強度: <b>{pwScore}/5</b>
+                          密碼強度: <b>{pwScore}/5</b>
                         </span>
                       </span>
                     }
@@ -1009,7 +1010,7 @@ export default function AuthPageClient() {
                   }}
                   title={!emailOk ? "先填正確 Email" : ""}
                 >
-                  我已註冊/想驗證 → 打開驗證 drawer
+                  我已註冊/想驗證 → 打開驗證小視窗
                 </button>
               </div>
             )}
@@ -1020,7 +1021,7 @@ export default function AuthPageClient() {
               <div>
                 <div className="dTitle">Email 驗證</div>
                 <div className="dSub">
-                  先寄碼 → 再輸入 → 確認。跳步會被擋（合理）。
+                  沒有寄信服務，請先看螢幕顯示的dev code → 再輸入code → 點擊確認。成功的話會出現綠色勾勾的浮動提示。
                 </div>
               </div>
 
@@ -1053,7 +1054,7 @@ export default function AuthPageClient() {
                       你註冊的是 <b>{flow.registeredEmail}</b>，建議改回去才不會對不上。
                     </span>
                   ) : (
-                    <span>建議用註冊時的 Email。</span>
+                    <span>建議用你註冊時的 Email。</span>
                   )
                 }
               />
@@ -1129,7 +1130,7 @@ export default function AuthPageClient() {
               </button>
 
               <div className="drawerTip">
-                如果一直說「錯誤或過期」：重寄一次，你可能拿到舊碼。
+                常見Q/A: 如果一直說「錯誤或過期」，請重新驗證一次。
               </div>
             </div>
           </div>
@@ -1874,8 +1875,12 @@ export default function AuthPageClient() {
           border-color: rgba(56, 189, 248, 0.35);
         }
         .toastMsg {
-          font-size: 13px;
-          opacity: 0.92;
+          border: 0;
+          background: rgba(255, 255, 255, 0.1);
+          color: #fff;
+          border-radius: 12px;
+          padding: 8px 10px;
+          cursor: pointer;
         }
         .toastX {
           border: 0;
