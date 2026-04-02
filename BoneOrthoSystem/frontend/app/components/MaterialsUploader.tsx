@@ -8,7 +8,7 @@ const API_BASE =
 
 function inferTypeFromFileName(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() || "";
-  if (["pdf", "txt", "doc", "docx", "ppt", "pptx", "md"].includes(ext)) {
+  if (["pdf", "txt", "doc", "docx", "pptx", "md"].includes(ext)) {
     return ext;
   }
   return "file";
@@ -132,7 +132,7 @@ export default function MaterialsUploader() {
       </h2>
 
       <label className="block">
-        <span className="text-xs text-slate-400">選擇檔案（pdf/txt/docx/ppt/md/）</span>
+        <span className="text-xs text-slate-400">選擇檔案（pdf/txt/docx/pptx/md/）</span>
         <input
           id="materials-upload-input"
           type="file"
