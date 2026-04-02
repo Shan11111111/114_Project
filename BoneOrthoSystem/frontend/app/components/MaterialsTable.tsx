@@ -231,8 +231,8 @@ export default function MaterialsTable() {
               placeholder={
                 isLoggedIn
                   ? isManager
-                    ? "例如 骨折 / BDD983 / 某個 user_id"
-                    : "例如 骨折 / BDD983..."
+                    ? "例如:骨折 / 檔案名稱 / 上傳者的使用者系統代碼 "
+                    : "例如:骨折 / 檔案名稱"
                   : "請先登入後再搜尋"
               }
             />
