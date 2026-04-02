@@ -199,7 +199,7 @@ export default function AdminUsersPage() {
 
       <div style={panelStyle}>
         <div style={subInfoStyle}>
-          目前登入者：{meId} / role={meRole}
+          目前登入者：{meId} / 身分：{meRole}
         </div>
 
         <div style={toolbarStyle}>
@@ -209,7 +209,7 @@ export default function AdminUsersPage() {
             onKeyDown={(e) => {
               if (e.key === "Enter") fetchUsers();
             }}
-            placeholder="搜尋 username / email / user_id / role / state"
+            placeholder="搜尋(enter送出): 使用者名稱 / email / 使用者系統代號 / 身分 / 狀態"
             style={searchInputStyle}
           />
 
@@ -233,13 +233,13 @@ export default function AdminUsersPage() {
         <table style={tableStyle}>
           <thead style={theadStyle}>
             <tr>
-              <th style={th}>ID</th>
-              <th style={th}>UserId</th>
-              <th style={th}>Username</th>
+              <th style={th}>內部代碼</th>
+              <th style={th}>使用者系統代號</th>
+              <th style={th}>使用者名稱</th>
               <th style={th}>Email</th>
-              <th style={th}>Role</th>
-              <th style={th}>State</th>
-              <th style={th}>Verified</th>
+              <th style={th}>身分</th>
+              <th style={th}>狀態</th>
+              <th style={th}>驗證狀態</th>
               <th style={th}>操作</th>
             </tr>
           </thead>
