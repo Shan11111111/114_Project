@@ -132,7 +132,7 @@ export default function MaterialsUploader() {
       </h2>
 
       <label className="block">
-        <span className="text-xs text-slate-400">選擇檔案（pdf/txt/docx）</span>
+        <span className="text-xs text-slate-400">選擇檔案（pdf/txt/docx/ppt/md/）</span>
         <input
           id="materials-upload-input"
           type="file"
@@ -179,9 +179,9 @@ export default function MaterialsUploader() {
       )}
 
       <div className="mt-4 border border-slate-800 rounded-xl p-3 text-xs">
-        <div className="text-slate-400 mb-2">回傳（debug）</div>
+        <div className="text-slate-400 mb-2">請確認下列欄位中是否顯示上傳成功</div>
         <pre className="whitespace-pre-wrap text-[11px] text-green-400">
-          {raw ? JSON.stringify(raw, null, 2) : "// 尚無回傳"}
+          {raw ? "上傳成功!!!\n"+JSON.stringify(raw, null, 2) : "// 尚無上傳檔案成功的回應資料"}
         </pre>
       </div>
     </div>

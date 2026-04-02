@@ -700,7 +700,7 @@ def agent_chat(req: ChatRequest):
         ans_text_out = (ans_text or "").strip()
 
         # 問題很短時，做較寬鬆的主題過濾，避免完全不相關來源混進來
-        if len(clean_q) <= 4:
+        if len(clean_q) <= 2:
             filtered_sources = []
 
             # 同義詞 / 簡寫 群組

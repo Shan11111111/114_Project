@@ -6,6 +6,8 @@ import { getUser } from "../lib/auth";
 const API_BASE =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
 
+const PAGE_SIZE = 10;
+
 type MaterialRow = {
   MaterialId: string;
   UserId: string;
@@ -29,11 +31,15 @@ export default function MaterialsTable() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [rawText, setRawText] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const listUrl = useMemo(() => `${API_BASE}/s2/materials/list`, []);
   const materialsBaseUrl = useMemo(() => `${API_BASE}/s2/materials`, []);
 
-  const isManager = role.toLowerCase() === "manager";
+  const roleLower = role.toLowerCase();
+  const isManager = roleLower === "manager";
+  const canDelete = roleLower === "manager" || roleLower === "teacher";
+  const canView = roleLower === "manager" || roleLower === "teacher";
 
   useEffect(() => {
     const syncAuth = () => {
@@ -59,12 +65,25 @@ export default function MaterialsTable() {
     return () => window.removeEventListener("auth-changed", syncAuth);
   }, []);
 
-  const fetchList = async () => {
+  const canPreviewType = (type: string) => {
+    const t = String(type || "").toLowerCase().trim();
+    return ["pdf", "txt", "md"].includes(t);
+  };
+
+  const isDownloadOnlyType = (type: string) => {
+    const t = String(type || "").toLowerCase().trim();
+    return ["docx", "pptx"].includes(t);
+  };
+
+  const fetchList = async (keyword?: string) => {
     if (!userId) {
       setErr("請先登入，登入後才能查看教材。");
       setRows([]);
+      setCurrentPage(1);
       return;
     }
+
+    const finalQ = (keyword ?? q).trim();
 
     setLoading(true);
     setErr(null);
@@ -74,7 +93,7 @@ export default function MaterialsTable() {
       const url =
         `${listUrl}?user_id=${encodeURIComponent(userId)}` +
         `&role=${encodeURIComponent(role)}` +
-        (q.trim() ? `&q=${encodeURIComponent(q.trim())}` : "");
+        (finalQ ? `&q=${encodeURIComponent(finalQ)}` : "");
 
       const res = await fetch(url, {
         cache: "no-store",
@@ -95,17 +114,19 @@ export default function MaterialsTable() {
 
       const data = JSON.parse(text);
       setRows(data.materials || []);
+      setCurrentPage(1);
     } catch (e: any) {
       setErr(e?.message ?? "載入失敗");
       setRows([]);
+      setCurrentPage(1);
     } finally {
       setLoading(false);
     }
   };
 
   const onDelete = async (materialId: string) => {
-    if (!isManager) {
-      alert("只有 manager 可以刪除教材");
+    if (!canDelete) {
+      alert("你目前沒有刪除教材的權限");
       return;
     }
 
@@ -139,12 +160,32 @@ export default function MaterialsTable() {
     }
   };
 
+  const onDownloadInfo = (type: string) => {
+    if (isDownloadOnlyType(type)) {
+      alert("此檔案格式僅支援下載，不支援瀏覽器直接預覽。請先下載後再用對應軟體開啟。");
+    }
+  };
+
   useEffect(() => {
     if (!isCheckingLogin && isLoggedIn && userId) {
-      fetchList();
+      fetchList("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCheckingLogin, isLoggedIn, userId, role]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    return rows.slice(start, end);
+  }, [rows, currentPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const notLoggedIn = !isCheckingLogin && !isLoggedIn;
 
@@ -154,12 +195,15 @@ export default function MaterialsTable() {
         <div>
           <h2 className="text-sm font-semibold">教材清單</h2>
           <div className="mt-1 text-[11px] text-slate-500">
-            目前角色：{role} {isManager ? "（可看全部 / 可刪除）" : "（只看自己的）"}
+            你的身分是 {role}{" "}
+            {isManager
+              ? "（可查看全部教材 / 可下載全部教材 / 可刪除全部教材）"
+              : "（只能操作自己建立的教材：查看 / 下載 / 刪除）"}
           </div>
         </div>
 
         <button
-          onClick={fetchList}
+          onClick={() => fetchList()}
           disabled={loading || isCheckingLogin || !isLoggedIn}
           className="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-700 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -170,21 +214,50 @@ export default function MaterialsTable() {
       <div className="mt-3 grid grid-cols-1 gap-3 text-xs">
         <div>
           <div className="text-slate-400 mb-1">
-            搜尋（Title / MaterialId{isManager ? " / UserId" : ""}）
+            搜尋（檔案名稱 / 教材代碼{isManager ? " / 使用者系統代碼" : ""}）
           </div>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            disabled={!isLoggedIn}
-            className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            placeholder={
-              isLoggedIn
-                ? isManager
-                  ? "例如 骨折 / BDD983 / 某個 user_id"
-                  : "例如 骨折 / BDD983..."
-                : "請先登入後再搜尋"
-            }
-          />
+
+          <div className="flex gap-2">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  fetchList(e.currentTarget.value);
+                }
+              }}
+              disabled={!isLoggedIn}
+              className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              placeholder={
+                isLoggedIn
+                  ? isManager
+                    ? "例如 骨折 / BDD983 / 某個 user_id"
+                    : "例如 骨折 / BDD983..."
+                  : "請先登入後再搜尋"
+              }
+            />
+
+            <button
+              type="button"
+              onClick={() => fetchList()}
+              disabled={!isLoggedIn || loading}
+              className="px-3 py-2 rounded-xl border border-slate-700 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              搜尋
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setQ("");
+                fetchList("");
+              }}
+              disabled={!isLoggedIn || loading}
+              className="px-3 py-2 rounded-xl border border-slate-700 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              清除
+            </button>
+          </div>
         </div>
       </div>
 
@@ -211,32 +284,33 @@ export default function MaterialsTable() {
         <table className="w-full text-xs">
           <thead className="bg-slate-900/40 text-slate-300">
             <tr>
-              {isManager && <th className="text-left p-3">UserId</th>}
-              <th className="text-left p-3">Title</th>
-              <th className="text-left p-3">Type</th>
-              <th className="text-left p-3">Lang</th>
-              <th className="text-left p-3">Style</th>
-              <th className="text-left p-3">CreatedAt</th>
-              <th className="text-left p-3">MaterialId</th>
+              {isManager && <th className="text-left p-3">使用者系統代碼</th>}
+              <th className="text-left p-3">檔案名稱</th>
+              <th className="text-left p-3">檔案格式</th>
+              <th className="text-left p-3">語言</th>
+              <th className="text-left p-3">內容分類</th>
+              <th className="text-left p-3">建立時間</th>
+              <th className="text-left p-3">教材代碼</th>
+              <th className="text-left p-3">查看(分頁)</th>
               <th className="text-left p-3">下載</th>
-              {isManager && <th className="text-left p-3">刪除</th>}
+              {canDelete && <th className="text-left p-3">刪除</th>}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="p-3 text-slate-500" colSpan={isManager ? 9 : 7}>
+                <td className="p-3 text-slate-500" colSpan={isManager ? 10 : 9}>
                   {isCheckingLogin
                     ? "檢查登入狀態中..."
                     : loading
-                    ? "載入中..."
-                    : notLoggedIn
-                    ? "請先登入"
-                    : "目前沒有資料"}
+                      ? "載入中..."
+                      : notLoggedIn
+                        ? "請先登入"
+                        : "目前沒有資料"}
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
+              pagedRows.map((r) => (
                 <tr key={r.MaterialId} className="border-t border-slate-800">
                   {isManager && (
                     <td className="p-3 text-slate-300 font-mono">{r.UserId}</td>
@@ -251,6 +325,26 @@ export default function MaterialsTable() {
                   <td className="p-3 text-slate-400 font-mono">
                     {r.MaterialId}
                   </td>
+
+                  <td className="p-3">
+                    {canView && canPreviewType(r.Type) ? (
+                      <a
+                        href={
+                          `${materialsBaseUrl}/${encodeURIComponent(r.MaterialId)}/view` +
+                          `?user_id=${encodeURIComponent(userId)}` +
+                          `&role=${encodeURIComponent(role)}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex rounded-lg border border-emerald-700 px-3 py-1.5 text-emerald-300 hover:bg-emerald-950/40"
+                      >
+                        查看
+                      </a>
+                    ) : (
+                      <span className="text-slate-500">不支援</span>
+                    )}
+                  </td>
+
                   <td className="p-3">
                     <a
                       href={
@@ -258,12 +352,14 @@ export default function MaterialsTable() {
                         `?user_id=${encodeURIComponent(userId)}` +
                         `&role=${encodeURIComponent(role)}`
                       }
+                      onClick={() => onDownloadInfo(r.Type)}
                       className="inline-flex rounded-lg border border-cyan-700 px-3 py-1.5 text-cyan-300 hover:bg-cyan-950/40"
                     >
                       下載
                     </a>
                   </td>
-                  {isManager && (
+
+                  {canDelete && (
                     <td className="p-3">
                       <button
                         onClick={() => onDelete(r.MaterialId)}
@@ -280,6 +376,56 @@ export default function MaterialsTable() {
           </tbody>
         </table>
       </div>
+
+      {rows.length > 0 && (
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-slate-400">
+            第 {currentPage} / {totalPages} 頁，共 {rows.length} 筆資料
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              第一頁
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              上一頁
+            </button>
+
+            <span className="px-2 text-xs text-slate-300">
+              {currentPage}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              下一頁
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              最後頁
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
