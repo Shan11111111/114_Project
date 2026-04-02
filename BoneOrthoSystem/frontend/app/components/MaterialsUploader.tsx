@@ -8,7 +8,7 @@ const API_BASE =
 
 function inferTypeFromFileName(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() || "";
-  if (["pdf", "txt", "doc", "docx", "pptx", "md"].includes(ext)) {
+  if (["pdf", "txt", "docx", "pptx", "md"].includes(ext)) {
     return ext;
   }
   return "file";
