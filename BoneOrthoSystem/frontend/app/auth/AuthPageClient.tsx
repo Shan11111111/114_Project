@@ -1,8 +1,11 @@
 "use client";
 
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
+//還沒加圖片當logo，先引入import放個占位用的
 
 import {
   apiJSON,
