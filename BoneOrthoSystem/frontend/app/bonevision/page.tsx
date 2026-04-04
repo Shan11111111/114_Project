@@ -340,8 +340,8 @@ function BoneVisionPageInner() {
         }
 
         const resolvedUserId =
-          normalizeNumericId(rawUser.user_id) ??
-          normalizeNumericId(rawUser.id);
+          normalizeNumericId(rawUser.id) ??
+          normalizeNumericId(rawUser.user_id);
 
         const fixedUser: AuthUser = {
           ...rawUser,
@@ -586,27 +586,37 @@ function BoneVisionPageInner() {
   }, [searchParams]);
 
   const detectWithFile = async (targetFile: File) => {
-    const fd = new FormData();
-    fd.append("file", targetFile);
+  const fd = new FormData();
+  fd.append("file", targetFile);
 
-    const currentUserId = getCurrentUserId();
-    if (currentUserId) {
-      fd.append("user_id", currentUserId);
-    }
+  const token = localStorage.getItem("galabone_access_token");
 
-    const res = await fetch(PREDICT_URL, {
-      method: "POST",
-      body: fd,
-      credentials: "include",
-    });
+  if (!token) {
+    throw new Error("尚未登入或登入已過期，請先重新登入");
+  }
 
-    if (!res.ok) {
+  const res = await fetch(PREDICT_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: fd,
+  });
+
+  if (!res.ok) {
+    let message = `後端回傳錯誤 ${res.status}`;
+    try {
+      const data = await res.json();
+      message = `${message}：${data?.detail || data?.error || JSON.stringify(data)}`;
+    } catch {
       const text = await res.text();
-      throw new Error(`後端回傳錯誤 ${res.status}：${text}`);
+      message = `${message}：${text}`;
     }
+    throw new Error(message);
+  }
 
-    const data = await res.json();
-    parsePredictResponse(data);
+  const data = await res.json();
+  parsePredictResponse(data);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

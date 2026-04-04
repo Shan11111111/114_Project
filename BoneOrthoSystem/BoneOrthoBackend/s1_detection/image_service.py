@@ -101,7 +101,7 @@ def insert_bone_image(
 # ========================================================
 def insert_image_case(
     bone_image_id: int,
-    user_id: Optional[int] = None,
+    created_by_user_id: Optional[int] = None,
     source: str = "api_upload",
 ) -> int:
     conn = get_connection()
@@ -118,7 +118,7 @@ def insert_image_case(
             OUTPUT INSERTED.ImageCaseId
             VALUES (?, ?, ?, GETDATE())
             """,
-            (user_id, bone_image_id, source),
+            (created_by_user_id, bone_image_id, source),
         )
         new_id = cur.fetchone()[0]
         conn.commit()
@@ -134,7 +134,7 @@ def insert_image_case(
 def insert_image_detections(
     image_case_id: int,
     boxes: List[Dict[str, Any]],
-    user_id: Optional[int] = None,   # ✅ 新增這個參數
+    created_by_user_id: Optional[int] = None,   # ✅ 新增這個參數
 ) -> None:
     conn = get_connection()
     try:
@@ -210,7 +210,7 @@ def insert_image_detections(
                     p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y,
                     poly_is_norm,
                     cx, cy,
-                    user_id,   # ✅ 寫進 CreatedByUserId
+                    created_by_user_id,   # ✅ 寫進 CreatedByUserId
                 ),
             )
 
@@ -221,14 +221,14 @@ def insert_image_detections(
 
 # ========================================================
 # (5) 一次完成存圖＋三張表
-#     ✅ 把 user_id 一路傳進 detection
+#     ✅ 把 created_by_user_id 一路傳進 detection
 # ========================================================
 def save_case_and_detections(
     image_bytes: bytes,
     original_filename: str,
     content_type: Optional[str],
     boxes: List[Dict[str, Any]],
-    user_id: Optional[int] = None,
+    created_by_user_id: Optional[int] = None,
     source: str = "api_upload",
 ) -> int:
     # 儲存到 public/bone_images
@@ -242,15 +242,15 @@ def save_case_and_detections(
 
     image_case_id = insert_image_case(
         bone_image_id=bone_image_id,
-        user_id=user_id,
+        created_by_user_id=created_by_user_id,
         source=source,
     )
 
-    # ✅ 這裡把 user_id 傳進去
+    # ✅ 這裡把 created_by_user_id 傳進去
     insert_image_detections(
         image_case_id=image_case_id,
         boxes=boxes,
-        user_id=user_id,
+        created_by_user_id=created_by_user_id,
     )
 
     return image_case_id

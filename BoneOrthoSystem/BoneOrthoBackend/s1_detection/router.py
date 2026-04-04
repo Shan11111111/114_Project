@@ -5,10 +5,14 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 import pyodbc
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from ultralytics import YOLO
 from PIL import Image
+
+from auth.security import decode_access_token
+from auth import repo as auth_repo
 
 from .bone_service import get_bone_info, assign_spine_levels
 from .image_service import save_case_and_detections
@@ -18,6 +22,8 @@ from .image_preview_router import router as image_preview_router
 router = APIRouter(
     tags=["s1_detection"]
 )
+
+bearer_scheme = HTTPBearer(auto_error=False)
 
 # 把獨立的 router 掛進 s1 router
 router.include_router(history_router)
@@ -35,6 +41,38 @@ SAMPLE_ID_START = 3741
 SAMPLE_ID_END = 3952
 
 _model = None  # 懶載入用
+
+
+def get_current_user_int_id(
+    creds: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> int:
+    if not creds or creds.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="缺少 Bearer token")
+
+    data = decode_access_token(creds.credentials)
+    if not data:
+        raise HTTPException(status_code=401, detail="access_token 無效")
+
+    sub = data.get("sub")
+    user = None
+
+    # 1) 先吃新版 token：sub = users.id(int)
+    if sub is not None:
+        sub_str = str(sub)
+        if sub_str.isdigit():
+            user = auth_repo.get_user_by_int_id(int(sub_str))
+        else:
+            # 2) 相容舊 token：sub 可能還是 uuid/user_id
+            user = auth_repo.get_user_by_id(sub_str)
+
+    # 3) 再保險：token 額外帶 user_id 時補救
+    if not user and data.get("user_id"):
+        user = auth_repo.get_user_by_id(str(data["user_id"]))
+
+    if not user:
+        raise HTTPException(status_code=404, detail="使用者不存在")
+
+    return int(user["id"])
 
 
 def get_model():
@@ -240,13 +278,13 @@ def download_sample_image(image_id: int):
 @router.post("/predict")
 async def predict(
     file: UploadFile = File(...),
-    user_id: Optional[int] = Form(None),
+    created_by_user_id: int = Depends(get_current_user_int_id),
 ):
     try:
         print(">>> /predict HIT")
         print(">>> filename =", file.filename)
         print(">>> content_type =", file.content_type)
-        print(">>> user_id =", user_id)
+        print(">>> created_by_user_id =", created_by_user_id, type(created_by_user_id))
 
         image_bytes = await file.read()
         print(">>> bytes =", len(image_bytes))
@@ -275,7 +313,7 @@ async def predict(
                 original_filename=file.filename,
                 content_type=file.content_type,
                 boxes=[],
-                user_id=user_id,
+                created_by_user_id=created_by_user_id,
                 source="api_upload",
             )
             return {
@@ -327,7 +365,7 @@ async def predict(
             original_filename=file.filename,
             content_type=file.content_type,
             boxes=boxes,
-            user_id=user_id,
+            created_by_user_id=created_by_user_id,
             source="api_upload",
         )
 

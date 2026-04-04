@@ -1,9 +1,9 @@
 cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\frontend
 npm install          # 第一次才需要
 
-npm run dev
+npm run dev   //不要用他
 
-有更新要開就這個:指令不用dev上面那個
+要開就開這個:指令不用dev上面那個
 npm run build
 npm run start
 
