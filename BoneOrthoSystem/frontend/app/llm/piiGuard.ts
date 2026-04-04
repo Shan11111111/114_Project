@@ -24,11 +24,12 @@ type Rule = {
 };
 
 const RULES: Rule[] = [
-{
-  type: "name",
-  label: "姓名",
-  regex: /(?:姓名叫|名字是|我叫|病人姓名是|患者姓名是|我是|我的名字|我叫做)\s*[:：]?\s*[\u4e00-\u9fff]{2,4}/gi,
-},
+  {
+    type: "name",
+    label: "姓名",
+    regex:
+      /(?:姓名叫|名字是|我叫|病人姓名是|患者姓名是|我是|我的名字|我叫做)\s*[:：]?\s*[\u4e00-\u9fff]{2,4}/gi,
+  },
   {
     type: "email",
     label: "Email",
@@ -57,30 +58,24 @@ const RULES: Rule[] = [
     regex:
       /\b(?:19|20)\d{2}[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:0?[1-9]|[12]\d|3[01])\b|\b\d{2,3}[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:0?[1-9]|[12]\d|3[01])\b/gi,
   },
-
-  // 病歷號：關鍵字 + 值
   {
     type: "medical_record_no",
     label: "病歷號",
     regex:
-    /(?:病歷號|病歷編號|我的病歷號是|我的病歷號|MRN|Chart\s*No|Record\s*No)\s*[:：]?\s*(\d{9}[A-Z])\b/gi  },
-
-  // 地址：有地址關鍵字
+      /(?:病歷號|病歷編號|我的病歷號是|我的病歷號|MRN|Chart\s*No|Record\s*No)\s*[:：]?\s*(\d{9}[A-Z])\b/gi,
+  },
   {
     type: "address",
     label: "地址",
     regex:
       /(?:地址是|住址是|通訊地址在|我住|住在)\s*[:：]?\s*[\u4e00-\u9fff0-9]{1,}(?:市|縣)[\u4e00-\u9fff0-9]{1,}(?:區|鄉|鎮|市)[\u4e00-\u9fff0-9巷弄路街段號樓之\-–—\s]{2,}/gi,
   },
-
-  // 地址：沒關鍵字但長得很像完整台灣地址
   {
     type: "address",
     label: "地址",
     regex:
       /[\u4e00-\u9fff]{2,}(?:市|縣)[\u4e00-\u9fff]{1,}(?:區|鄉|鎮|市)[\u4e00-\u9fff0-9巷弄路街段號樓之\-–—\s]{3,}\d+號?/gi,
   },
-
   {
     type: "identifiable_code",
     label: "可識別編號",
@@ -125,7 +120,8 @@ export function detectSensitiveInfo(input: string): SensitiveHit[] {
 function maskValue(type: SensitiveType, value: string): string {
   switch (type) {
     case "name":
-        return "[已遮罩姓名]";
+      return "患者";
+
     case "email": {
       const [name, domain] = value.split("@");
       if (!domain) return "[已遮罩Email]";
@@ -133,31 +129,47 @@ function maskValue(type: SensitiveType, value: string): string {
         name.length <= 2 ? `${name[0] ?? "*"}***` : `${name.slice(0, 2)}***`;
       return `${safeName}@${domain}`;
     }
+
     case "phone": {
       const digits = value.replace(/[^\d]/g, "");
       if (digits.length < 6) return "[已遮罩電話]";
       return `${digits.slice(0, 3)}****${digits.slice(-2)}`;
     }
+
     case "taiwan_id":
       return `${value.slice(0, 1)}*******${value.slice(-2)}`;
+
     case "date":
     case "birthday":
       return "[已遮罩日期]";
+
     case "medical_record_no":
-      return "[已遮罩病歷號]";  
-    case "address":
+      return "[已遮罩病歷號]";
+
+    case "address": 
       return "[已遮罩地址]";
+
     case "identifiable_code":
       return "[已遮罩編號]";
+
     default:
       return "[已遮罩]";
-    
   }
+}
+
+export function normalizeLegacyMaskedText(input: string): string {
+  if (!input) return input;
+
+  return input
+    .replace(/\[已遮罩姓名\]/g, "患者")
+    .replace(/\[已遮罩名字\]/g, "患者")
+    .replace(/\[已遮罩病人姓名\]/g, "患者")
+    .replace(/\[已遮罩患者姓名\]/g, "患者");
 }
 
 export function maskSensitiveInfo(input: string): string {
   const hits = detectSensitiveInfo(input);
-  if (hits.length === 0) return input;
+  if (hits.length === 0) return normalizeLegacyMaskedText(input);
 
   let output = input;
   for (const hit of [...hits].sort((a, b) => b.start - a.start)) {
@@ -166,5 +178,6 @@ export function maskSensitiveInfo(input: string): string {
       maskValue(hit.type, hit.value) +
       output.slice(hit.end);
   }
-  return output;
+
+  return normalizeLegacyMaskedText(output);
 }

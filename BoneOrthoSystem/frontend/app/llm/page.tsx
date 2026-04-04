@@ -19,8 +19,12 @@ import React, {
 import S2PrivacyConsent from "./S2PrivacyConsent";
 import S2SensitiveInfoModal from "./S2SensitiveInfoModal";
 import { getUser } from "../lib/auth";
-import { detectSensitiveInfo, maskSensitiveInfo, type SensitiveHit } from "./piiGuard";
-
+import {
+  detectSensitiveInfo,
+  maskSensitiveInfo,
+  normalizeLegacyMaskedText,
+  type SensitiveHit,
+} from "./piiGuard";
 type UploadedFile = {
   id: string;
   name: string;
@@ -2469,33 +2473,36 @@ function LLMClient() {
   bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
 }
   async function reallySendMessage(
-    e?: FormEvent,
-    textOverride?: string,
-    piiMode: "block" | "mask" = "block"
-  ) {
-    if (e) e.preventDefault();
+  e?: FormEvent,
+  textOverride?: string,
+  piiMode: "block" | "mask" = "block"
+) {
+  if (e) e.preventDefault();
 
-    const text = (textOverride ?? draftText).trim();
-    if ((!text && pendingFiles.length === 0) || loading) return;
+  const normalizedInput = normalizeLegacyMaskedText(
+  (textOverride ?? draftText).trim()
+);
 
-    const threadIdAtSend = ensureActiveThreadIdForSend();
-    const firstUserText = text || "（已上傳檔案）";
+if ((!normalizedInput && pendingFiles.length === 0) || loading) return;
 
-    const filesSnapshot = pendingFiles.map((f) => ({
-      ...f,
-      raw: undefined,
-    }));
+const threadIdAtSend = ensureActiveThreadIdForSend();
+const firstUserText = normalizedInput || "（已上傳檔案）";
 
-    const userMessageId = Date.now();
+const filesSnapshot = pendingFiles.map((f) => ({
+  ...f,
+  raw: undefined,
+}));
 
-    const userMessage: ChatMessage = {
-      id: userMessageId,
-      role: "user",
-      content: text || "（已上傳檔案）",
-      files: filesSnapshot.length ? filesSnapshot : undefined,
-    };
+const userMessageId = Date.now();
 
-    setMessages((prev) => [...prev, userMessage]);
+const userMessage: ChatMessage = {
+  id: userMessageId,
+  role: "user",
+  content: firstUserText,
+  files: filesSnapshot.length ? filesSnapshot : undefined,
+};
+
+setMessages((prev) => [...prev, userMessage]);
     pushHistoryMessage(threadIdAtSend, "user", firstUserText);
 
     bumpThreadOnMessage(threadIdAtSend, firstUserText, 1);
@@ -2605,13 +2612,15 @@ function LLMClient() {
         (sessionId || "").trim() ||
         `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}`;
 
+      const safeText = normalizeLegacyMaskedText(firstUserText);
+
       const basePrompt = isPubmedOnly
-        ? (text ? text : "請根據 PubMed 文獻回答")
+        ? safeText || "請根據 PubMed 文獻回答"
         : isSoapOnly
-          ? (text ? text : "請根據目前療法與醫院 SOAP 記錄回答")
-          : (text ? text : "（已上傳檔案，請根據檔案內容協助）") +
-          (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
-          vectorHint;
+          ? safeText || "請根據目前療法與醫院 SOAP 記錄回答"
+          : (safeText || "（已上傳檔案，請根據檔案內容協助）") +
+            (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
+            vectorHint;
 
       const payload = {
         session_id: sid,
@@ -2725,38 +2734,34 @@ function LLMClient() {
   }
 
   async function sendMessage(e?: FormEvent) {
-    if (e) e.preventDefault();
+  if (e) e.preventDefault();
 
-    const text = draftText.trim();
-    if ((!text && pendingFiles.length === 0) || loading) return;
+  const text = draftText.trim();
+  if ((!text && pendingFiles.length === 0) || loading) return;
 
-    if (!privacyConsent) {
-      alert("請先勾選個資與隱私聲明後再送出。");
-      return;
-    }
-
-    const hits = detectSensitiveInfo(text);
-
-    if (hits.length > 0) {
-      setSensitiveHits(hits);
-      setShowSensitiveModal(true);
-      return;
-    }
-
-    await reallySendMessage(undefined, text, "block");
+  // 有命中敏感資訊 => 跳出選擇框
+  const hits = detectSensitiveInfo(text);
+  if (hits.length > 0) {
+    setSensitiveHits(hits);
+    setShowSensitiveModal(true);
+    return;
   }
+
+  // 沒命中 => 正常送出
+  await reallySendMessage(undefined, text, "block");
+}
 
   async function handleMaskAndSend() {
-    const text = draftText.trim();
-    if (!text || loading) return;
+  const text = draftText.trim();
+  if (!text || loading) return;
 
-    const masked = maskSensitiveInfo(text);
+  const masked = normalizeLegacyMaskedText(maskSensitiveInfo(text));
 
-    setShowSensitiveModal(false);
-    setSensitiveHits([]);
+  setShowSensitiveModal(false);
+  setSensitiveHits([]);
 
-    await reallySendMessage(undefined, masked, "mask");
-  }
+  await reallySendMessage(undefined, masked, "mask");
+}
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     // @ts-ignore
@@ -2777,6 +2782,15 @@ function LLMClient() {
       filetype: null,
     }));
   }
+  async function handleSendWithoutMask() {
+  const text = draftText.trim();
+  if (!text || loading) return;
+
+  setShowSensitiveModal(false);
+  setSensitiveHits([]);
+
+  await reallySendMessage(undefined, text, "block");
+}
 
   async function handleExport(type: "pdf" | "pptx") {
     setShowToolMenu(false);
@@ -4232,7 +4246,6 @@ function renderResources(resources?: ChatResource[]) {
                                   <button
                                     type="submit"
                                     disabled={
-                                      !privacyConsent ||
                                       ((!draftText.trim() && pendingFiles.length === 0) ||
                                         loading)
                                     }
@@ -4279,7 +4292,6 @@ function renderResources(resources?: ChatResource[]) {
                                   <button
                                     type="submit"
                                     disabled={
-                                      !privacyConsent ||
                                       ((!draftText.trim() && pendingFiles.length === 0) ||
                                         loading)
                                     }
@@ -4303,12 +4315,6 @@ function renderResources(resources?: ChatResource[]) {
                           </div>
                         </div>
 
-                        <div className="mt-2">
-                          <S2PrivacyConsent
-                            checked={privacyConsent}
-                            onChange={setPrivacyConsent}
-                          />
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -4321,6 +4327,7 @@ function renderResources(resources?: ChatResource[]) {
           open={showSensitiveModal}
           hits={sensitiveHits}
           onClose={() => setShowSensitiveModal(false)}
+          onSendWithoutMask={handleSendWithoutMask}
           onMaskAndSend={handleMaskAndSend}
         />
       </div>

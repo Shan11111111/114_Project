@@ -5,13 +5,13 @@ from typing import Any, Dict, List
 
 _RULES = [
     {
-    "type": "name",
-    "label": "姓名",
-    "regex": re.compile(
-        r"(?:姓名叫|名字是|我叫|病人姓名是|患者姓名是|我是|我的名字|我叫做)\s*[:：]?\s*[\u4e00-\u9fff]{2,4}",
-        re.I,
-    ),
-},
+        "type": "name",
+        "label": "姓名",
+        "regex": re.compile(
+            r"(?:姓名叫|名字是|我叫|病人姓名是|患者姓名是|我是|我的名字|我叫做)\s*[:：]?\s*[\u4e00-\u9fff]{2,4}",
+            re.I,
+        ),
+    },
     {
         "type": "email",
         "label": "Email",
@@ -51,8 +51,8 @@ _RULES = [
         "type": "medical_record_no",
         "label": "病歷號",
         "regex": re.compile(
-        r"(?:病歷號|病歷編號|MRN|Chart\s*No|Record\s*No)\s*[:：]?\s*(\d{9}[A-Z])\b",
-        re.I,
+            r"(?:病歷號|病歷編號|我的病歷號是|我的病歷號|MRN|Chart\s*No|Record\s*No)\s*[:：]?\s*(\d{9}[A-Z])\b",
+            re.I,
         ),
     },
     {
@@ -109,8 +109,8 @@ def detect_sensitive_info(text: str) -> List[Dict[str, Any]]:
 
 def _mask_value(hit_type: str, value: str) -> str:
     if hit_type == "name":
-        return "[已遮罩姓名]"
-    
+        return "患者"
+
     if hit_type == "email":
         parts = value.split("@")
         if len(parts) != 2:
@@ -143,13 +143,26 @@ def _mask_value(hit_type: str, value: str) -> str:
     return "[已遮罩]"
 
 
+def normalize_legacy_masked_text(text: str) -> str:
+    if not text:
+        return text
+
+    return (
+        text.replace("[已遮罩姓名]", "患者")
+        .replace("[已遮罩名字]", "患者")
+        .replace("[已遮罩病人姓名]", "患者")
+        .replace("[已遮罩患者姓名]", "患者")
+    )
+
+
 def mask_sensitive_info(text: str) -> str:
     hits = detect_sensitive_info(text)
     if not hits:
-        return text
+        return normalize_legacy_masked_text(text)
 
     output = text
     for hit in sorted(hits, key=lambda x: x["start"], reverse=True):
         replacement = _mask_value(hit["type"], hit["value"])
         output = output[: hit["start"]] + replacement + output[hit["end"] :]
-    return output
+
+    return normalize_legacy_masked_text(output)

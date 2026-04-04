@@ -66,7 +66,7 @@ DEV_ORIGINS = [
 
 
 
-# ✅ CORS
+#  CORS
 app.add_middleware(
     CORSMiddleware,
     # allow_origins=["*"],
@@ -76,7 +76,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ DEV 用：把未處理的 500 變成 JSON（讓 CORS header 能正常回到前端）
+#  DEV 用：把未處理的 500 變成 JSON（讓 CORS header 能正常回到前端）
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
@@ -88,12 +88,12 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
         },
     )
 
-# ✅ 靜態檔案：讓 DB 存的 /public/... 真的能被打到
+#  靜態檔案：讓 DB 存的 /public/... 真的能被打到
 PROJECT_ROOT = find_project_root("BoneOrthoSystem")
 PUBLIC_DIR = os.path.join(PROJECT_ROOT, "public")
 os.makedirs(PUBLIC_DIR, exist_ok=True)
 
-# ✅ 你要的兩個資料夾：S1 bone_images、S2 user_upload_file
+# 你要的兩個資料夾：S1 bone_images、S2 user_upload_file
 BONE_IMAGES_DIR = os.path.join(PUBLIC_DIR, "bone_images")
 USER_UPLOAD_DIR = os.path.join(PUBLIC_DIR, "user_upload_file")
 os.makedirs(BONE_IMAGES_DIR, exist_ok=True)
@@ -116,7 +116,7 @@ def root():
 
 
 # =========================================================
-# ✅ Root /upload：給前端 llm/page.tsx 用（你現在就是打這裡）
+#  Root /upload：給前端 llm/page.tsx 用（你現在就是打這裡）
 # - 任何檔案都存到 BoneOrthoSystem/public/user_upload_file
 # - 回傳 url 使用 /public/user_upload_file/...（避免 /s2x/uploads 路徑對不起來）
 # =========================================================
@@ -162,7 +162,7 @@ async def root_upload(file: UploadFile = File(...)):
     }
 
 
-# ✅ routers
+# routers
 app.include_router(shared_router, prefix="/shared")
 app.include_router(s0_router)
 app.include_router(s1_router)
@@ -177,5 +177,5 @@ app.include_router(auth_admin_router)
 app.include_router(auth_router)
 app.include_router(llm_materials_router)
 
-# ✅ legacy S2（維持你原本行為）
+# legacy S2（維持你原本行為）
 app.mount("/s2x", s2_legacy_app)
