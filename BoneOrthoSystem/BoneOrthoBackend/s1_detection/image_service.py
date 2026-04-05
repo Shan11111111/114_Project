@@ -113,12 +113,18 @@ def insert_image_case(
                 UserId,
                 BoneImageId,
                 Source,
-                CreatedAt
+                CreatedAt,
+                CreatedByUserId
             )
             OUTPUT INSERTED.ImageCaseId
-            VALUES (?, ?, ?, GETDATE())
+            VALUES (?, ?, ?, GETDATE(), ?)
             """,
-            (created_by_user_id, bone_image_id, source),
+            (
+                None,                 # UserId 先不要存
+                bone_image_id,
+                source,
+                created_by_user_id,   # 正確存到 CreatedByUserId
+            ),
         )
         new_id = cur.fetchone()[0]
         conn.commit()
