@@ -33,7 +33,7 @@ def resolve_user_id(cursor, raw_user_id: str) -> Optional[int]:
     if not raw_user_id:
         return None
 
-    # 如果本來就是數字，直接回傳
+    # 前端如果已經傳數字 users.id，直接用
     try:
         num = int(raw_user_id)
         if num > 0:
@@ -41,7 +41,7 @@ def resolve_user_id(cursor, raw_user_id: str) -> Optional[int]:
     except ValueError:
         pass
 
-    # 否則從 users 表找真正的數字 id
+    # 相容舊資料：如果前端傳 username / 舊 user_id / email，就去 users 表解析成真正的 users.id
     cursor.execute("""
         SELECT TOP 1
             id,
@@ -59,13 +59,13 @@ def resolve_user_id(cursor, raw_user_id: str) -> Optional[int]:
     if not row:
         return None
 
-    for value in [row.user_id, row.id]:
-        try:
-            num = int(value)
-            if num > 0:
-                return num
-        except (TypeError, ValueError):
-            continue
+    # 最終一律回傳 users.id
+    try:
+        num = int(row.id)
+        if num > 0:
+            return num
+    except (TypeError, ValueError):
+        pass
 
     return None
 
@@ -81,13 +81,10 @@ def get_history(user_id: str = Query(...)):
         if resolved_user_id is None:
             return {"items": []}
 
-        # 用字串比對，避免 ImageCase.UserId 欄位混有舊字串資料時炸掉
-        resolved_user_id_str = str(resolved_user_id)
-
         cursor.execute("""
             SELECT
                 ic.ImageCaseId,
-                ic.UserId,
+                ic.CreatedByUserId,
                 ic.BoneImageId,
                 ic.Source,
                 ic.CreatedAt,
@@ -100,10 +97,10 @@ def get_history(user_id: str = Query(...)):
                 ON ic.BoneImageId = bi.image_id
             LEFT JOIN vision.ImageDetection d
                 ON ic.ImageCaseId = d.ImageCaseId
-            WHERE CAST(ic.UserId AS NVARCHAR(255)) = ?
+            WHERE ic.CreatedByUserId = ?
             GROUP BY
                 ic.ImageCaseId,
-                ic.UserId,
+                ic.CreatedByUserId,
                 ic.BoneImageId,
                 ic.Source,
                 ic.CreatedAt,
@@ -111,7 +108,7 @@ def get_history(user_id: str = Query(...)):
                 bi.image_path,
                 bi.content_type
             ORDER BY ic.CreatedAt DESC
-        """, resolved_user_id_str)
+        """, resolved_user_id)
 
         rows = cursor.fetchall()
 
@@ -119,7 +116,7 @@ def get_history(user_id: str = Query(...)):
         for row in rows:
             items.append({
                 "image_case_id": row.ImageCaseId,
-                "user_id": row.UserId,
+                "user_id": row.CreatedByUserId,  # 前端欄位名先維持不變
                 "bone_image_id": row.BoneImageId,
                 "source": row.Source,
                 "created_at": row.CreatedAt.isoformat() if row.CreatedAt else None,
@@ -155,7 +152,7 @@ def get_history_detail(case_id: int):
         cursor.execute("""
             SELECT
                 ic.ImageCaseId,
-                ic.UserId,
+                ic.CreatedByUserId,
                 ic.BoneImageId,
                 ic.Source,
                 ic.CreatedAt,
@@ -179,11 +176,6 @@ def get_history_detail(case_id: int):
                 d.BoneId,
                 d.SmallBoneId,
                 d.Label41,
-                d.Attr206,
-                d.Side,
-                d.Finger,
-                d.Phalanx,
-                d.SerialNumber,
                 d.Confidence,
                 d.X1,
                 d.Y1,
@@ -223,11 +215,6 @@ def get_history_detail(case_id: int):
                 "bone_id": d.BoneId,
                 "small_bone_id": d.SmallBoneId,
                 "label41": d.Label41,
-                "attr206": d.Attr206,
-                "side": d.Side,
-                "finger": d.Finger,
-                "phalanx": d.Phalanx,
-                "serial_number": d.SerialNumber,
                 "confidence": float(d.Confidence) if d.Confidence is not None else None,
                 "x1": d.X1,
                 "y1": d.Y1,
@@ -258,7 +245,7 @@ def get_history_detail(case_id: int):
 
         return {
             "image_case_id": case_row.ImageCaseId,
-            "user_id": case_row.UserId,
+            "user_id": case_row.CreatedByUserId,  # 前端欄位名先維持不變
             "bone_image_id": case_row.BoneImageId,
             "source": case_row.Source,
             "created_at": case_row.CreatedAt.isoformat() if case_row.CreatedAt else None,

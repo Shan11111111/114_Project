@@ -201,7 +201,13 @@ function BoneVisionPageInner() {
     if (!value) return "";
     return value.replace(/\s*[\(（][^\)）]*[\)）]\s*$/, "").trim();
   };
-
+  const getDisplayBoneName = (box: DetectionBox) => {
+    const zh = cleanBoneZh(box.bone_info?.bone_zh);
+    if (zh && zh !== "未分類") {
+      return zh;
+    }
+    return box.cls_name;
+  };
   const formatDateTime = (value?: string | null) => {
     if (!value) return "—";
     const d = new Date(value);
@@ -585,38 +591,39 @@ function BoneVisionPageInner() {
     loadHistoryDetail(caseId, true);
   }, [searchParams]);
 
+
+
   const detectWithFile = async (targetFile: File) => {
-  const fd = new FormData();
-  fd.append("file", targetFile);
+    const fd = new FormData();
+    fd.append("file", targetFile);
 
-  const token = localStorage.getItem("galabone_access_token");
+    const token = localStorage.getItem("galabone_access_token");
 
-  if (!token) {
-    throw new Error("尚未登入或登入已過期，請先重新登入");
-  }
-
-  const res = await fetch(PREDICT_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    body: fd,
-  });
-
-  if (!res.ok) {
-    let message = `後端回傳錯誤 ${res.status}`;
-    try {
-      const data = await res.json();
-      message = `${message}：${data?.detail || data?.error || JSON.stringify(data)}`;
-    } catch {
-      const text = await res.text();
-      message = `${message}：${text}`;
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
     }
-    throw new Error(message);
-  }
 
-  const data = await res.json();
-  parsePredictResponse(data);
+    const res = await fetch(PREDICT_URL, {
+      method: "POST",
+      headers,
+      body: fd,
+    });
+
+    if (!res.ok) {
+      let message = `後端回傳錯誤 ${res.status}`;
+      try {
+        const data = await res.json();
+        message = `${message}：${data?.detail || data?.error || JSON.stringify(data)}`;
+      } catch {
+        const text = await res.text();
+        message = `${message}：${text}`;
+      }
+      throw new Error(message);
+    }
+
+    const data = await res.json();
+    parsePredictResponse(data);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -853,14 +860,7 @@ function BoneVisionPageInner() {
             )}
           </div>
 
-          <div className="card border border-slate-800 max-h-72 overflow-auto text-xs">
-            <h3 className="text-xs font-semibold mb-2">辨識結果（原始 JSON）</h3>
-            <pre className="whitespace-pre-wrap text-[11px] text-green-400">
-              {rawResponse
-                ? JSON.stringify(rawResponse, null, 2)
-                : "// 目前尚無結果"}
-            </pre>
-          </div>
+
         </section>
 
         <section className="w-full lg:w-8/20">
@@ -985,7 +985,7 @@ function BoneVisionPageInner() {
               <span className="text-cyan-400 font-semibold">
                 {detections.length}
               </span>{" "}
-              個骨骼框（Poly / OBB）
+              個骨骼框
             </p>
           </div>
         </section>
@@ -1010,26 +1010,24 @@ function BoneVisionPageInner() {
                         : "bg-slate-800 text-slate-100 hover:bg-slate-700"
                         }`}
                     >
-                      {box.cls_name}
+                      {getDisplayBoneName(box)}
                       {box.sub_label ? ` - ${box.sub_label}` : ""}{" "}
                       <span className="opacity-70">({box.conf.toFixed(2)})</span>
                     </button>
                   ))}
                 </div>
-
                 <div className="mt-2 text-xs space-y-3 card border border-slate-800 flex-1 overflow-auto rounded-xl">
                   {activeBox ? (
                     <>
                       <p className="text-slate-400">
-                        模型類別名稱：{" "}
+                        辨識部位：{" "}
                         <span className="font-semibold text-cyan-300">
-                          {activeBox.cls_name}
+                          {getDisplayBoneName(activeBox)}
                         </span>{" "}
                         <span className="ml-1 text-slate-500">
                           conf {activeBox.conf.toFixed(3)}
                         </span>
                       </p>
-
                       {activeBox.sub_label && (
                         <p className="text-slate-400 mt-1">
                           節數 / 小類：{" "}
@@ -1099,14 +1097,7 @@ function BoneVisionPageInner() {
                         了解更多
                       </button>
 
-                      <div className="mt-3">
-                        <p className="text-slate-400 mb-1">
-                          poly 座標（normalized 0–1）：
-                        </p>
-                        <pre className="text-[11px] text-green-400 whitespace-pre-wrap">
-                          {JSON.stringify(activeBox.poly, null, 2)}
-                        </pre>
-                      </div>
+
                     </>
                   ) : (
                     <p className="text-xs text-slate-500">
@@ -1158,15 +1149,34 @@ function BoneVisionPageInner() {
             </div>
 
             <div className={`px-7 py-4 border-b ${modalBorderClass}`}>
-              <div className="flex flex-wrap gap-2">
+              {/* 小螢幕：下拉選單 */}
+              <div className="block sm:hidden">
+                <select
+                  value={galleryFilter}
+                  onChange={(e) => setGalleryFilter(e.target.value)}
+                  className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none ${isDarkMode
+                      ? "border-slate-700 bg-slate-900 text-slate-100"
+                      : "border-slate-300 bg-white text-slate-900"
+                    }`}
+                >
+                  {filterOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 平板以上：分類按鈕 */}
+              <div className="hidden sm:flex flex-wrap gap-2">
                 {filterOptions.map((option) => (
                   <button
                     key={option}
                     type="button"
                     onClick={() => setGalleryFilter(option)}
                     className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${galleryFilter === option
-                      ? "bg-cyan-500 text-slate-900"
-                      : filterInactiveClass
+                        ? "bg-cyan-500 text-slate-900"
+                        : filterInactiveClass
                       }`}
                   >
                     {option}
@@ -1220,7 +1230,7 @@ function BoneVisionPageInner() {
                           {sample.bone_region || "未分類區域"}
                         </p>
 
-                        <p className={`mt-2 text-xs line-clamp-3 ${modalTextSubClass}`}>
+                        <p className={`mt-2 text-xs line-clamp-2 ${modalTextSubClass}`}>
                           {sample.bone_desc || "目前無描述"}
                         </p>
 
@@ -1294,7 +1304,9 @@ function BoneVisionPageInner() {
                 <div className="mt-6 flex gap-3">
                   <button
                     type="button"
-                    onClick={() => router.push("/login")}
+                    onClick={() => {
+                      window.location.href = "http://140.136.155.157/auth?mode=login";
+                    }}
                     className="rounded-2xl px-6 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
                   >
                     前往登入
@@ -1302,7 +1314,9 @@ function BoneVisionPageInner() {
 
                   <button
                     type="button"
-                    onClick={() => router.push("/register")}
+                    onClick={() => {
+                      window.location.href = "http://140.136.155.157/auth?mode=register";
+                    }}
                     className={`rounded-2xl px-6 py-3 text-sm font-semibold border transition-colors ${secondaryActionClass}`}
                   >
                     前往註冊
@@ -1462,7 +1476,7 @@ function BoneVisionPageInner() {
             <div
               className={`shrink-0 px-8 py-4 border-t text-xs ${modalBorderClass} ${modalTextSubClass}`}
             >
-              提示：按 ESC 可關閉
+              按 ESC 可關閉
             </div>
           </div>
         </div>

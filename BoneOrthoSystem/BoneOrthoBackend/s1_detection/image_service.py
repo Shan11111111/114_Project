@@ -113,12 +113,18 @@ def insert_image_case(
                 UserId,
                 BoneImageId,
                 Source,
-                CreatedAt
+                CreatedAt,
+                CreatedByUserId
             )
             OUTPUT INSERTED.ImageCaseId
-            VALUES (?, ?, ?, GETDATE())
+            VALUES (?, ?, ?, GETDATE(), ?)
             """,
-            (created_by_user_id, bone_image_id, source),
+            (
+                None,                 # UserId 先不要存
+                bone_image_id,
+                source,
+                created_by_user_id,   # 正確存到 CreatedByUserId
+            ),
         )
         new_id = cur.fetchone()[0]
         conn.commit()
@@ -129,12 +135,12 @@ def insert_image_case(
 
 # ========================================================
 # (4) 寫入 vision.ImageDetection
-#     ✅ 新增 CreatedByUserId
+#     修正：移除不存在的舊欄位
 # ========================================================
 def insert_image_detections(
     image_case_id: int,
     boxes: List[Dict[str, Any]],
-    created_by_user_id: Optional[int] = None,   # ✅ 新增這個參數
+    created_by_user_id: Optional[int] = None,
 ) -> None:
     conn = get_connection()
     try:
@@ -145,14 +151,20 @@ def insert_image_detections(
             poly4 = poly[:4] if len(poly) >= 4 else []
 
             # fallback：沒 poly 就用 0
-            xs = [p[0] for p in poly4] if poly4 else [0.0]
-            ys = [p[1] for p in poly4] if poly4 else [0.0]
+            xs = [float(p[0]) for p in poly4] if poly4 else [0.0]
+            ys = [float(p[1]) for p in poly4] if poly4 else [0.0]
 
             x1, x2 = float(min(xs)), float(max(xs))
             y1, y2 = float(min(ys)), float(max(ys))
 
             bone_info = box.get("bone_info") or {}
             bone_id = bone_info.get("bone_id")
+
+            # 如果未來有 small_bone_id，就優先從 box 或 bone_info 取
+            small_bone_id = (
+                box.get("small_bone_id")
+                or bone_info.get("small_bone_id")
+            )
 
             confidence = float(box.get("conf", 0.0) or 0.0)
             cls_id = box.get("cls_id")
@@ -162,9 +174,13 @@ def insert_image_detections(
             poly_json = json.dumps(poly4, ensure_ascii=False) if poly4 else None
             poly_is_norm = 1
 
-            # P1~P4
+            # P1~P4 + 中心點
             if poly4:
                 (p1x, p1y), (p2x, p2y), (p3x, p3y), (p4x, p4y) = poly4
+                p1x, p1y = float(p1x), float(p1y)
+                p2x, p2y = float(p2x), float(p2y)
+                p3x, p3y = float(p3x), float(p3y)
+                p4x, p4y = float(p4x), float(p4y)
                 cx = (p1x + p2x + p3x + p4x) / 4.0
                 cy = (p1y + p2y + p3y + p4y) / 4.0
             else:
@@ -178,11 +194,6 @@ def insert_image_detections(
                     BoneId,
                     SmallBoneId,
                     Label41,
-                    Attr206,
-                    Side,
-                    Finger,
-                    Phalanx,
-                    SerialNumber,
                     Confidence,
                     X1, Y1, X2, Y2,
                     PolyJson,
@@ -192,25 +203,20 @@ def insert_image_detections(
                     CreatedAt,
                     CreatedByUserId
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?)
                 """,
                 (
                     image_case_id,
                     bone_id,
-                    None,   # SmallBoneId
+                    small_bone_id,
                     label41,
-                    None,   # Attr206
-                    None,   # Side
-                    None,   # Finger
-                    None,   # Phalanx
-                    None,   # SerialNumber
                     confidence,
                     x1, y1, x2, y2,
                     poly_json,
                     p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y,
                     poly_is_norm,
                     cx, cy,
-                    created_by_user_id,   # ✅ 寫進 CreatedByUserId
+                    created_by_user_id,
                 ),
             )
 
@@ -221,7 +227,6 @@ def insert_image_detections(
 
 # ========================================================
 # (5) 一次完成存圖＋三張表
-#     ✅ 把 created_by_user_id 一路傳進 detection
 # ========================================================
 def save_case_and_detections(
     image_bytes: bytes,
@@ -246,7 +251,6 @@ def save_case_and_detections(
         source=source,
     )
 
-    # ✅ 這裡把 created_by_user_id 傳進去
     insert_image_detections(
         image_case_id=image_case_id,
         boxes=boxes,
