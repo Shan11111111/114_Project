@@ -585,38 +585,39 @@ function BoneVisionPageInner() {
     loadHistoryDetail(caseId, true);
   }, [searchParams]);
 
+
+
   const detectWithFile = async (targetFile: File) => {
-  const fd = new FormData();
-  fd.append("file", targetFile);
+    const fd = new FormData();
+    fd.append("file", targetFile);
 
-  const token = localStorage.getItem("galabone_access_token");
+    const token = localStorage.getItem("galabone_access_token");
 
-  if (!token) {
-    throw new Error("尚未登入或登入已過期，請先重新登入");
-  }
-
-  const res = await fetch(PREDICT_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    body: fd,
-  });
-
-  if (!res.ok) {
-    let message = `後端回傳錯誤 ${res.status}`;
-    try {
-      const data = await res.json();
-      message = `${message}：${data?.detail || data?.error || JSON.stringify(data)}`;
-    } catch {
-      const text = await res.text();
-      message = `${message}：${text}`;
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
     }
-    throw new Error(message);
-  }
 
-  const data = await res.json();
-  parsePredictResponse(data);
+    const res = await fetch(PREDICT_URL, {
+      method: "POST",
+      headers,
+      body: fd,
+    });
+
+    if (!res.ok) {
+      let message = `後端回傳錯誤 ${res.status}`;
+      try {
+        const data = await res.json();
+        message = `${message}：${data?.detail || data?.error || JSON.stringify(data)}`;
+      } catch {
+        const text = await res.text();
+        message = `${message}：${text}`;
+      }
+      throw new Error(message);
+    }
+
+    const data = await res.json();
+    parsePredictResponse(data);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1294,7 +1295,7 @@ function BoneVisionPageInner() {
                 <div className="mt-6 flex gap-3">
                   <button
                     type="button"
-                    onClick={() => router.push("/login")}
+                    onClick={() => router.push("/auth")}
                     className="rounded-2xl px-6 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
                   >
                     前往登入
@@ -1302,7 +1303,7 @@ function BoneVisionPageInner() {
 
                   <button
                     type="button"
-                    onClick={() => router.push("/register")}
+                    onClick={() => router.push("/auth?mode=register")}
                     className={`rounded-2xl px-6 py-3 text-sm font-semibold border transition-colors ${secondaryActionClass}`}
                   >
                     前往註冊
