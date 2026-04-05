@@ -110,20 +110,18 @@ def insert_image_case(
         cur.execute(
             """
             INSERT INTO vision.ImageCase (
-                UserId,
                 BoneImageId,
                 Source,
                 CreatedAt,
                 CreatedByUserId
             )
             OUTPUT INSERTED.ImageCaseId
-            VALUES (?, ?, ?, GETDATE(), ?)
+            VALUES (?, ?, GETDATE(), ?)
             """,
             (
-                None,                 # UserId 先不要存
                 bone_image_id,
                 source,
-                created_by_user_id,   # 正確存到 CreatedByUserId
+                created_by_user_id,
             ),
         )
         new_id = cur.fetchone()[0]
@@ -131,7 +129,6 @@ def insert_image_case(
         return int(new_id)
     finally:
         conn.close()
-
 
 # ========================================================
 # (4) 寫入 vision.ImageDetection
