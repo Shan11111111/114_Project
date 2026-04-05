@@ -75,6 +75,36 @@ def get_current_user_int_id(
     return int(user["id"])
 
 
+def get_optional_current_user_int_id(
+    creds: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> Optional[int]:
+    if not creds or creds.scheme.lower() != "bearer":
+        return None
+
+    data = decode_access_token(creds.credentials)
+    if not data:
+        return None
+
+    sub = data.get("sub")
+    user = None
+
+    if sub is not None:
+        sub_str = str(sub)
+        if sub_str.isdigit():
+            user = auth_repo.get_user_by_int_id(int(sub_str))
+        else:
+            user = auth_repo.get_user_by_id(sub_str)
+
+    if not user and data.get("user_id"):
+        user = auth_repo.get_user_by_id(str(data["user_id"]))
+
+    if not user:
+        return None
+
+    return int(user["id"])
+
+
+
 def get_model():
     global _model
     if _model is None:
@@ -278,7 +308,8 @@ def download_sample_image(image_id: int):
 @router.post("/predict")
 async def predict(
     file: UploadFile = File(...),
-    created_by_user_id: int = Depends(get_current_user_int_id),
+    created_by_user_id: Optional[int] = Depends(get_optional_current_user_int_id),
+    # 用這行就必須一定要登入才能使用s1 created_by_user_id: int = Depends(get_current_user_int_id),
 ):
     try:
         print(">>> /predict HIT")
