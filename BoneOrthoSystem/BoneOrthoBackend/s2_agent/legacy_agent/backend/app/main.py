@@ -354,6 +354,8 @@ def _ext_of(filename: str) -> str:
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
+    print("上傳了")
+    print(">>> filename =", file.filename)
     original = file.filename or ""
     ext = _ext_of(original)
 
@@ -365,6 +367,8 @@ async def upload_file(file: UploadFile = File(...)):
     fpath = USER_UPLOAD_DIR / fname
 
     data = await file.read()
+    print(">>> bytes =", len(data))
+    print("上傳了")
     with open(fpath, "wb") as f:
         f.write(data)
 
