@@ -985,7 +985,7 @@ function BoneVisionPageInner() {
               <span className="text-cyan-400 font-semibold">
                 {detections.length}
               </span>{" "}
-              個骨骼框（Poly / OBB）
+              個骨骼框
             </p>
           </div>
         </section>
@@ -1149,15 +1149,34 @@ function BoneVisionPageInner() {
             </div>
 
             <div className={`px-7 py-4 border-b ${modalBorderClass}`}>
-              <div className="flex flex-wrap gap-2">
+              {/* 小螢幕：下拉選單 */}
+              <div className="block sm:hidden">
+                <select
+                  value={galleryFilter}
+                  onChange={(e) => setGalleryFilter(e.target.value)}
+                  className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none ${isDarkMode
+                      ? "border-slate-700 bg-slate-900 text-slate-100"
+                      : "border-slate-300 bg-white text-slate-900"
+                    }`}
+                >
+                  {filterOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 平板以上：分類按鈕 */}
+              <div className="hidden sm:flex flex-wrap gap-2">
                 {filterOptions.map((option) => (
                   <button
                     key={option}
                     type="button"
                     onClick={() => setGalleryFilter(option)}
                     className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${galleryFilter === option
-                      ? "bg-cyan-500 text-slate-900"
-                      : filterInactiveClass
+                        ? "bg-cyan-500 text-slate-900"
+                        : filterInactiveClass
                       }`}
                   >
                     {option}
@@ -1211,7 +1230,7 @@ function BoneVisionPageInner() {
                           {sample.bone_region || "未分類區域"}
                         </p>
 
-                        <p className={`mt-2 text-xs line-clamp-3 ${modalTextSubClass}`}>
+                        <p className={`mt-2 text-xs line-clamp-2 ${modalTextSubClass}`}>
                           {sample.bone_desc || "目前無描述"}
                         </p>
 
