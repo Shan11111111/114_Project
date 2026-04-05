@@ -860,7 +860,7 @@ function BoneVisionPageInner() {
             )}
           </div>
 
-          
+
         </section>
 
         <section className="w-full lg:w-8/20">
@@ -1097,7 +1097,7 @@ function BoneVisionPageInner() {
                         了解更多
                       </button>
 
-                      
+
                     </>
                   ) : (
                     <p className="text-xs text-slate-500">
@@ -1285,7 +1285,9 @@ function BoneVisionPageInner() {
                 <div className="mt-6 flex gap-3">
                   <button
                     type="button"
-                    onClick={() => router.push("/auth")}
+                    onClick={() => {
+                      window.location.href = "http://140.136.155.157/auth?mode=login";
+                    }}
                     className="rounded-2xl px-6 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
                   >
                     前往登入
@@ -1293,7 +1295,9 @@ function BoneVisionPageInner() {
 
                   <button
                     type="button"
-                    onClick={() => router.push("/auth?mode=register")}
+                    onClick={() => {
+                      window.location.href = "http://140.136.155.157/auth?mode=register";
+                    }}
                     className={`rounded-2xl px-6 py-3 text-sm font-semibold border transition-colors ${secondaryActionClass}`}
                   >
                     前往註冊
@@ -1453,7 +1457,7 @@ function BoneVisionPageInner() {
             <div
               className={`shrink-0 px-8 py-4 border-t text-xs ${modalBorderClass} ${modalTextSubClass}`}
             >
-              提示：按 ESC 可關閉
+              按 ESC 可關閉
             </div>
           </div>
         </div>
