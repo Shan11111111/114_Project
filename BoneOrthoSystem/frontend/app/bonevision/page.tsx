@@ -201,7 +201,13 @@ function BoneVisionPageInner() {
     if (!value) return "";
     return value.replace(/\s*[\(（][^\)）]*[\)）]\s*$/, "").trim();
   };
-
+  const getDisplayBoneName = (box: DetectionBox) => {
+    const zh = cleanBoneZh(box.bone_info?.bone_zh);
+    if (zh && zh !== "未分類") {
+      return zh;
+    }
+    return box.cls_name;
+  };
   const formatDateTime = (value?: string | null) => {
     if (!value) return "—";
     const d = new Date(value);
@@ -854,14 +860,7 @@ function BoneVisionPageInner() {
             )}
           </div>
 
-          <div className="card border border-slate-800 max-h-72 overflow-auto text-xs">
-            <h3 className="text-xs font-semibold mb-2">辨識結果（原始 JSON）</h3>
-            <pre className="whitespace-pre-wrap text-[11px] text-green-400">
-              {rawResponse
-                ? JSON.stringify(rawResponse, null, 2)
-                : "// 目前尚無結果"}
-            </pre>
-          </div>
+          
         </section>
 
         <section className="w-full lg:w-8/20">
@@ -1011,26 +1010,24 @@ function BoneVisionPageInner() {
                         : "bg-slate-800 text-slate-100 hover:bg-slate-700"
                         }`}
                     >
-                      {box.cls_name}
+                      {getDisplayBoneName(box)}
                       {box.sub_label ? ` - ${box.sub_label}` : ""}{" "}
                       <span className="opacity-70">({box.conf.toFixed(2)})</span>
                     </button>
                   ))}
                 </div>
-
                 <div className="mt-2 text-xs space-y-3 card border border-slate-800 flex-1 overflow-auto rounded-xl">
                   {activeBox ? (
                     <>
                       <p className="text-slate-400">
-                        模型類別名稱：{" "}
+                        辨識部位：{" "}
                         <span className="font-semibold text-cyan-300">
-                          {activeBox.cls_name}
+                          {getDisplayBoneName(activeBox)}
                         </span>{" "}
                         <span className="ml-1 text-slate-500">
                           conf {activeBox.conf.toFixed(3)}
                         </span>
                       </p>
-
                       {activeBox.sub_label && (
                         <p className="text-slate-400 mt-1">
                           節數 / 小類：{" "}
@@ -1100,14 +1097,7 @@ function BoneVisionPageInner() {
                         了解更多
                       </button>
 
-                      <div className="mt-3">
-                        <p className="text-slate-400 mb-1">
-                          poly 座標（normalized 0–1）：
-                        </p>
-                        <pre className="text-[11px] text-green-400 whitespace-pre-wrap">
-                          {JSON.stringify(activeBox.poly, null, 2)}
-                        </pre>
-                      </div>
+                      
                     </>
                   ) : (
                     <p className="text-xs text-slate-500">
