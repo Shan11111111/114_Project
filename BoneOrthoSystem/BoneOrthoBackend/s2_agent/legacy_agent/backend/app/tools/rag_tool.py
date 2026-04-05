@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-
-
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from openai import OpenAI
 from qdrant_client import QdrantClient
@@ -31,12 +29,59 @@ _GUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
+FOLLOWUP_HINTS = [
+    "那", "那個", "這個", "這種", "上述", "剛剛", "前面", "前述", "因此", "所以",
+    "然後", "接著", "它", "他", "她", "其", "該", "會嗎", "怎麼辦", "怎麼治療",
+]
+
+INTENT_KEYWORDS = {
+    "definition": ["是什麼", "什麼是", "定義", "介紹", "說明"],
+    "symptom": ["症狀", "表現", "徵象", "感覺", "會痛嗎", "痛嗎"],
+    "cause": ["原因", "為什麼", "成因", "造成", "導致"],
+    "risk": ["高風險", "危險因子", "風險", "容易", "好發", "誰比較容易"],
+    "exam": ["檢查", "怎麼檢查", "檢測", "診斷", "骨密度", "DXA", "X光", "掃描"],
+    "treatment": ["治療", "怎麼治療", "如何治療", "處理", "開刀", "手術", "藥物"],
+    "prevention": ["預防", "避免", "保養", "保健"],
+    "comparison": ["差異", "比較", "不同", "差別"],
+    "upload_analysis": ["這份檔案", "這個檔案", "這張圖", "這份報告", "這個圖片"],
+}
+
+TOPIC_HINTS = [
+    "骨質疏鬆", "骨鬆", "骨質疏松",
+    "血友病",
+    "停經", "更年期", "停經後",
+    "糖尿病", "糖尿",
+    "退化性關節炎", "關節炎", "關節退化",
+    "高血壓", "血壓高",
+    "骨折", "肋骨骨折", "脛骨骨折", "腕骨",
+    "骨密度", "DXA",
+    "痛風", "高尿酸", "尿酸"
+]
+
+
 def _is_guid_like(v: Any) -> bool:
     if v is None:
         return False
     s = str(v).strip()
     return bool(_GUID_RE.fullmatch(s))
 
+
+def _is_https_url(v: Any) -> bool:
+    if v is None:
+        return False
+    s = str(v).strip()
+    return s.startswith("https://")
+
+
+def _sanitize_for_llm(text: str) -> str:
+    s = str(text or "")
+    s = s.replace("\x00", " ")
+    s = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f]", " ", s)
+    s = s.encode("utf-8", "ignore").decode("utf-8", "ignore")
+    s = re.sub(r"[\ud800-\udfff]", "", s)
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
 
 
 def _expand_query_aliases(q: str) -> str:
@@ -52,6 +97,8 @@ def _expand_query_aliases(q: str) -> str:
         ["退化性關節炎", "退化", "關節退化", "關節炎"],
         ["高血壓", "血壓高"],
         ["骨折", "斷掉", "裂掉"],
+        ["骨密度", "DXA"],
+        ["痛風", "高尿酸", "尿酸"],
     ]
 
     expanded = []
@@ -69,36 +116,6 @@ def _expand_query_aliases(q: str) -> str:
     return " ".join(merged)
 
 
-
-
-
-def _is_https_url(v: Any) -> bool:
-    if v is None:
-        return False
-    s = str(v).strip()
-    return s.startswith("https://")
-
-def _sanitize_for_llm(text: str) -> str:
-    s = str(text or "")
-
-    # 去掉 NUL
-    s = s.replace("\x00", " ")
-
-    # 去掉大多數控制字元，但保留 \n \t
-    s = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f]", " ", s)
-
-    # 去掉不合法 surrogate，避免 JSON / UTF-8 爆掉
-    s = s.encode("utf-8", "ignore").decode("utf-8", "ignore")
-
-    # 保守再清一次常見非字元區
-    s = re.sub(r"[\ud800-\udfff]", "", s)
-
-    # 收斂空白
-    s = re.sub(r"[ \t]+", " ", s)
-    s = re.sub(r"\n{3,}", "\n\n", s)
-
-    return s.strip()
-
 def _embed(text: str) -> List[float]:
     text = (text or "").strip()
     if not text:
@@ -106,49 +123,190 @@ def _embed(text: str) -> List[float]:
     r = client.embeddings.create(model=EMBEDDING_MODEL, input=text)
     return r.data[0].embedding
 
-def _build_retrieval_query(user_q: str, session: dict | None, keep_last_user: int = 3) -> str:
-    user_q = _expand_query_aliases((user_q or "").strip())
+
+def _get_session_messages(session: dict | None, keep_last: int = 12) -> List[Dict[str, Any]]:
     if not session:
-        return user_q
+        return []
 
     msgs = session.get("messages") or []
     if not isinstance(msgs, list):
-        return user_q
+        return []
 
-    recent_user_texts: List[str] = []
-
-    for m in msgs[-10:]:
+    out: List[Dict[str, Any]] = []
+    for m in msgs[-keep_last:]:
         if isinstance(m, dict):
             role = m.get("role")
             content = m.get("content")
             msg_type = m.get("type")
+            url = m.get("url")
         else:
             role = getattr(m, "role", None)
             content = getattr(m, "content", None)
             msg_type = getattr(m, "type", None)
+            url = getattr(m, "url", None)
 
-        if role != "user":
-            continue
-        if msg_type and msg_type != "text":
-            continue
-
-        content_str = str(content or "").strip()
-        if not content_str:
+        if role not in {"user", "assistant"}:
             continue
 
-        recent_user_texts.append(content_str)
+        out.append({
+            "role": role,
+            "content": str(content or "").strip(),
+            "type": msg_type,
+            "url": url,
+        })
 
-    if not recent_user_texts:
-        return user_q
+    return out
 
-    recent_user_texts = recent_user_texts[-keep_last_user:]
 
-    # 避免把當前問題重複兩次
-    if recent_user_texts and recent_user_texts[-1] == user_q:
-        recent_user_texts = recent_user_texts[:-1]
+def _infer_intent(text: str) -> str:
+    t = str(text or "").strip()
+    if not t:
+        return "general"
 
-    merged = " ".join([*recent_user_texts, user_q]).strip()
-    return merged or user_q
+    for intent, kws in INTENT_KEYWORDS.items():
+        if any(kw in t for kw in kws):
+            return intent
+
+    return "general"
+
+
+def _infer_topic_from_text(text: str) -> str:
+    t = str(text or "").strip()
+    if not t:
+        return ""
+
+    for kw in TOPIC_HINTS:
+        if kw in t:
+            return kw
+
+    return ""
+
+
+def _looks_like_followup(text: str) -> bool:
+    t = str(text or "").strip()
+    if not t:
+        return False
+
+    if len(t) <= 12:
+        return True
+
+    return any(h in t for h in FOLLOWUP_HINTS)
+
+
+def _build_dialog_state(user_q: str, session: dict | None) -> Dict[str, Any]:
+    msgs = _get_session_messages(session, keep_last=12)
+
+    recent_user = [m["content"] for m in msgs if m["role"] == "user" and m["content"]]
+    recent_assistant = [m["content"] for m in msgs if m["role"] == "assistant" and m["content"]]
+
+    current_intent = _infer_intent(user_q)
+    current_topic = _infer_topic_from_text(user_q)
+
+    if not current_topic:
+        for text in reversed(recent_user[-5:]):
+            topic = _infer_topic_from_text(text)
+            if topic:
+                current_topic = topic
+                break
+
+    if not current_topic:
+        for text in reversed(recent_assistant[-3:]):
+            topic = _infer_topic_from_text(text)
+            if topic:
+                current_topic = topic
+                break
+
+    is_followup = _looks_like_followup(user_q)
+    followup_target = current_topic or ""
+
+    recent_points: List[str] = []
+    for t in recent_user[-4:]:
+        intent = _infer_intent(t)
+        topic = _infer_topic_from_text(t)
+        frag = " / ".join([x for x in [topic, intent if intent != "general" else ""] if x]).strip()
+        if frag and frag not in recent_points:
+            recent_points.append(frag)
+
+    state = {
+        "current_topic": current_topic,
+        "current_intent": current_intent,
+        "is_followup": is_followup,
+        "followup_target": followup_target,
+        "recent_points": recent_points[-4:],
+        "recent_user_questions": recent_user[-4:],
+    }
+
+    return state
+
+
+def _build_retrieval_query(user_q: str, session: dict | None, dialog_state: Optional[Dict[str, Any]] = None) -> str:
+    state = dialog_state or _build_dialog_state(user_q, session)
+
+    topic = str(state.get("current_topic") or "").strip()
+    intent = str(state.get("current_intent") or "").strip()
+
+    intent_map = {
+        "definition": "定義 介紹 說明",
+        "symptom": "症狀 臨床表現 徵象",
+        "cause": "原因 成因 危險因子",
+        "risk": "高風險 危險因子 好發族群",
+        "exam": "檢查 診斷 骨密度 DXA",
+        "treatment": "治療 處置 藥物 手術",
+        "prevention": "預防 保健",
+        "comparison": "比較 差異",
+        "upload_analysis": "檔案 圖片 報告 解釋",
+        "general": "",
+    }
+
+    parts: List[str] = []
+
+    if topic:
+        parts.append(topic)
+
+    if intent and intent in intent_map and intent_map[intent]:
+        parts.append(intent_map[intent])
+
+    parts.append(user_q)
+
+    merged = " ".join([p for p in parts if p]).strip()
+    merged = _expand_query_aliases(merged)
+    return merged
+
+
+def _build_history_summary(user_q: str, session: dict | None, dialog_state: Optional[Dict[str, Any]] = None) -> str:
+    state = dialog_state or _build_dialog_state(user_q, session)
+    msgs = _get_session_messages(session, keep_last=10)
+
+    lines: List[str] = []
+
+    topic = state.get("current_topic") or "未明確主題"
+    intent = state.get("current_intent") or "general"
+    is_followup = bool(state.get("is_followup"))
+
+    lines.append(f"目前主題：{topic}")
+    lines.append(f"本次需求類型：{intent}")
+    lines.append(f"是否屬於追問：{'是' if is_followup else '否'}")
+
+    recent_points = state.get("recent_points") or []
+    if recent_points:
+        lines.append("近期對話焦點：" + "；".join(recent_points))
+
+    recent_pairs: List[str] = []
+    for m in msgs[-6:]:
+        role = m.get("role")
+        content = str(m.get("content") or "").strip()
+        if not content:
+            continue
+        if len(content) > 80:
+            content = content[:80] + "…"
+        recent_pairs.append(f"{role}: {content}")
+
+    if recent_pairs:
+        lines.append("最近對話摘錄：")
+        lines.extend(recent_pairs)
+
+    return "\n".join(lines).strip()
+
 
 def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
     raw_title = (
@@ -176,7 +334,6 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
 
     source_type = str(payload.get("source_type") or payload.get("kind") or payload.get("type") or "qdrant").strip().lower()
 
-    # upload 不要進參考資料可點連結
     if source_type == "upload":
         base_view_path = None
         base_download_path = None
@@ -186,7 +343,6 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         base_download_path = f"/s2/llm/materials/{safe_material_id}/download"
         external_url = raw_url if _is_https_url(raw_url) else None
     else:
-        # 外部網站 / 其他可公開網址
         base_view_path = raw_url if raw_url and not re.search(r"/uploads/", raw_url, re.I) else None
         base_download_path = raw_url if raw_url and not re.search(r"/uploads/", raw_url, re.I) else None
         external_url = raw_url if _is_https_url(raw_url) else None
@@ -199,19 +355,10 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         text = re.sub(r"^(?:[\d\.\-\+\(\)\/%\sA-Za-z]{1,120})", "", text).strip()
 
         candidates = [
-    "骨質疏鬆",
-    "骨鬆",
-    "骨質"
-    "骨值疏鬆",
-    "骨質疏松",
-    "骨質密度",
-    "診斷",
-    "治療",
-    "預防",
-    "症狀",
-    "檢測",
-    "DXA",
-]
+            "骨質疏鬆", "骨鬆", "骨質", "骨值疏鬆", "骨質疏松", "骨質密度",
+            "診斷", "治療", "預防", "症狀", "檢測", "DXA",
+        ]
+
         cut_pos = None
         for kw in candidates:
             pos = text.find(kw)
@@ -240,42 +387,6 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         "material_id": material_id,
         "source_type": source_type,
     }
-
-def _build_history_context(session: dict | None, keep_last: int = 6) -> str:
-    if not session:
-        return ""
-
-    msgs = session.get("messages") or []
-    if not isinstance(msgs, list):
-        return ""
-
-    picked: List[str] = []
-
-    for m in msgs[-keep_last:]:
-        if isinstance(m, dict):
-            role = m.get("role")
-            content = m.get("content")
-            msg_type = m.get("type")
-        else:
-            role = getattr(m, "role", None)
-            content = getattr(m, "content", None)
-            msg_type = getattr(m, "type", None)
-
-        if role not in {"user", "assistant"}:
-            continue
-        if msg_type and msg_type != "text":
-            continue
-
-        content_str = str(content or "").strip()
-        if not content_str:
-            continue
-
-        picked.append(f"{role}: {content_str}")
-
-    if not picked:
-        return ""
-
-    return "\n".join(picked)
 
 
 def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
@@ -327,7 +438,6 @@ def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
         score = float(getattr(h, "score", 0) or 0)
         if score < MIN_RAG_SCORE:
             continue
-
         payload = h.payload or {}
         raw_sources.append(_payload_to_source(payload, score))
 
@@ -353,94 +463,12 @@ def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
     return deduped
 
 
-def answer_with_rag(user_q: str, session: dict | None = None) -> Tuple[str, List[Dict[str, Any]]]:
-    user_q = (user_q or "").strip()
-    if not user_q:
-        return "你問的內容是空的，我沒辦法檢索。請再輸入一次。", []
-
-    retrieval_query = _build_retrieval_query(user_q, session, keep_last_user=3)
-    sources = retrieve_sources(retrieval_query)
-    print("✅ NEW RAG FILE LOADED")
-    print("DEBUG retrieval_query =", retrieval_query)
-
-    # 第一次沒命中，再退回用原問題搜一次，避免 history 反而把 query 弄髒
-    if not sources and retrieval_query != user_q:
-        sources = retrieve_sources(user_q)
-        print("DEBUG fallback retrieval_query =", user_q)
-
-    if not sources:
-        return (
-            "我目前沒有在教材參考資料中找到足夠匹配的內容，因此暫時無法直接根據現有資料回答你。\n\n"
-            "可能原因包括：\n"
-            "1) 目前教材庫裡尚未收錄這個主題\n"
-            "2) 你的問題用詞和教材中的寫法不同，因此沒有成功對應到相關段落\n"
-            "3) 前面的對話脈絡影響了查詢詞，讓檢索方向偏離原本問題\n\n"
-            "為了避免我根據不完整資訊做出不可靠的推論，這裡先不直接生成結論；實際內容仍應以檢索到的教材參考資料為準。\n\n"
-            "你可以改用更具體的關鍵字再試一次，例如：\n"
-            "・肋骨骨折 症狀\n"
-            "・脛骨骨折 固定方式\n"
-            "・腕骨 組成\n\n"
-            "也可以直接上傳 PDF 或教材檔案，讓我優先根據你這次提供的內容回答（不建立索引、不影響原本向量庫）。\n",
-            []
-        )
-
-    context_lines = []
-    for i, s in enumerate(sources, 1):
-        name = s.get("display_title") or s.get("title") or f"source-{i}"
-        snippet = s.get("snippet") or ""
-        context_lines.append(f"[#{i}] {name}\n{snippet}")
-
-    context = "\n\n".join(context_lines)
-    history_context = _build_history_context(session, keep_last=6)
-
-    system = (
-        "你是骨科衛教/判讀輔助的助手。你只能根據【提供的檢索片段】回答。\n"
-        "如果片段不足以支持結論，可以搜尋其他網站，如果沒查到必須說『資料不足』，並提出需要的補充資訊。\n"
-        "回答要清楚、專業口語化、可直接給老師看。\n"
-        "不要在正文中輸出 source、【Sources】、【參考資料】、來源編號、score、頁碼或任何引用清單。\n"
-        "若使用者問題像是追問，請優先結合【最近對話歷史】理解主詞與上下文。\n"
-    )
-
-    prompt = (
-        f"【最近對話歷史】\n{history_context or '（無）'}\n\n"
-        f"【使用者問題】\n{user_q}\n\n"
-        f"【檢索片段（可引用）】\n{context}\n\n"
-        "請輸出：\n"
-        "1) 知識庫回答\n"
-        "2) 判讀/衛教重點（專業的敘述，請列點敘述）\n"
-        "3) 注意事項（你不確定就說不確定）\n"
-        "不要輸出 Sources、參考資料、來源編號、score、頁碼。\n"
-    )
-
-    try:
-        chat = client.chat.completions.create(
-            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-        )
-        ans = chat.choices[0].message.content or ""
-        ans = re.split(
-            r"\n[-—–]*\s*\[?\s*(Sources|參考資料|Resources)\s*\]?\s*",
-            ans,
-            maxsplit=1,
-            flags=re.IGNORECASE,
-        )[0]
-        return ans.strip(), sources
-    except Exception as e:
-        print(f"❌ LLM answer failed: {e}")
-        return "檢索有命中，但生成回答時發生錯誤（請看後端 log）。", sources
-    
-    
 def _is_material_source(s: Dict[str, Any]) -> bool:
     if not isinstance(s, dict):
         return False
 
     source_type = (s.get("source_type") or s.get("kind") or "").strip().lower()
 
-    # upload 只供回答，不進參考資料區
     if source_type == "upload":
         return False
 
@@ -453,12 +481,14 @@ def _is_material_source(s: Dict[str, Any]) -> bool:
         return True
 
     return False
-    
+
+
 def _doc_source_to_prompt_block(s: Dict[str, Any], idx: int) -> str:
     title = _sanitize_for_llm(s.get("title") or f"doc-{idx}")
     text = _sanitize_for_llm(s.get("text") or "")
     snippet = re.sub(r"\s+", " ", text)[:500].strip()
     return f"[#{idx}] {title}\n{snippet}"
+
 
 def _normalize_doc_sources(doc_sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
@@ -469,7 +499,6 @@ def _normalize_doc_sources(doc_sources: List[Dict[str, Any]]) -> List[Dict[str, 
 
         source_type = (s.get("source_type") or s.get("kind") or "").strip().lower()
 
-        # upload 可回答，但不要進參考資料區
         if source_type == "upload":
             continue
 
@@ -498,7 +527,6 @@ def _normalize_doc_sources(doc_sources: List[Dict[str, Any]]) -> List[Dict[str, 
             download_url = f"/s2/llm/materials/{safe_material_id}/download"
             external_url = raw_url if _is_https_url(raw_url) else None
         else:
-            # 非教材 GUID：只允許公開 https 網址
             if _is_https_url(raw_url):
                 view_url = raw_url
                 download_url = raw_url
@@ -528,22 +556,106 @@ def _normalize_doc_sources(doc_sources: List[Dict[str, Any]]) -> List[Dict[str, 
 
     return out
 
-def answer_with_doc_rag(
+
+def answer_with_rag(
     user_q: str,
     session: dict | None = None,
-    has_fresh_uploads: bool = False,
+    dialog_state: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     user_q = (user_q or "").strip()
     if not user_q:
         return "你問的內容是空的，我沒辦法檢索。請再輸入一次。", []
 
-    retrieval_query = _build_retrieval_query(user_q, session, keep_last_user=3)
-    history_context = _build_history_context(session, keep_last=6)
+    state = dialog_state or _build_dialog_state(user_q, session)
+    retrieval_query = _build_retrieval_query(user_q, session, state)
+    sources = retrieve_sources(retrieval_query)
+
+    print("✅ NEW RAG FILE LOADED")
+    print("DEBUG retrieval_query =", retrieval_query)
+    print("DEBUG dialog_state =", state)
+
+    if not sources and retrieval_query != user_q:
+        sources = retrieve_sources(user_q)
+        print("DEBUG fallback retrieval_query =", user_q)
+
+    if not sources:
+        return (
+            "我目前沒有在教材參考資料中找到足夠匹配的內容，因此暫時無法直接根據現有資料回答你。\n\n"
+            "你可以再換更具體的關鍵字，例如：\n"
+            "・肋骨骨折 症狀\n"
+            "・脛骨骨折 固定方式\n"
+            "・骨質疏鬆 DXA 檢查\n\n"
+            "也可以直接上傳 PDF 或教材檔案，讓我優先根據這次提供的內容回答。\n",
+            []
+        )
+
+    context_lines = []
+    for i, s in enumerate(sources, 1):
+        name = s.get("display_title") or s.get("title") or f"source-{i}"
+        snippet = s.get("snippet") or ""
+        context_lines.append(f"[#{i}] {name}\n{snippet}")
+
+    context = "\n\n".join(context_lines)
+    history_summary = _build_history_summary(user_q, session, state)
+
+    system = (
+        "你是骨科衛教/判讀輔助的助手。\n"
+        "你只能根據提供的檢索片段回答，不足就明確說資料不足，不要自行腦補。\n"
+        "回答要清楚、專業、口語化，且要讓使用者感覺你有理解他現在真正想問的重點。\n"
+        "若使用者問題像是追問，請優先根據『對話狀態摘要』理解主題、代名詞與需求類型。\n"
+        "不要在正文中輸出 source、來源編號、score、頁碼或參考資料清單。\n"
+    )
+
+    prompt = (
+        f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
+        f"【使用者問題】\n{user_q}\n\n"
+        f"【檢索片段】\n{context}\n\n"
+        "請輸出：\n"
+        "1) 綜合回答\n"
+        "2) 判讀/衛教重點（列點）\n"
+        "3) 注意事項（不確定就明確說不確定）\n"
+        "請優先對準使用者這一輪真正的需求，不要只是重複上一輪內容。\n"
+    )
+
+    try:
+        chat = client.chat.completions.create(
+            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+        )
+        ans = chat.choices[0].message.content or ""
+        ans = re.split(
+            r"\n[-—–]*\s*\[?\s*(Sources|參考資料|Resources)\s*\]?\s*",
+            ans,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0]
+        return ans.strip(), sources
+    except Exception as e:
+        print(f"❌ LLM answer failed: {e}")
+        return "檢索有命中，但生成回答時發生錯誤（請看後端 log）。", sources
+
+
+def answer_with_doc_rag(
+    user_q: str,
+    session: dict | None = None,
+    has_fresh_uploads: bool = False,
+    dialog_state: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, List[Dict[str, Any]]]:
+    user_q = (user_q or "").strip()
+    if not user_q:
+        return "你問的內容是空的，我沒辦法檢索。請再輸入一次。", []
+
+    state = dialog_state or _build_dialog_state(user_q, session)
+    retrieval_query = _build_retrieval_query(user_q, session, state)
+    history_summary = _build_history_summary(user_q, session, state)
 
     doc_sources_raw: List[Dict[str, Any]] = []
     vector_sources: List[Dict[str, Any]] = []
 
-    # 1) 有新上傳檔案時，先查 doc/file
     if doc_rag_enabled() and has_fresh_uploads:
         try:
             doc_sources_raw = doc_retrieve(retrieval_query, top_k=TOP_K)
@@ -553,7 +665,6 @@ def answer_with_doc_rag(
             print(f"❌ doc_rag retrieve error: {e}")
             doc_sources_raw = []
 
-    # 2) 不管有沒有新檔，都查既有向量知識庫當補充
     try:
         vector_sources = retrieve_sources(retrieval_query, top_k=TOP_K)
         if not vector_sources and retrieval_query != user_q:
@@ -562,7 +673,6 @@ def answer_with_doc_rag(
         print(f"❌ vector_rag retrieve error: {e}")
         vector_sources = []
 
-    # 3) 給 LLM 的上下文：doc + vector 混合
     context_lines: List[str] = []
 
     for i, s in enumerate(doc_sources_raw, 1):
@@ -573,11 +683,9 @@ def answer_with_doc_rag(
         snippet = _sanitize_for_llm(s.get("snippet") or "")
         context_lines.append(f"【知識庫來源 #{i}】\n[{title}]\n{snippet}")
 
-    # 4) 前端參考資料：只顯示可公開/教材來源，不顯示 upload
     doc_resources = _normalize_doc_sources(doc_sources_raw)
     merged_resources = doc_resources + vector_sources
 
-    # 去重：優先用 material_id，其次 url/title
     deduped_resources: List[Dict[str, Any]] = []
     seen = set()
     for s in merged_resources:
@@ -594,28 +702,27 @@ def answer_with_doc_rag(
 
     if not context_lines:
         print("DEBUG no doc/vector hit, fallback to vector rag default path")
-        return answer_with_rag(user_q, session)
+        return answer_with_rag(user_q, session, dialog_state=state)
 
     context = "\n\n".join(context_lines)
 
     system = (
-        "你是骨科衛教/判讀輔助的助手。你只能根據【提供的檢索片段】回答。\n"
-        "若上傳檔案內容不足，請優先再結合既有知識庫片段補充，不要只因檔案沒寫就直接結束。\n"
-        "如果整體片段仍不足以支持結論，必須明確說資料不足，不要自行腦補。\n"
-        "回答要清楚、專業口語化、可直接給老師看。\n"
-        "不要在正文中輸出 source、【Sources】、【參考資料】、來源編號、score、頁碼或任何引用清單。\n"
-        "若使用者問題像是追問，請優先結合【最近對話歷史】理解主詞與上下文。\n"
+        "你是骨科衛教/判讀輔助的助手。\n"
+        "你只能根據提供的檢索片段回答。\n"
+        "若上傳檔案內容不足，請再結合知識庫片段補充；若整體片段仍不足，必須明確說資料不足，不要自行腦補。\n"
+        "請優先理解使用者這一輪真正需求，並根據『對話狀態摘要』判斷目前主題與追問對象。\n"
+        "不要在正文中輸出 source、來源編號、score、頁碼或參考資料清單。\n"
     )
 
     prompt = (
-        f"【最近對話歷史】\n{history_context or '（無）'}\n\n"
+        f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
         f"【使用者問題】\n{user_q}\n\n"
-        f"【檢索片段（可引用，含上傳檔案與既有知識庫）】\n{context}\n\n"
+        f"【檢索片段（含上傳檔案與既有知識庫）】\n{context}\n\n"
         "請輸出：\n"
         "1) 綜合回答\n"
         "2) 判讀/衛教重點（列點）\n"
-        "3) 注意事項（你不確定就說不確定）\n"
-        "若上傳檔案沒有直接答案，但知識庫有相關內容，請明確補充說明。\n"
+        "3) 注意事項（不確定就明確說不確定）\n"
+        "若這一輪是追問，請把代名詞補回真正主題再回答。\n"
         "不要輸出 Sources、參考資料、來源編號、score、頁碼。\n"
     )
 
@@ -641,6 +748,7 @@ def answer_with_doc_rag(
 
         print("✅ HYBRID DOC+VECTOR RAG HIT")
         print("DEBUG doc retrieval_query =", retrieval_query)
+        print("DEBUG dialog_state =", state)
         print("DEBUG doc_sources =", len(doc_sources_raw))
         print("DEBUG vector_sources =", len(vector_sources))
 

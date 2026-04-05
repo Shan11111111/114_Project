@@ -25,7 +25,7 @@ from .tools.pubmed_tool import answer_with_pubmed
 from .tools.soap_csv_service import answer_with_soap_csv
 
 #  重要：RAG 匯入（防爆）
-from .tools.rag_tool import answer_with_rag
+from .tools.rag_tool import answer_with_rag, _build_dialog_state
 try:
     from .tools.rag_tool import answer_with_doc_rag
 except Exception:
@@ -467,7 +467,8 @@ def agent_chat(req: ChatRequest):
         )
 
         reply = ChatMessage(role="assistant", type="text", content=tip)
-        session["messages"].append(reply)
+        # session["messages"].append(reply)
+        append_messages(session, [reply])
 
         add_message(
             conversation_id=conversation_id,
@@ -538,7 +539,8 @@ def agent_chat(req: ChatRequest):
                 ans_text_out = ans_text or ""
 
             reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
-            session["messages"].append(reply)
+            # session["messages"].append(reply)
+            append_messages(session, [reply])
 
             add_message(
                 conversation_id=conversation_id,
@@ -597,7 +599,8 @@ def agent_chat(req: ChatRequest):
                 ans_text_out = ans_text or ""
 
             reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
-            session["messages"].append(reply)
+            # session["messages"].append(reply)
+            append_messages(session, [reply])
 
             add_message(
                 conversation_id=conversation_id,
@@ -674,10 +677,15 @@ def agent_chat(req: ChatRequest):
                 has_fresh_uploads = True
                 break
 
+        dialog_state = _build_dialog_state(clean_q, session)
+
+        print("DEBUG dialog_state =", dialog_state)
+
         ans_text, sources = answer_with_doc_rag(
             clean_q_for_answer,
             session,
             has_fresh_uploads=has_fresh_uploads,
+            dialog_state=dialog_state,
         )
         
         
@@ -752,7 +760,8 @@ def agent_chat(req: ChatRequest):
         print("DEBUG resources =", [r.model_dump() for r in resources])
 
         reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
-        session["messages"].append(reply)
+        # session["messages"].append(reply)
+        append_messages(session, [reply])
 
         add_message(
             conversation_id=conversation_id,
