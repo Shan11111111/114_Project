@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Canvas, useThree } from '@react-three/fiber';
 import { Environment, OrbitControls, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
@@ -630,6 +631,9 @@ function flattenBoneListPayload(payload: any): BoneListItem[] {
 }
 
 export default function S3Viewer() {
+  const searchParams = useSearchParams();
+  const targetBoneId = searchParams.get('boneId');
+
   const [selectedMode, setSelectedMode] = useState<SelectedMode>({ kind: 'none' });
 
   const selectedMeshName = selectedMode.kind === 'mesh' ? selectedMode.meshName : null;
@@ -871,7 +875,52 @@ export default function S3Viewer() {
     },
     [findListItemByMeshName, focusOnMesh]
   );
+  useEffect(() => {
+    if (!targetBoneId) return;
+    if (!boneList.length) return;
 
+    const boneIdNum = Number(targetBoneId);
+    if (!Number.isFinite(boneIdNum)) return;
+
+    const matches = boneList.filter((x) => Number(x.bone_id) === boneIdNum);
+    if (!matches.length) return;
+
+    const first = matches[0];
+    const rk = toRegionKey(first.bone_region);
+
+    setOpenGroups((prev) => (prev.includes(rk) ? prev : [...prev, rk]));
+
+    setBoneInfo({
+      small_bone_id: Number(first.small_bone_id),
+      bone_id: Number(first.bone_id),
+      bone_zh: first.bone_zh,
+      bone_en: first.bone_en,
+      bone_region: first.bone_region ?? null,
+      bone_desc: first.bone_desc ?? null,
+    });
+
+    if (matches.length === 1) {
+      selectByMeshName(first.mesh_name);
+      return;
+    }
+
+    const norm = normalizeMeshName(first.mesh_name);
+    const s = meshToSeries(norm);
+
+    const cardId =
+      rk === 'spine' && s
+        ? `card-spine-${s}`
+        : `card-${rk}-${encodeURIComponent(parseSide(norm).base)}`;
+
+    requestAnimationFrame(() => {
+      const el = document.getElementById(cardId);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+
+    requestAnimationFrame(() => {
+      focusOnMesh(first.mesh_name);
+    });
+  }, [targetBoneId, boneList, focusOnMesh, selectByMeshName]);
   const onPickMeshFrom3D = useCallback(
     (meshName: string) => {
       selectByMeshName(meshName);
@@ -1078,7 +1127,7 @@ export default function S3Viewer() {
                               <button
                                 style={sVariantBtn(
                                   !!selectedMeshName &&
-                                    normalizeMeshName((card.L ?? card.R)!.mesh_name) === normalizeMeshName(selectedMeshName)
+                                  normalizeMeshName((card.L ?? card.R)!.mesh_name) === normalizeMeshName(selectedMeshName)
                                 )}
                                 onClick={() => selectByMeshName((card.L ?? card.R)!.mesh_name)}
                                 title={(card.L ?? card.R)!.mesh_name}

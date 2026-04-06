@@ -1065,37 +1065,54 @@ function BoneVisionPageInner() {
                         </p>
                       </div>
 
-                      <button
-                        onClick={() => {
-                          if (!imageCaseId) {
-                            alert(
-                              "目前沒有 ImageCaseId（/predict 需要回傳 image_case_id 才能帶入 S2）"
-                            );
-                            return;
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => {
+                            if (!imageCaseId) {
+                              alert(
+                                "目前沒有 ImageCaseId（/predict 需要回傳 image_case_id 才能帶入 S2）"
+                              );
+                              return;
+                            }
+                            const boneId = activeBox.bone_info?.bone_id ?? "";
+                            const url =
+                              `/llm?caseId=${encodeURIComponent(String(imageCaseId))}` +
+                              (boneId
+                                ? `&boneId=${encodeURIComponent(String(boneId))}`
+                                : "");
+                            router.push(url);
+                          }}
+                          disabled={!imageCaseId}
+                          className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
+               bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40
+               hover:bg-cyan-400 transition-colors
+               disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={
+                            imageCaseId
+                              ? "前往 LLM（會帶入本次辨識結果）"
+                              : "需要 /predict 回傳 image_case_id 才能使用"
                           }
-                          const boneId = activeBox.bone_info?.bone_id ?? "";
-                          const url =
-                            `/llm?caseId=${encodeURIComponent(
-                              String(imageCaseId)
-                            )}` +
-                            (boneId
-                              ? `&boneId=${encodeURIComponent(String(boneId))}`
-                              : "");
-                          router.push(url);
-                        }}
-                        disabled={!imageCaseId}
-                        className="mt-2 inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
-                                   bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40
-                                   hover:bg-cyan-400 transition-colors
-                                   disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={
-                          imageCaseId
-                            ? "前往 LLM（會帶入本次辨識結果）"
-                            : "需要 /predict 回傳 image_case_id 才能使用"
-                        }
-                      >
-                        了解更多
-                      </button>
+                        >
+                          了解更多
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const boneId = activeBox.bone_info?.bone_id;
+                            if (!boneId) {
+                              alert("目前沒有可對應的 3D 模型資料");
+                              return;
+                            }
+                            router.push(`/model?boneId=${encodeURIComponent(String(boneId))}`);
+                          }}
+                          className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
+               border border-slate-600 text-slate-100
+               hover:bg-slate-800 transition-colors"
+                          title="查看此部位的 3D 模型"
+                        >
+                          查看此部位 3D 模型
+                        </button>
+                      </div>
 
 
                     </>
@@ -1155,8 +1172,8 @@ function BoneVisionPageInner() {
                   value={galleryFilter}
                   onChange={(e) => setGalleryFilter(e.target.value)}
                   className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none ${isDarkMode
-                      ? "border-slate-700 bg-slate-900 text-slate-100"
-                      : "border-slate-300 bg-white text-slate-900"
+                    ? "border-slate-700 bg-slate-900 text-slate-100"
+                    : "border-slate-300 bg-white text-slate-900"
                     }`}
                 >
                   {filterOptions.map((option) => (
@@ -1175,8 +1192,8 @@ function BoneVisionPageInner() {
                     type="button"
                     onClick={() => setGalleryFilter(option)}
                     className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${galleryFilter === option
-                        ? "bg-cyan-500 text-slate-900"
-                        : filterInactiveClass
+                      ? "bg-cyan-500 text-slate-900"
+                      : filterInactiveClass
                       }`}
                   >
                     {option}
