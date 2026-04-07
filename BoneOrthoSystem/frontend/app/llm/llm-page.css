@@ -1,0 +1,56 @@
+.llm-page {
+  min-width: 0;
+}
+
+.llm-page .llm-main-shell,
+.llm-page .chat-scroll {
+  min-width: 0;
+}
+
+/* 手機版 */
+@media (max-width: 768px) {
+
+  /* 主內容 padding */
+  .llm-page .llm-main-shell {
+    padding: 56px 12px 16px !important;
+    gap: 12px !important;
+  }
+
+  /* 聊天區底部留空（給輸入框） */
+  .llm-page .chat-scroll {
+    padding-bottom: 110px !important;
+  }
+
+  /* 聊天區寬度吃滿 */
+  .llm-page .max-w-3xl {
+    max-width: 100% !important;
+  }
+
+  /* 聊天泡泡變寬 */
+  .llm-page .max-w-\[min\(70\%\,60ch\)\] {
+    max-width: 88% !important;
+  }
+
+  /* 輸入框縮一點 */
+  .llm-page .neon-shell {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+    border-radius: 18px !important;
+  }
+
+  /* 字體 */
+  .llm-page textarea {
+    font-size: 14px;
+  }
+}
+
+/* 小手機 */
+@media (max-width: 480px) {
+  .llm-page .llm-main-shell {
+    padding: 54px 10px 14px !important;
+  }
+
+  .llm-page .max-w-\[min\(70\%\,60ch\)\] {
+    max-width: 92% !important;
+  }
+}
