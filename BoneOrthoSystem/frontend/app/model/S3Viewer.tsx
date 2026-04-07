@@ -3,7 +3,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Canvas, useThree } from '@react-three/fiber';
-import { Environment, OrbitControls, useGLTF } from '@react-three/drei';
+import {
+  Environment,
+  OrbitControls,
+  useGLTF,
+  GizmoHelper,
+  GizmoViewport,
+} from '@react-three/drei';
 import * as THREE from 'three';
 import { EffectComposer, Outline } from '@react-three/postprocessing';
 
@@ -302,9 +308,8 @@ function SelectedEdges({
       scale={[scale[0] * 1.002, scale[1] * 1.002, scale[2] * 1.002]}
       renderOrder={999}
     >
-      <lineBasicMaterial color={0xff8a00} />
-    </lineSegments>
-  );
+      <lineBasicMaterial color={0x38bdf8} linewidth={2} />
+    </lineSegments>);
 }
 
 /** =========================
@@ -384,10 +389,21 @@ function BoneModel({ url, selectedNormSet, visibleNormSet, onSelectMesh, onRegis
             >
               <meshStandardMaterial
                 attach="material"
-                color={(mesh.material as any)?.color || undefined}
-                emissive={isHovered ? new THREE.Color(0.2, 0.2, 0.2) : new THREE.Color(0, 0, 0)}
-              />
-            </mesh>
+                color={isSelected ? "#f8fafc" : "#cbd5e1"}
+                roughness={0.7}
+                metalness={0.02}
+                side={THREE.DoubleSide}
+                polygonOffset
+                polygonOffsetFactor={1}
+                polygonOffsetUnits={1}
+                emissive={
+                  isSelected
+                    ? new THREE.Color(0.1, 0.25, 0.4)
+                    : isHovered
+                      ? new THREE.Color(0.15, 0.2, 0.25)
+                      : new THREE.Color(0, 0, 0)
+                }
+              />                                  </mesh>
 
             {isSelected && isVisible ? (
               <SelectedEdges geometry={mesh.geometry} position={pos} rotation={rot} scale={scl} />
@@ -715,6 +731,40 @@ export default function S3Viewer() {
     controls.update();
   }, []);
 
+  const resetView = useCallback(() => {
+    const controls = controlsRef.current;
+    const camera = cameraRef.current as THREE.PerspectiveCamera | null;
+    if (!controls || !camera) return;
+
+    camera.position.set(0, 1.5, 6);
+    controls.target.set(0, 0, 0);
+    controls.update();
+  }, []);
+
+  const setView = useCallback((pos: [number, number, number], target: [number, number, number] = [0, 0, 0]) => {
+    const controls = controlsRef.current;
+    const camera = cameraRef.current as THREE.PerspectiveCamera | null;
+    if (!controls || !camera) return;
+
+    camera.position.set(...pos);
+    controls.target.set(...target);
+    controls.update();
+  }, []);
+
+  const setFrontView = useCallback(() => setView([0, 0, 6]), [setView]);
+  const setBackView = useCallback(() => setView([0, 0, -6]), [setView]);
+  const setLeftView = useCallback(() => setView([-6, 0, 0]), [setView]);
+  const setRightView = useCallback(() => setView([6, 0, 0]), [setView]);
+  const setTopView = useCallback(() => setView([0, 6, 0.001]), [setView]);
+  const viewButtons: [string, () => void][] = [
+    ['重置', resetView],
+    ['正', setFrontView],
+    ['背', setBackView],
+    ['左', setLeftView],
+    ['右', setRightView],
+    ['上', setTopView],
+  ];
+
   const findListItemByMeshName = useCallback(
     (meshName: string) => {
       const n = normalizeMeshName(meshName);
@@ -949,9 +999,9 @@ export default function S3Viewer() {
    *  ========================= */
   const sAside: React.CSSProperties = {
     width: 360,
-    background: '#0f0f0f',
-    color: '#fff',
-    borderRight: '1px solid #222',
+    background: 'var(--panel-bg)',
+    color: 'var(--panel-text)',
+    borderRight: '1px solid var(--panel-border)',
     padding: 12,
     overflow: 'auto',
   };
@@ -961,9 +1011,9 @@ export default function S3Viewer() {
     textAlign: 'left',
     padding: '10px 12px',
     borderRadius: 12,
-    border: '1px solid #2a2a2a',
-    background: open ? '#1b1b1b' : '#141414',
-    color: '#fff',
+    border: '1px solid var(--panel-border)',
+    background: open ? 'var(--panel-btn-open-bg)' : 'var(--panel-btn-bg)',
+    color: 'var(--panel-text)',
     cursor: 'pointer',
     fontWeight: 900,
     display: 'flex',
@@ -975,20 +1025,26 @@ export default function S3Viewer() {
     textAlign: 'left',
     padding: 12,
     borderRadius: 14,
-    background: '#141414',
-    border: active ? '2px solid #ff8a00' : '1px solid #2a2a2a',
-    boxShadow: active ? '0 0 0 2px rgba(255,138,0,0.12)' : 'none',
+    background: 'var(--card-bg)',
+    color: 'var(--foreground)',
+    border: active ? '2px solid var(--accent)' : '1px solid var(--panel-border)',
+    boxShadow: active ? '0 0 0 2px rgba(56,189,248,0.22)' : 'none',
   });
 
-  const sMini: React.CSSProperties = { fontSize: 11, opacity: 0.6, marginTop: 6, lineHeight: 1.35 };
+  const sMini: React.CSSProperties = {
+    fontSize: 11,
+    opacity: 0.6,
+    marginTop: 6,
+    lineHeight: 1.35,
+  };
 
   const sVariantBtn = (active: boolean): React.CSSProperties => ({
     height: 34,
     padding: '0 12px',
     borderRadius: 10,
-    border: active ? '2px solid #ff8a00' : '1px solid #2a2a2a',
-    background: '#0f0f0f',
-    color: '#fff',
+    border: active ? '2px solid var(--accent)' : '1px solid var(--panel-border)',
+    background: 'var(--chip-bg)',
+    color: 'var(--chip-text)',
     cursor: 'pointer',
     fontWeight: 900,
   });
@@ -997,9 +1053,9 @@ export default function S3Viewer() {
     height: 32,
     padding: '0 10px',
     borderRadius: 10,
-    border: '1px solid #2a2a2a',
-    background: '#0f0f0f',
-    color: '#fff',
+    border: '1px solid var(--panel-border)',
+    background: 'var(--chip-bg)',
+    color: 'var(--chip-text)',
     cursor: 'pointer',
     fontWeight: 900,
     opacity: 0.95,
@@ -1009,9 +1065,9 @@ export default function S3Viewer() {
     height: 34,
     padding: '0 14px',
     borderRadius: 12,
-    border: '1px solid #2a2a2a',
-    background: '#151515',
-    color: '#fff',
+    border: '1px solid var(--panel-border)',
+    background: 'var(--panel-btn-bg)',
+    color: 'var(--panel-text)',
     cursor: 'pointer',
     fontWeight: 900,
   };
@@ -1036,14 +1092,13 @@ export default function S3Viewer() {
             width: '100%',
             padding: '10px 12px',
             borderRadius: 10,
-            border: '1px solid #333',
-            background: '#151515',
-            color: '#fff',
+            border: '1px solid var(--input-border)',
+            background: 'var(--input-bg)',
+            color: 'var(--input-text)',
             marginBottom: 12,
             outline: 'none',
           }}
         />
-
         {(Object.keys(regionCards) as RegionKey[]).map((rk) => {
           const cards = regionCards[rk];
           if (!cards.length) return null;
@@ -1171,7 +1226,7 @@ export default function S3Viewer() {
 
                         {/* Info */}
                         {active && selectedMeshName && (
-                          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
+                          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--panel-border)' }}>
                             {/* ✅ Solo/Unsolo 按鈕 */}
                             <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                               {!soloActive ? (
@@ -1219,10 +1274,84 @@ export default function S3Viewer() {
       </aside>
 
       {/* 右側 3D */}
-      <main style={{ flex: 1, background: '#111', position: 'relative' }}>
-        <Canvas camera={{ position: [0, 1.5, 6], fov: 45 }} style={{ width: '100%', height: '100%' }}>
-          <ambientLight intensity={0.4} />
-          <directionalLight position={[3, 5, 2]} intensity={1.0} />
+      <main style={{ flex: 1, background: 'var(--viewer-bg)', position: 'relative' }}>
+        <div
+          style={{
+            position: 'absolute',
+            top: 20,
+            right: 20,
+            zIndex: 20,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, auto)',
+            gap: 10,
+            justifyContent: 'end',
+          }}
+        >
+          {viewButtons.map(([label, fn]) => (
+            <button
+              key={label}
+              onClick={fn}
+              title={`${label}視角`}
+              style={{
+                height: 42,
+                minWidth: label === '重置' ? 82 : 52,
+                padding: '0 16px',
+                borderRadius: 14,
+                border: '1px solid var(--panel-border)',
+                background: 'var(--panel-btn-bg)',
+                color: 'var(--panel-text)',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: 14,
+                boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+                transition: 'all 0.2s ease',
+              }} onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--panel-btn-open-bg)';
+                e.currentTarget.style.borderColor = 'var(--panel-border)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'var(--panel-btn-bg)';
+                e.currentTarget.style.borderColor = 'var(--panel-border)';
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div
+          style={{
+            position: 'absolute',
+            left: 20,
+            bottom: 20,
+            zIndex: 20,
+            padding: '10px 12px',
+            borderRadius: 14,
+            background: 'var(--panel-btn-bg)',
+            color: 'var(--panel-text)',
+            fontSize: 12,
+            lineHeight: 1.6,
+            border: '1px solid var(--panel-border)',
+            pointerEvents: 'none',
+            boxShadow: '0 6px 10px rgba(56, 56, 62, 0.08)',
+          }}
+        >
+          左鍵旋轉　右鍵平移　滾輪縮放
+        </div>
+
+        <Canvas
+          gl={{ alpha: true }}
+          onCreated={({ gl }) => {
+            gl.setClearColor(0x000000, 0);
+          }}
+          camera={{ position: [0, 1.5, 6], fov: 45 }}
+          style={{ width: '100%', height: '100%' }}
+        >
+          <ambientLight intensity={0.6} />
+
+          <directionalLight position={[3, 5, 2]} intensity={1.2} />
+          <directionalLight position={[-3, 2, -2]} intensity={0.6} />
+
+          <hemisphereLight args={["#e0f2fe", "#1e293b", 0.5]} />
 
           <group scale={[0.3, 0.3, 0.3]} position={[0, -0.1, 0]}>
             <BoneModel
@@ -1240,14 +1369,20 @@ export default function S3Viewer() {
           <EffectComposer multisampling={4}>
             <Outline
               selection={outlineSelection}
-              visibleEdgeColor={0xff8a00}
-              hiddenEdgeColor={0xff8a00}
-              edgeStrength={4}
-              width={1200}
+              visibleEdgeColor={0x38bdf8}
+              hiddenEdgeColor={0x38bdf8}
+              edgeStrength={10}
+              width={2500}
             />
           </EffectComposer>
 
           <Controls controlsRef={controlsRef} cameraRef={cameraRef} />
+          <GizmoHelper alignment="bottom-right" margin={[110, 110]}>
+            <GizmoViewport
+              axisColors={['#f87171', '#4ade80', '#60a5fa']}
+              labelColor="#e5e7eb"
+            />
+          </GizmoHelper>
           <Environment preset="city" />
         </Canvas>
       </main>

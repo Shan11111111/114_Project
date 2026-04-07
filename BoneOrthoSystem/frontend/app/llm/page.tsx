@@ -1,4 +1,5 @@
 "use client";
+import "./llm-page.css";
 
 import { useSearchParams, useRouter } from "next/navigation";
 
@@ -1049,19 +1050,19 @@ const HistoryOverlay = memo(function HistoryOverlay({
     (m) => m.threadId === activeThreadId
   );
   const showClear = (historyLiveValueRef.current || "").trim().length > 0;
+  const isShowingDetailOnMobile = !!currentThread;
 
   return (
-    <div className="fixed inset-0 z-[60]">
+    <div className="absolute inset-0 z-[100]">
       <div
         className="absolute inset-0"
         style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
         onClick={onClose}
       />
 
-      <div className="absolute inset-0 flex items-start justify-center p-3 md:p-6">
+      <div className="absolute inset-0 flex items-center justify-center p-3 md:p-6">
         <div
-          className="w-full max-w-5xl h-[88vh] md:h-[82vh] rounded-2xl border overflow-hidden shadow-2xl flex flex-col"
-          style={{
+          className="history-overlay-panel w-full max-w-5xl h-[88vh] md:h-[82vh] rounded-2xl border overflow-hidden shadow-2xl flex flex-col" style={{
             backgroundColor: "var(--navbar-bg)",
             borderColor: "var(--navbar-border)",
             color: "var(--foreground)",
@@ -1100,9 +1101,10 @@ const HistoryOverlay = memo(function HistoryOverlay({
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 p-4">
+          <div className="history-overlay-body flex-1 min-h-0 grid grid-cols-12 gap-4 p-4">
             <div
-              className="col-span-12 md:col-span-4 min-h-0 rounded-2xl border overflow-hidden flex flex-col"
+              className={`history-thread-list-panel col-span-12 md:col-span-4 min-h-0 rounded-2xl border overflow-hidden flex flex-col ${isShowingDetailOnMobile ? "history-mobile-hide" : ""
+                }`}
               style={{ borderColor: "rgba(148,163,184,0.20)" }}
             >
               <div
@@ -1199,8 +1201,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                             tabIndex={-1}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => onSelectThread(t.id)}
-                            className="min-w-0 flex-1 text-left px-3 py-1.5 rounded-lg"
-                          >
+                            className="min-w-0 flex-1 text-left px-3 py-2 rounded-lg"                          >
                             <div className="text-sm font-medium truncate">{t.title}</div>
 
                             <div className="text-[12px] opacity-70 mt-1 line-clamp-1">
@@ -1232,11 +1233,21 @@ const HistoryOverlay = memo(function HistoryOverlay({
             </div>
 
             <div
-              className="col-span-12 md:col-span-8 min-h-0 rounded-2xl border overflow-hidden flex flex-col"
-              style={{ borderColor: "rgba(148,163,184,0.20)" }}
-            >
+              className={`history-thread-detail-panel col-span-12 md:col-span-8 min-h-0 rounded-2xl border overflow-hidden flex flex-col ${isShowingDetailOnMobile ? "history-mobile-show" : "history-mobile-hide"
+                }`} style={{ borderColor: "rgba(148,163,184,0.20)" }}
+            >   <div className="history-mobile-back-wrap">
+                <button
+                  type="button"
+                  className="history-mobile-back-btn"
+                  onClick={() => onSelectThread("")}
+                >
+                  <i className="fa-solid fa-angle-left" />
+                  返回列表
+                </button>
+              </div>
+
               <div
-                className="px-4 py-3 border-b flex items-center justify-between"
+                className="history-thread-detail-header px-4 py-3 border-b flex items-center justify-between"
                 style={{ borderColor: "rgba(148,163,184,0.20)" }}
               >
                 <div className="min-w-0 flex-1">
@@ -1278,7 +1289,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="history-thread-detail-actions flex items-center gap-2">
                   <button
                     type="button"
                     className="text-xs px-3 py-2 rounded-lg transition"
@@ -1375,6 +1386,11 @@ function LLMClient() {
   // ===== navbar 狀態 =====
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  //  手勢拖動相關
+  const touchStartXRef = useRef<number | null>(null);
+  const touchCurrentXRef = useRef<number | null>(null);
+  const [mobileDrawerOffsetX, setMobileDrawerOffsetX] = useState(0);
+  const [isDraggingDrawer, setIsDraggingDrawer] = useState(false);
 
   //  目前頁面
   const [activeView, setActiveView] = useState<ViewKey>("llm");
@@ -1424,7 +1440,7 @@ function LLMClient() {
   const isExpanded = isMultiLine || pendingFiles.length > 0;
 
   const [ragOpen, setRagOpen] = useState(false);
-
+  const [mobileRagOpen, setMobileRagOpen] = useState(false);
 
   //  thread清單  聊天紀錄
   const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([]);
@@ -1587,18 +1603,6 @@ function LLMClient() {
     setHydrated(true);
   }, []);
 
-  //   新增：當開啟 history overlay 時，如果沒有正在預覽的 thread，就先載入 activeThreadId（如果有的話）
-  useEffect(() => {
-    if (!isHistoryOpen) return;
-
-    // 已經有 preview 就不要覆蓋
-    if (historyPreviewThreadId) return;
-
-    if (activeThreadId) {
-      setHistoryPreviewThreadId(activeThreadId);
-    }
-  }, [isHistoryOpen, historyPreviewThreadId, activeThreadId]);
-
   useEffect(() => {
     if (!didHydrateRef.current) return;
     if (!uidReadyRef.current) return;
@@ -1646,25 +1650,25 @@ function LLMClient() {
 
   //   新增：push 到 historyMessages（讓 overlay / reload 都有內容）
   function pushHistoryMessage(
-  threadId: string,
-  role: "user" | "assistant",
-  content: string,
-  resources?: ChatResource[]
-) {
-  if (!threadId) return;
-  const createdAt = nowText();
-  setHistoryMessages((prev) => [
-    ...prev,
-    {
-      id: `${threadId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      threadId,
-      role,
-      content: String(content ?? ""),
-      createdAt,
-      resources,
-    },
-  ]);
-}
+    threadId: string,
+    role: "user" | "assistant",
+    content: string,
+    resources?: ChatResource[]
+  ) {
+    if (!threadId) return;
+    const createdAt = nowText();
+    setHistoryMessages((prev) => [
+      ...prev,
+      {
+        id: `${threadId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        threadId,
+        role,
+        content: String(content ?? ""),
+        createdAt,
+        resources,
+      },
+    ]);
+  }
   //   新增：用第一句生成 title（跟你 UI 現在的 18 字一致）
   function makeAutoTitleFromText(userText: string) {
     const t = (userText || "").trim().replace(/\s+/g, " ");
@@ -1873,28 +1877,28 @@ function LLMClient() {
     return mapped;
   }
 
- function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
-  const threadMsgs = historyMessages
-    .filter((m) => m.threadId === threadId)
-    .map((m, idx) => ({
-      id: Date.now() + idx,
-      role: m.role,
-      content: m.content,
-      resources: (m as HistoryMessageWithResources).resources,
-    }));
+  function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
+    const threadMsgs = historyMessages
+      .filter((m) => m.threadId === threadId)
+      .map((m, idx) => ({
+        id: Date.now() + idx,
+        role: m.role,
+        content: m.content,
+        resources: (m as HistoryMessageWithResources).resources,
+      }));
 
-  if (threadMsgs.length === 0) {
-    return [
-      {
-        id: 1,
-        role: "assistant",
-        content: WELCOME_TEXT,
-      },
-    ];
+    if (threadMsgs.length === 0) {
+      return [
+        {
+          id: 1,
+          role: "assistant",
+          content: WELCOME_TEXT,
+        },
+      ];
+    }
+
+    return threadMsgs;
   }
-
-  return threadMsgs;
-}
 
   function resetMainInputBox() {
     setDraftText("");
@@ -2382,7 +2386,10 @@ function LLMClient() {
     function onDown(e: globalThis.MouseEvent) {
       const target = e.target as HTMLElement;
       if (!target.closest("[data-tool-menu-root]")) setShowToolMenu(false);
-      if (!target.closest("[data-rag-dropdown-root]")) setRagOpen(false);
+      if (!target.closest("[data-rag-dropdown-root]")) {
+        setRagOpen(false);
+        setMobileRagOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -2454,55 +2461,55 @@ function LLMClient() {
   }
   //   新增：上傳完成後，立刻丟一則 assistant 訊息（你要的效果）
   function appendAssistantMessage(
-  threadId: string,
-  text: string,
-  resources?: ChatResource[]
-) {
-  const content = String(text ?? "");
-  if (!content.trim()) return;
+    threadId: string,
+    text: string,
+    resources?: ChatResource[]
+  ) {
+    const content = String(text ?? "");
+    if (!content.trim()) return;
 
-  const msg: ChatMessage = {
-    id: Date.now() + Math.floor(Math.random() * 1000),
-    role: "assistant",
-    content,
-    resources,
-  };
+    const msg: ChatMessage = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      role: "assistant",
+      content,
+      resources,
+    };
 
-  setMessages((prev) => [...prev, msg]);
-  pushHistoryMessage(threadId, "assistant", content, resources);
-  bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
-}
+    setMessages((prev) => [...prev, msg]);
+    pushHistoryMessage(threadId, "assistant", content, resources);
+    bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
+  }
   async function reallySendMessage(
-  e?: FormEvent,
-  textOverride?: string,
-  piiMode: "block" | "mask" = "block"
-) {
-  if (e) e.preventDefault();
+    e?: FormEvent,
+    textOverride?: string,
+    piiMode: "block" | "mask" = "block"
+  ) {
+    if (e) e.preventDefault();
 
-  const normalizedInput = normalizeLegacyMaskedText(
-  (textOverride ?? draftText).trim()
-);
+    const normalizedInput = normalizeLegacyMaskedText(
+      (textOverride ?? draftText).trim()
+    );
 
-if ((!normalizedInput && pendingFiles.length === 0) || loading) return;
+    if ((!normalizedInput && pendingFiles.length === 0) || loading) return;
 
-const threadIdAtSend = ensureActiveThreadIdForSend();
-const firstUserText = normalizedInput || "（已上傳檔案）";
+    const threadIdAtSend = ensureActiveThreadIdForSend();
+    const firstUserText = normalizedInput || "（已上傳檔案）";
 
-const filesSnapshot = pendingFiles.map((f) => ({
-  ...f,
-  raw: undefined,
-}));
+    const filesSnapshot = pendingFiles.map((f) => ({
+      ...f,
+      raw: undefined,
+    }));
 
-const userMessageId = Date.now();
+    const userMessageId = Date.now();
 
-const userMessage: ChatMessage = {
-  id: userMessageId,
-  role: "user",
-  content: firstUserText,
-  files: filesSnapshot.length ? filesSnapshot : undefined,
-};
+    const userMessage: ChatMessage = {
+      id: userMessageId,
+      role: "user",
+      content: firstUserText,
+      files: filesSnapshot.length ? filesSnapshot : undefined,
+    };
 
-setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => [...prev, userMessage]);
     pushHistoryMessage(threadIdAtSend, "user", firstUserText);
 
     bumpThreadOnMessage(threadIdAtSend, firstUserText, 1);
@@ -2619,8 +2626,8 @@ setMessages((prev) => [...prev, userMessage]);
         : isSoapOnly
           ? safeText || "請根據目前療法與醫院 SOAP 記錄回答"
           : (safeText || "（已上傳檔案，請根據檔案內容協助）") +
-            (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
-            vectorHint;
+          (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
+          vectorHint;
 
       const payload = {
         session_id: sid,
@@ -2734,34 +2741,34 @@ setMessages((prev) => [...prev, userMessage]);
   }
 
   async function sendMessage(e?: FormEvent) {
-  if (e) e.preventDefault();
+    if (e) e.preventDefault();
 
-  const text = draftText.trim();
-  if ((!text && pendingFiles.length === 0) || loading) return;
+    const text = draftText.trim();
+    if ((!text && pendingFiles.length === 0) || loading) return;
 
-  // 有命中敏感資訊 => 跳出選擇框
-  const hits = detectSensitiveInfo(text);
-  if (hits.length > 0) {
-    setSensitiveHits(hits);
-    setShowSensitiveModal(true);
-    return;
+    // 有命中敏感資訊 => 跳出選擇框
+    const hits = detectSensitiveInfo(text);
+    if (hits.length > 0) {
+      setSensitiveHits(hits);
+      setShowSensitiveModal(true);
+      return;
+    }
+
+    // 沒命中 => 正常送出
+    await reallySendMessage(undefined, text, "block");
   }
 
-  // 沒命中 => 正常送出
-  await reallySendMessage(undefined, text, "block");
-}
-
   async function handleMaskAndSend() {
-  const text = draftText.trim();
-  if (!text || loading) return;
+    const text = draftText.trim();
+    if (!text || loading) return;
 
-  const masked = normalizeLegacyMaskedText(maskSensitiveInfo(text));
+    const masked = normalizeLegacyMaskedText(maskSensitiveInfo(text));
 
-  setShowSensitiveModal(false);
-  setSensitiveHits([]);
+    setShowSensitiveModal(false);
+    setSensitiveHits([]);
 
-  await reallySendMessage(undefined, masked, "mask");
-}
+    await reallySendMessage(undefined, masked, "mask");
+  }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     // @ts-ignore
@@ -2783,14 +2790,14 @@ setMessages((prev) => [...prev, userMessage]);
     }));
   }
   async function handleSendWithoutMask() {
-  const text = draftText.trim();
-  if (!text || loading) return;
+    const text = draftText.trim();
+    if (!text || loading) return;
 
-  setShowSensitiveModal(false);
-  setSensitiveHits([]);
+    setShowSensitiveModal(false);
+    setSensitiveHits([]);
 
-  await reallySendMessage(undefined, text, "block");
-}
+    await reallySendMessage(undefined, text, "block");
+  }
 
   async function handleExport(type: "pdf" | "pptx") {
     setShowToolMenu(false);
@@ -2860,6 +2867,58 @@ setMessages((prev) => [...prev, userMessage]);
         style={{ backgroundColor: "rgba(148,163,184,0.22)" }}
       />
     );
+  }
+
+  function handleDrawerTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    const x = e.touches[0]?.clientX ?? 0;
+    touchStartXRef.current = x;
+    touchCurrentXRef.current = x;
+    setIsDraggingDrawer(false);
+  }
+
+  function handleDrawerTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    if (touchStartXRef.current === null) return;
+
+    const currentX = e.touches[0]?.clientX ?? 0;
+    touchCurrentXRef.current = currentX;
+
+    const deltaX = currentX - touchStartXRef.current;
+
+    if (Math.abs(deltaX) > 8) {
+      setIsDraggingDrawer(true);
+    }
+
+    if (deltaX < 0) {
+      setMobileDrawerOffsetX(deltaX);
+    } else {
+      setMobileDrawerOffsetX(0);
+    }
+  }
+
+  function handleDrawerTouchEnd() {
+    const startX = touchStartXRef.current;
+    const endX = touchCurrentXRef.current;
+
+    if (startX === null || endX === null) {
+      setIsDraggingDrawer(false);
+      setMobileDrawerOffsetX(0);
+      touchStartXRef.current = null;
+      touchCurrentXRef.current = null;
+      return;
+    }
+
+    const deltaX = endX - startX;
+
+    // 往左滑超過 80px 就關閉
+    if (deltaX < -80) {
+      setIsMobileNavOpen(false);
+      setMobileRagOpen(false);
+    }
+
+    setIsDraggingDrawer(false);
+    setMobileDrawerOffsetX(0);
+    touchStartXRef.current = null;
+    touchCurrentXRef.current = null;
   }
 
   function ToolMenu() {
@@ -3033,71 +3092,71 @@ setMessages((prev) => [...prev, userMessage]);
     );
   }
 
-function renderResources(resources?: ChatResource[]) {
-  if (!resources || resources.length === 0) return null;
+  function renderResources(resources?: ChatResource[]) {
+    if (!resources || resources.length === 0) return null;
 
-  const bestByKey = new Map<string, ChatResource>();
+    const bestByKey = new Map<string, ChatResource>();
 
-  for (const r of resources) {
-    const normTitle = (r.display_title || r.title || "")
-      .trim()
-      .toLowerCase();
+    for (const r of resources) {
+      const normTitle = (r.display_title || r.title || "")
+        .trim()
+        .toLowerCase();
 
-    const normPage = String(r.page || "").trim().toLowerCase();
-    const normSnippet = String(r.snippet || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase()
-      .slice(0, 120);
+      const normPage = String(r.page || "").trim().toLowerCase();
+      const normSnippet = String(r.snippet || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase()
+        .slice(0, 120);
 
-    const normChunk = String((r as any).chunk || "").trim().toLowerCase();
+      const normChunk = String((r as any).chunk || "").trim().toLowerCase();
 
-    // 先用內容去重，再退回 url/material_id
-    const key =
-      (normTitle && (normPage || normChunk || normSnippet))
-        ? `content:${normTitle}|${normPage}|${normChunk}|${normSnippet}`
-        : (r.url && `url:${r.url}`) ||
+      // 先用內容去重，再退回 url/material_id
+      const key =
+        (normTitle && (normPage || normChunk || normSnippet))
+          ? `content:${normTitle}|${normPage}|${normChunk}|${normSnippet}`
+          : (r.url && `url:${r.url}`) ||
           (r.download_url && `download:${r.download_url}`) ||
           (r.external_url && `ext:${r.external_url}`) ||
           (r.material_id && `mid:${r.material_id}`) ||
           (normTitle && `title:${normTitle}`) ||
           `fallback:${Math.random()}`;
 
-    const prev = bestByKey.get(key);
+      const prev = bestByKey.get(key);
 
-    const prevScore =
-      typeof prev?.score === "number" && !Number.isNaN(prev.score)
-        ? prev.score
-        : -1;
+      const prevScore =
+        typeof prev?.score === "number" && !Number.isNaN(prev.score)
+          ? prev.score
+          : -1;
 
-    const nextScore =
-      typeof r?.score === "number" && !Number.isNaN(r.score)
-        ? r.score
-        : -1;
+      const nextScore =
+        typeof r?.score === "number" && !Number.isNaN(r.score)
+          ? r.score
+          : -1;
 
-    if (!prev || nextScore > prevScore) {
-      bestByKey.set(key, r);
+      if (!prev || nextScore > prevScore) {
+        bestByKey.set(key, r);
+      }
     }
+
+    const deduped = Array.from(bestByKey.values()).sort((a, b) => {
+      const aScore =
+        typeof a?.score === "number" && !Number.isNaN(a.score) ? a.score : -1;
+      const bScore =
+        typeof b?.score === "number" && !Number.isNaN(b.score) ? b.score : -1;
+      return bScore - aScore;
+    });
+
+    const highScore = deduped.filter(
+      (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
+    );
+
+    const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
+
+    if (finalResources.length === 0) return null;
+
+    return <ResourceCarousel resources={finalResources} />;
   }
-
-  const deduped = Array.from(bestByKey.values()).sort((a, b) => {
-    const aScore =
-      typeof a?.score === "number" && !Number.isNaN(a.score) ? a.score : -1;
-    const bScore =
-      typeof b?.score === "number" && !Number.isNaN(b.score) ? b.score : -1;
-    return bScore - aScore;
-  });
-
-  const highScore = deduped.filter(
-    (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
-  );
-
-  const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
-
-  if (finalResources.length === 0) return null;
-
-  return <ResourceCarousel resources={finalResources} />;
-}
 
   function renderMessageFiles(files?: UploadedFile[]) {
     if (!files || files.length === 0) return null;
@@ -3240,7 +3299,9 @@ function renderResources(resources?: ChatResource[]) {
             onClick={onClick}
             className="min-w-0 flex-1 text-left px-3 py-1.5 rounded-lg"
           >
-            <div className="text-[13px] font-medium truncate">{title}</div>
+            <div className="text-[13px] font-medium truncate max-w-[180px]">
+              {title}
+            </div>
             {meta ? <div className="text-[11px] opacity-50 mt-0.5 truncate">{meta}</div> : null}
           </button>
 
@@ -3266,7 +3327,7 @@ function renderResources(resources?: ChatResource[]) {
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
 
       if (userMode === "guest" || isGuestUid(uid)) {
-        setHistoryPreviewThreadId(activeThreadIdRef.current || historyThreads[0]?.id || "");
+        setHistoryPreviewThreadId("");
         setIsHistoryOpen(true);
         return;
       }
@@ -3281,15 +3342,14 @@ function renderResources(resources?: ChatResource[]) {
           String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
         );
       });
-      setHistoryPreviewThreadId(
-        activeThreadIdRef.current || threads[0]?.id || historyThreads[0]?.id || ""
-      );
 
+      setHistoryPreviewThreadId("");
       setIsHistoryOpen(true);
     } catch (e: any) {
       alert(String(e?.message || e));
     }
   }
+
   function PlaceholderView({ title }: { title: string }) {
     return (
       <section className="flex-1 min-h-0 flex flex-col">
@@ -3583,7 +3643,7 @@ function renderResources(resources?: ChatResource[]) {
   // =========================
   return (
     <div
-      className="h-[calc(100vh-4rem)] flex overflow-hidden transition-colors duration-500 relative"
+      className="llm-page h-[calc(100vh-4rem)] flex overflow-hidden transition-colors duration-500 relative"
       style={{
         backgroundColor: "var(--background)",
         color: "var(--foreground)",
@@ -3597,7 +3657,7 @@ function renderResources(resources?: ChatResource[]) {
         }}
         historyThreads={historyThreads}
         historyMessages={historyMessages}
-        activeThreadId={historyPreviewThreadId || activeThreadId}
+        activeThreadId={historyPreviewThreadId}
         onSelectThread={(id) => setHistoryPreviewThreadId(id)}
         onLoadThreadToMain={(id) => loadThreadToMain(id)}
         onNewThread={() => newThread()}
@@ -3609,16 +3669,18 @@ function renderResources(resources?: ChatResource[]) {
         persistedQueryRef={historyPersistedQueryRef}
       />
 
-      <button
-        type="button"
-        className="md:hidden absolute left-3 top-3 z-40 w-9 h-9 rounded-xl flex items-center justify-center bg-white/60 backdrop-blur"
-        style={{ border: "1px solid rgba(148,163,184,0.18)" }}
-        onClick={() => setIsMobileNavOpen(true)}
-        aria-label="Open sidebar"
-        title="開啟導覽列"
-      >
-        <i className="fa-solid fa-bars text-[14px] opacity-70" />
-      </button>
+      {!isMobileNavOpen && (
+        <button
+          type="button"
+          className="md:hidden absolute left-3 top-3 z-40 w-9 h-9 rounded-xl flex items-center justify-center bg-white/60 backdrop-blur"
+          style={{ border: "1px solid rgba(148,163,184,0.18)" }}
+          onClick={() => setIsMobileNavOpen(true)}
+          aria-label="Open sidebar"
+          title="開啟導覽列"
+        >
+          <i className="fa-solid fa-bars text-[14px] opacity-70" />
+        </button>
+      )}
 
       {/* Desktop sidebar */}
       <div className="hidden md:block">
@@ -3920,23 +3982,57 @@ function renderResources(resources?: ChatResource[]) {
 
       {/* Mobile drawer */}
       {isMobileNavOpen && (
-        <div className="md:hidden fixed inset-0 z-50">
+        <div className="md:hidden fixed inset-0 z-[60]">
           <div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => setIsMobileNavOpen(false)}
+            className="absolute inset-0 bg-black/40"
+            onClick={() => {
+              setIsMobileNavOpen(false);
+              setMobileRagOpen(false);
+            }}
           />
-          <div
-            className="absolute left-0 top-0 bottom-0 w-[78%] max-w-[320px] shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+
+          <div className="absolute inset-0" onClick={(e) => e.stopPropagation()}>
             <aside
-              className="h-full w-full border-r flex flex-col"
+              className="h-full w-full flex flex-col"
+              onTouchStart={handleDrawerTouchStart}
+              onTouchMove={handleDrawerTouchMove}
+              onTouchEnd={handleDrawerTouchEnd}
               style={{
-                backgroundColor: "rgba(148,163,184,0.06)",
-                borderColor: "rgba(148,163,184,0.20)",
+                backgroundColor: "var(--background)",
                 color: "var(--navbar-text)",
+                transform: `translateX(${mobileDrawerOffsetX}px)`,
+                transition: isDraggingDrawer ? "none" : "transform 0.22s ease",
               }}
             >
+              <div
+                className="shrink-0 px-3 pt-3 pb-2 border-b"
+                style={{ borderColor: "rgba(148,163,184,0.20)" }}
+              >
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition"
+                  style={{
+                    border: "1px solid rgba(148,163,184,0.18)",
+                    backgroundColor: "rgba(148,163,184,0.06)",
+                    color: "var(--foreground)",
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.backgroundColor = NAV_HOVER_BG)
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.backgroundColor = "rgba(148,163,184,0.06)")
+                  }
+                  onClick={() => {
+                    setIsMobileNavOpen(false);
+                    setMobileRagOpen(false);
+                  }}
+                  title="返回聊天頁"
+                  aria-label="返回聊天頁"
+                >
+                  <i className="fa-solid fa-angle-left text-[16px] opacity-80" />
+                  <span className="text-sm font-medium">返回聊天頁</span>
+                </button>
+              </div>
               <div
                 className="px-4 pt-4 pb-3 border-b"
                 style={{ borderColor: "rgba(148,163,184,0.20)" }}
@@ -3946,9 +4042,6 @@ function renderResources(resources?: ChatResource[]) {
                     <h1 className="text-lg font-semibold tracking-wide">
                       GalaBone
                     </h1>
-                    <p className="text-[11px] mt-1 opacity-70">
-                      Your Bone We Care
-                    </p>
                   </div>
                   <button
                     type="button"
@@ -3963,7 +4056,10 @@ function renderResources(resources?: ChatResource[]) {
                     onMouseLeave={(e) =>
                       (e.currentTarget.style.backgroundColor = "transparent")
                     }
-                    onClick={() => setIsMobileNavOpen(false)}
+                    onClick={() => {
+                      setIsMobileNavOpen(false);
+                      setMobileRagOpen(false);
+                    }}
                     title="關閉導覽列"
                   >
                     <i className="fa-solid fa-xmark text-[14px] opacity-70" />
@@ -3971,89 +4067,144 @@ function renderResources(resources?: ChatResource[]) {
                 </div>
               </div>
 
-              <nav className="flex-1 min-h-0 px-3 pt-4 text-sm space-y-2 overflow-y-auto">
-                <div className="space-y-1">
-                  <SideRow
-                    iconClass="fa-regular fa-message"
-                    label="新對話"
-                    onClick={() => {
-                      newThread();
-                      setIsMobileNavOpen(false);
-                    }}
-                  />
-                </div>
-                <div className="px-2">
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl opacity-90">
-                    <i className="fa-solid fa-diagram-project text-[14px] opacity-80" />
-                    <div className="text-[14px] font-semibold">RAG 模式</div>
-                    <div className="text-[11px] opacity-60">
-                      （不會建立索引）
-                    </div>
-                  </div>
+              <nav className="flex-1 min-h-0 overflow-y-auto px-3 pt-4 pb-4 text-sm">
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <SideRow
+                      iconClass="fa-regular fa-message"
+                      label="新對話"
+                      onClick={() => {
+                        newThread();
+                        setIsMobileNavOpen(false);
+                      }}
+                    />
 
-                  <select
-                    value={ragMode}
-                    onChange={(e) => setRagMode(e.target.value as RagMode)}
-                    className="w-full rounded-xl px-3 py-2 text-[13px] outline-none border"
-                    style={{
-                      backgroundColor: "rgba(148,163,184,0.10)",
-                      borderColor: "rgba(148,163,184,0.22)",
-                      color: "var(--foreground)",
-                    }}
-                  >
-                    <option value="file_then_vector">
-                      查詢上傳檔案與衛教智慧庫
-                    </option>
-                    {/* <option value="vector_only">
-                      查詢衛教智慧庫
-                    </option>
-                    <option value="file_only">
-                      查詢上傳檔案
-                    </option> */}
-                    <option value="pubmed_only">
-                      查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎
-                    </option>
-                    <option value="soap_only">
-                      查詢已授權的輔大醫院之去識別化soap記錄
-                    </option>
-                  </select>
-                </div>
+                    <SideRow
+                      iconClass="fa-solid fa-folder-tree"
+                      label="資源管理"
+                      active={activeView === "assets"}
+                      onClick={() => {
+                        setActiveView("assets");
+                        setIsMobileNavOpen(false);
+                      }}
+                    />
 
-                <div className="pt-2">
-                  <div className="flex items-center justify-between px-1 mb-2">
-                    <p className="text-[11px] tracking-wide opacity-60">
-                      最近對話
-                    </p>
-                    <button
-                      type="button"
-                      className="text-[11px] opacity-60 hover:opacity-90 transition"
+                    <SideRow
+                      iconClass="fa-regular fa-clock"
+                      label="對話紀錄"
+                      active={isHistoryOpen}
                       onClick={() => {
                         setIsMobileNavOpen(false);
                         openHistory();
                       }}
-                    >
-                      搜尋
-                    </button>
+                    />
                   </div>
-                  <div className="space-y-1">
-                    {historyThreads.slice(0, 8).map((t) => (
-                      <SideThreadItem
-                        key={t.id}
-                        threadId={t.id}
-                        title={t.title}
-                        meta={t.updatedAt}
-                        active={activeThreadId === t.id}
-                        onClick={() => {
-                          loadThreadToMain(t.id);
-                          setIsMobileNavOpen(false);
+
+                  <div className="px-2">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl opacity-90">
+                      <i className="fa-solid fa-diagram-project text-[13px] opacity-80" />
+                      <div className="text-[13px] font-semibold">RAG 模式</div>
+                    </div>
+
+                    <div className="px-3 pb-1 text-[11px] opacity-55">
+                      不會建立索引
+                    </div>
+
+                    <div className="relative" data-rag-dropdown-root>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMobileRagOpen((v) => !v);
                         }}
-                      />
-                    ))}
+                        className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-[13px] border"
+                        style={{
+                          backgroundColor: "var(--background)",
+                          borderColor: "rgba(148,163,184,0.22)",
+                          color: "var(--foreground)",
+                        }}
+                      >                        <span className="truncate">
+                          {ragMode === "file_then_vector" && "查詢上傳檔案與衛教智慧庫"}
+                          {ragMode === "pubmed_only" && "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
+                          {ragMode === "soap_only" && "查詢已授權的輔大醫院之去識別化soap記錄"}
+                        </span>
+
+                        <i
+                          className={`fa-solid fa-chevron-down text-[11px] opacity-60 transition ${mobileRagOpen ? "rotate-180" : ""}`}
+                        />
+                      </button>
+
+                      {mobileRagOpen && (
+                        <div
+                          className="absolute z-50 mt-2 w-full rounded-xl border overflow-hidden"
+                          style={{
+                            backgroundColor: "var(--background)",
+                            borderColor: "rgba(148,163,184,0.22)",
+                            boxShadow: "0 12px 28px rgba(0,0,0,0.22)",
+                          }}
+                        >
+                          {[
+                            { value: "file_then_vector", label: "查詢上傳檔案與衛教智慧庫" },
+                            { value: "pubmed_only", label: "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎" },
+                            { value: "soap_only", label: "查詢已授權的輔大醫院之去識別化soap記錄" },
+                          ].map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRagMode(opt.value as RagMode);
+                                setMobileRagOpen(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-[13px]"
+                              style={{
+                                backgroundColor:
+                                  ragMode === opt.value ? NAV_ACTIVE_BG : "transparent",
+                                color: "var(--foreground)",
+                              }}
+                            >
+                              {opt.label}
+                            </button>))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <div className="flex items-center justify-between px-1 mb-2">
+                      <p className="text-[11px] tracking-wide opacity-60">
+                        最近對話
+                      </p>
+                      <button
+                        type="button"
+                        className="text-[11px] opacity-60 hover:opacity-90 transition"
+                        onClick={() => {
+                          setIsMobileNavOpen(false);
+                          openHistory();
+                        }}
+                      >
+                        搜尋
+                      </button>
+                    </div>
+
+                    <div className="space-y-1">
+                      {historyThreads.slice(0, 8).map((t) => (
+                        <SideThreadItem
+                          key={t.id}
+                          threadId={t.id}
+                          title={t.title}
+                          meta={t.updatedAt}
+                          active={activeThreadId === t.id}
+                          onClick={() => {
+                            loadThreadToMain(t.id);
+                            setIsMobileNavOpen(false);
+                          }}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </nav>
-
-              <div
+              </nav>              <div
                 className="px-4 py-3 border-t"
                 style={{ borderColor: "rgba(148,163,184,0.20)" }}
               >
@@ -4068,7 +4219,8 @@ function renderResources(resources?: ChatResource[]) {
             </aside>
           </div>
         </div>
-      )}
+      )
+      }
 
       {/* Main */}
       <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden llm-main-shell">
@@ -4331,7 +4483,7 @@ function renderResources(resources?: ChatResource[]) {
           onMaskAndSend={handleMaskAndSend}
         />
       </div>
-    </div>
+    </div >
   );
 }
 
