@@ -50,19 +50,13 @@ const RULES: Rule[] = [
     type: "birthday",
     label: "生日",
     regex:
-      /\b(?:生日是|出生日期是|我的生日是|DOB|birth\s*date)\s*[:：]?\s*(?:民國)?\d{2,4}(?:年|[\/.-])\d{1,2}(?:月|[\/.-])\d{1,2}(?:日)?\b/gi,
-  },
-  {
-    type: "date",
-    label: "日期",
-    regex:
-      /\b(?:19|20)\d{2}[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:0?[1-9]|[12]\d|3[01])\b|\b\d{2,3}[\/.-](?:0?[1-9]|1[0-2])[\/.-](?:0?[1-9]|[12]\d|3[01])\b/gi,
+      /(?:生日是|出生日期是|我的生日是|DOB|birth\s*date)\s*[:：]?\s*(?:(?:民國)?\d{2,4}(?:年|[\/.-])\d{1,2}(?:月|[\/.-])\d{1,2}(?:日)?|\d{1,2}[\/.-]\d{1,2}|\d{1,2}月\d{1,2}(?:日|號)?|(?:十[一二]?|[一二三四五六七八九]|十一|十二|兩)月(?:三十一|三十|二十九|二十八|二十七|二十六|二十五|二十四|二十三|二十二|二十一|二十|十九|十八|十七|十六|十五|十四|十三|十二|十一|十|九|八|七|六|五|四|三|二|一)(?:日|號)?)/giu,
   },
   {
     type: "medical_record_no",
     label: "病歷號",
     regex:
-      /(?:病歷號|病歷編號|我的病歷號是|我的病歷號|MRN|Chart\s*No|Record\s*No)\s*[:：]?\s*(\d{9}[A-Z])\b/gi,
+      /(?:病歷號|病歷編號|我的病歷號是|病歷號是|我的病歷號|MRN|Chart\s*No|Record\s*No)\s*[:：]?\s*(\d{9}[A-Z])\b/gi,
   },
   {
     type: "address",
@@ -141,16 +135,16 @@ function maskValue(type: SensitiveType, value: string): string {
 
     case "date":
     case "birthday":
-      return "[已遮罩日期]";
+      return "患者生日";
 
     case "medical_record_no":
-      return "[已遮罩病歷號]";
+      return "患者病歷號";
 
-    case "address": 
-      return "[已遮罩地址]";
+    case "address":
+      return "地址";
 
     case "identifiable_code":
-      return "[已遮罩編號]";
+      return "編號";
 
     default:
       return "[已遮罩]";
@@ -164,7 +158,11 @@ export function normalizeLegacyMaskedText(input: string): string {
     .replace(/\[已遮罩姓名\]/g, "患者")
     .replace(/\[已遮罩名字\]/g, "患者")
     .replace(/\[已遮罩病人姓名\]/g, "患者")
-    .replace(/\[已遮罩患者姓名\]/g, "患者");
+    .replace(/\[已遮罩患者姓名\]/g, "患者")
+    .replace(/\[已遮罩地址\]/g, "地址")
+    .replace(/\[已遮罩日期\]/g, "患者生日")
+    .replace(/\[已遮罩病歷號\]/g, "患者病歷號")
+    .replace(/\[已遮罩編號\]/g, "編號");
 }
 
 export function maskSensitiveInfo(input: string): string {
