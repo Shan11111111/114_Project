@@ -8,7 +8,18 @@ from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from .doc_tool import retrieve as doc_retrieve, is_enabled as doc_rag_enabled
+from functools import lru_cache
 
+@lru_cache(maxsize=512)
+def _embed_cached(text: str) -> tuple[float, ...]:
+    text = (text or "").strip()
+    if not text:
+        return tuple()
+    r = client.embeddings.create(model=EMBEDDING_MODEL, input=text)
+    return tuple(r.data[0].embedding)
+
+def _embed(text: str) -> List[float]:
+    return list(_embed_cached((text or "").strip()))
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")

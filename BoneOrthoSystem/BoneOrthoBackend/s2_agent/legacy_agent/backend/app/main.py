@@ -8,6 +8,8 @@ import re
 import sys
 import uuid
 
+import time #計時器套件
+
 from .tools.doc_tool import extract_text_and_summary, index_document
 
 from pathlib import Path
@@ -756,8 +758,8 @@ def agent_chat(req: ChatRequest):
 
         resources = _build_resources(sources)
 
-        print("DEBUG sources =", sources)
-        print("DEBUG resources =", [r.model_dump() for r in resources])
+        #print("DEBUG sources =", sources)
+        #print("DEBUG resources =", [r.model_dump() for r in resources])
 
         reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
         # session["messages"].append(reply)
