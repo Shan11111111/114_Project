@@ -710,9 +710,6 @@ export default function AuthPageClient() {
             <button className="linkBtn" onClick={resetFlow}>
               重置流程
             </button>
-            <Link className="linkBtn" href="/">
-              回首頁
-            </Link>
           </div>
         </div>
 

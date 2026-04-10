@@ -38,7 +38,7 @@ PROJECT_ROOT = BASE_DIR.parent
 
 # 範例影像 image_id 範圍
 SAMPLE_ID_START = 3741
-SAMPLE_ID_END = 3952
+SAMPLE_ID_END = 4013
 
 _model = None  # 懶載入用
 

@@ -193,8 +193,8 @@ function BoneVisionPageInner() {
   const clampZoom = (z: number) => Math.min(2, Math.max(0.5, z));
 
   const cleanBoneZh = (value?: string | null) => {
-    if (!value) return "未分類";
-    return value.replace(/\s*[\(（][^\)）]*[\)）]\s*$/, "").trim();
+  if (!value) return "";
+  return value.replace(/\s*[\(（]\d+[\)）]\s*$/, "").trim();
   };
 
   const cleanText = (value?: string | null) => {
@@ -395,7 +395,7 @@ function BoneVisionPageInner() {
           content_type: item.content_type ?? null,
           preview_url: item.preview_url,
           download_url: item.download_url,
-          category: cleanBoneZh(item.bone_zh),
+          category: item.bone_zh ? cleanBoneZh(item.bone_zh) : "未分類",
         }));
 
         console.log("sample-images count =", items.length);
@@ -729,16 +729,19 @@ function BoneVisionPageInner() {
     ...Array.from(
       new Set(
         samples
-          .map((img) => cleanBoneZh(img.bone_zh))
+          .map((img) => (img.bone_zh ? cleanBoneZh(img.bone_zh) : "未分類"))
           .filter((v): v is string => Boolean(v))
       )
     ),
   ];
 
   const filteredSamples =
-    galleryFilter === "全部"
-      ? samples
-      : samples.filter((img) => cleanBoneZh(img.bone_zh) === galleryFilter);
+  galleryFilter === "全部"
+    ? samples
+    : samples.filter(
+        (img) =>
+          (img.bone_zh ? cleanBoneZh(img.bone_zh) : "未分類") === galleryFilter
+      );
 
   const filteredHistoryList = historyList.filter((item) => {
     const keyword = historyKeyword.trim().toLowerCase();
@@ -1093,7 +1096,7 @@ function BoneVisionPageInner() {
                               : "需要 /predict 回傳 image_case_id 才能使用"
                           }
                         >
-                          了解更多
+                          查詢知識庫
                         </button>
 
                         <button
@@ -1220,7 +1223,7 @@ function BoneVisionPageInner() {
                         <div
                           className={`absolute top-4 left-4 z-10 rounded-full px-3 py-1 text-[11px] border ${categoryBadgeClass}`}
                         >
-                          {cleanBoneZh(sample.bone_zh)}
+                          {sample.bone_zh ? cleanBoneZh(sample.bone_zh) : "未分類"}
                         </div>
 
                         <div
@@ -1228,7 +1231,7 @@ function BoneVisionPageInner() {
                         >
                           <img
                             src={`${API_BASE}${sample.preview_url}`}
-                            alt={cleanBoneZh(sample.bone_zh) || sample.name}
+                            alt={sample.bone_zh ? cleanBoneZh(sample.bone_zh) : sample.name}
                             className="max-h-[245px] max-w-[88%] object-contain"
                           />
                         </div>
@@ -1236,7 +1239,7 @@ function BoneVisionPageInner() {
 
                       <div className="p-5">
                         <h4 className="text-xl font-semibold">
-                          {cleanBoneZh(sample.bone_zh) || sample.name}
+                          {sample.bone_zh ? cleanBoneZh(sample.bone_zh) : sample.name}
                         </h4>
 
                         <p className={`mt-2 text-sm ${modalTextSubClass}`}>
