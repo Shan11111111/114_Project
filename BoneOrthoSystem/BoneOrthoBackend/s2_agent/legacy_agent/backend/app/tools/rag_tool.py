@@ -2,24 +2,16 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List, Tuple, Optional
+import time
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
+
 from .doc_tool import retrieve as doc_retrieve, is_enabled as doc_rag_enabled
-from functools import lru_cache
 
-@lru_cache(maxsize=512)
-def _embed_cached(text: str) -> tuple[float, ...]:
-    text = (text or "").strip()
-    if not text:
-        return tuple()
-    r = client.embeddings.create(model=EMBEDDING_MODEL, input=text)
-    return tuple(r.data[0].embedding)
-
-def _embed(text: str) -> List[float]:
-    return list(_embed_cached((text or "").strip()))
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
@@ -28,6 +20,8 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "bone_edu_docs")
 EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 TOP_K = int(os.getenv("RAG_TOP_K", "6"))
 MIN_RAG_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.55"))
+
+DEBUG_RAG = os.getenv("DEBUG_RAG", "1") == "1"
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 qdrant = (
@@ -46,7 +40,7 @@ FOLLOWUP_HINTS = [
 ]
 
 INTENT_KEYWORDS = {
-    "definition": ["是什麼", "什麼是", "定義", "介紹", "說明"],
+    "definition": ["是什麼", "是甚麼", "什麼是", "甚麼是", "定義", "介紹", "說明"],
     "symptom": ["症狀", "表現", "徵象", "感覺", "會痛嗎", "痛嗎"],
     "cause": ["原因", "為什麼", "成因", "造成", "導致"],
     "risk": ["高風險", "危險因子", "風險", "容易", "好發", "誰比較容易"],
@@ -66,8 +60,35 @@ TOPIC_HINTS = [
     "高血壓", "血壓高",
     "骨折", "肋骨骨折", "脛骨骨折", "腕骨",
     "骨密度", "DXA",
-    "痛風", "高尿酸", "尿酸"
+    "痛風", "高尿酸", "尿酸",
 ]
+
+
+def _dbg(*args: Any) -> None:
+    if DEBUG_RAG:
+        print(*args)
+
+
+@lru_cache(maxsize=512)
+def _embed_cached(text: str) -> tuple[float, ...]:
+    text = (text or "").strip()
+    if not text:
+        return tuple()
+
+    _dbg(f"[EMBED API] cache miss: {text[:80]!r}")
+
+    r = client.embeddings.create(
+        model=EMBEDDING_MODEL,
+        input=text,
+    )
+    return tuple(r.data[0].embedding)
+
+
+def _print_embed_cache_info() -> None:
+    try:
+        _dbg("[EMBED CACHE]", _embed_cached.cache_info())
+    except Exception:
+        pass
 
 
 def _is_guid_like(v: Any) -> bool:
@@ -131,8 +152,7 @@ def _embed(text: str) -> List[float]:
     text = (text or "").strip()
     if not text:
         return []
-    r = client.embeddings.create(model=EMBEDDING_MODEL, input=text)
-    return r.data[0].embedding
+    return list(_embed_cached(text))
 
 
 def _get_session_messages(session: dict | None, keep_last: int = 12) -> List[Dict[str, Any]]:
@@ -205,7 +225,7 @@ def _looks_like_followup(text: str) -> bool:
 
 
 def _build_dialog_state(user_q: str, session: dict | None) -> Dict[str, Any]:
-    msgs = _get_session_messages(session, keep_last=12)
+    msgs = _get_session_messages(session, keep_last=6)
 
     recent_user = [m["content"] for m in msgs if m["role"] == "user" and m["content"]]
     recent_assistant = [m["content"] for m in msgs if m["role"] == "assistant" and m["content"]]
@@ -250,7 +270,11 @@ def _build_dialog_state(user_q: str, session: dict | None) -> Dict[str, Any]:
     return state
 
 
-def _build_retrieval_query(user_q: str, session: dict | None, dialog_state: Optional[Dict[str, Any]] = None) -> str:
+def _build_retrieval_query(
+    user_q: str,
+    session: dict | None,
+    dialog_state: Optional[Dict[str, Any]] = None,
+) -> str:
     state = dialog_state or _build_dialog_state(user_q, session)
 
     topic = str(state.get("current_topic") or "").strip()
@@ -284,7 +308,11 @@ def _build_retrieval_query(user_q: str, session: dict | None, dialog_state: Opti
     return merged
 
 
-def _build_history_summary(user_q: str, session: dict | None, dialog_state: Optional[Dict[str, Any]] = None) -> str:
+def _build_history_summary(
+    user_q: str,
+    session: dict | None,
+    dialog_state: Optional[Dict[str, Any]] = None,
+) -> str:
     state = dialog_state or _build_dialog_state(user_q, session)
     msgs = _get_session_messages(session, keep_last=10)
 
@@ -343,7 +371,9 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         or ""
     ).strip()
 
-    source_type = str(payload.get("source_type") or payload.get("kind") or payload.get("type") or "qdrant").strip().lower()
+    source_type = str(
+        payload.get("source_type") or payload.get("kind") or payload.get("type") or "qdrant"
+    ).strip().lower()
 
     if source_type == "upload":
         base_view_path = None
@@ -402,6 +432,8 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
 
 def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
     vec = _embed(query)
+    _print_embed_cache_info()
+
     if not vec:
         return []
 
@@ -438,10 +470,10 @@ def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
             raise RuntimeError("Unsupported qdrant-client: no search/query_points")
 
     except UnexpectedResponse as e:
-        print(f"❌ Qdrant search failed: {e}")
+        _dbg(f"❌ Qdrant search failed: {e}")
         return []
     except Exception as e:
-        print(f"❌ Qdrant search error: {e}")
+        _dbg(f"❌ Qdrant search error: {e}")
         return []
 
     raw_sources: List[Dict[str, Any]] = []
@@ -459,12 +491,16 @@ def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
 
     for s in raw_sources:
         key = (
-            s.get("material_id") or s.get("file") or s.get("title"),
-            s.get("page"),
-            s.get("chunk"),
+            str(s.get("title") or s.get("display_title") or "").strip(),
+            str(s.get("page") if s.get("page") is not None else ""),
+            str(s.get("chunk") if s.get("chunk") is not None else ""),
         )
+        _dbg("[DEDUP KEY]", key)
+
         if key in seen:
+            _dbg("[DEDUP SKIP]", key)
             continue
+
         seen.add(key)
         deduped.append(s)
 
@@ -568,6 +604,123 @@ def _normalize_doc_sources(doc_sources: List[Dict[str, Any]]) -> List[Dict[str, 
     return out
 
 
+def _build_plain_context_lines(sources: List[Dict[str, Any]]) -> List[str]:
+    lines: List[str] = []
+    for i, s in enumerate(sources, 1):
+        name = s.get("display_title") or s.get("title") or f"source-{i}"
+        snippet = s.get("snippet") or ""
+        lines.append(f"[#{i}] {name}\n{snippet}")
+    return lines
+
+
+def _build_hybrid_context_lines(
+    doc_sources_raw: List[Dict[str, Any]],
+    vector_sources: List[Dict[str, Any]],
+) -> List[str]:
+    lines: List[str] = []
+
+    for i, s in enumerate(doc_sources_raw, 1):
+        lines.append(f"【上傳檔案來源 #{i}】\n{_doc_source_to_prompt_block(s, i)}")
+
+    for i, s in enumerate(vector_sources, 1):
+        title = _sanitize_for_llm(s.get("display_title") or s.get("title") or f"kb-{i}")
+        snippet = _sanitize_for_llm(s.get("snippet") or "")
+        lines.append(f"【知識庫來源 #{i}】\n[{title}]\n{snippet}")
+
+    return lines
+
+
+def _answer_system_prompt(hybrid: bool) -> str:
+    if hybrid:
+        return (
+            "你是骨科衛教/判讀輔助的助手。\n"
+            "你只能根據提供的檢索片段回答。\n"
+            "若上傳檔案內容不足，請再結合知識庫片段補充；若整體片段仍不足，必須明確說資料不足，不要自行腦補。\n"
+            "請優先理解使用者這一輪真正需求，並根據『對話狀態摘要』判斷目前主題與追問對象。\n"
+            "不要在正文中輸出 source、來源編號、score、頁碼或參考資料清單。\n"
+        )
+    return (
+        "你是骨科衛教/判讀輔助的助手。\n"
+        "你只能根據提供的檢索片段回答，不足就明確說資料不足，不要自行腦補。\n"
+        "回答要清楚、專業、口語化，且要讓使用者感覺你有理解他現在真正想問的重點。\n"
+        "若使用者問題像是追問，請優先根據『對話狀態摘要』理解主題、代名詞與需求類型。\n"
+        "不要在正文中輸出 source、來源編號、score、頁碼或參考資料清單。\n"
+    )
+
+
+def _answer_user_prompt(
+    user_q: str,
+    history_summary: str,
+    context: str,
+    hybrid: bool,
+) -> str:
+    if hybrid:
+        return (
+            f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
+            f"【使用者問題】\n{user_q}\n\n"
+            f"【檢索片段（含上傳檔案與既有知識庫）】\n{context}\n\n"
+            "請輸出：\n"
+            "1) 綜合回答\n"
+            "2) 判讀/衛教重點（列點）\n"
+            "3) 注意事項（不確定就明確說不確定）\n"
+            "若這一輪是追問，請把代名詞補回真正主題再回答。\n"
+            "不要輸出 Sources、參考資料、來源編號、score、頁碼。\n"
+        )
+
+    return (
+        f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
+        f"【使用者問題】\n{user_q}\n\n"
+        f"【檢索片段】\n{context}\n\n"
+        "請輸出：\n"
+        "1) 綜合回答\n"
+        "2) 判讀/衛教重點（列點）\n"
+        "3) 注意事項（不確定就明確說不確定）\n"
+        "請優先對準使用者這一輪真正的需求，不要只是重複上一輪內容。\n"
+    )
+
+
+def _call_llm(
+    system: str,
+    prompt: str,
+    *,
+    print_usage: bool = False,
+) -> str:
+    safe_system = _sanitize_for_llm(system)
+    safe_prompt = _sanitize_for_llm(prompt)
+
+    t_start = time.perf_counter()
+    chat = client.chat.completions.create(
+        model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+        messages=[
+            {"role": "system", "content": safe_system},
+            {"role": "user", "content": safe_prompt},
+        ],
+        temperature=0.2,
+    )
+    t_end = time.perf_counter()
+
+    ans = chat.choices[0].message.content or ""
+
+    if print_usage:
+        _dbg("[PROMPT LEN]", len(safe_prompt))
+        _dbg("[SYSTEM LEN]", len(safe_system))
+        _dbg("[ANSWER LEN]", len(ans))
+        try:
+            _dbg("[USAGE]", chat.usage)
+        except Exception:
+            pass
+
+    _dbg(f"[TIME] llm_answer={(t_end - t_start):.3f}s")
+
+    ans = re.split(
+        r"\n[-—–]*\s*\[?\s*(Sources|參考資料|Resources)\s*\]?\s*",
+        ans,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    return ans.strip()
+
+
 def answer_with_rag(
     user_q: str,
     session: dict | None = None,
@@ -579,15 +732,18 @@ def answer_with_rag(
 
     state = dialog_state or _build_dialog_state(user_q, session)
     retrieval_query = _build_retrieval_query(user_q, session, state)
-    sources = retrieve_sources(retrieval_query)
 
-    print("✅ NEW RAG FILE LOADED")
-    print("DEBUG retrieval_query =", retrieval_query)
-    print("DEBUG dialog_state =", state)
+    t0 = time.perf_counter()
+    sources = retrieve_sources(retrieval_query)
+    t1 = time.perf_counter()
+
+    _dbg("✅ NEW RAG FILE LOADED")
+    _dbg("DEBUG retrieval_query =", retrieval_query)
+    _dbg("DEBUG dialog_state =", state)
 
     if not sources and retrieval_query != user_q:
         sources = retrieve_sources(user_q)
-        print("DEBUG fallback retrieval_query =", user_q)
+        _dbg("DEBUG fallback retrieval_query =", user_q)
 
     if not sources:
         return (
@@ -597,57 +753,27 @@ def answer_with_rag(
             "・脛骨骨折 固定方式\n"
             "・骨質疏鬆 DXA 檢查\n\n"
             "也可以直接上傳 PDF 或教材檔案，讓我優先根據這次提供的內容回答。\n",
-            []
+            [],
         )
 
-    context_lines = []
-    for i, s in enumerate(sources, 1):
-        name = s.get("display_title") or s.get("title") or f"source-{i}"
-        snippet = s.get("snippet") or ""
-        context_lines.append(f"[#{i}] {name}\n{snippet}")
-
+    context_lines = _build_plain_context_lines(sources)
     context = "\n\n".join(context_lines)
     history_summary = _build_history_summary(user_q, session, state)
 
-    system = (
-        "你是骨科衛教/判讀輔助的助手。\n"
-        "你只能根據提供的檢索片段回答，不足就明確說資料不足，不要自行腦補。\n"
-        "回答要清楚、專業、口語化，且要讓使用者感覺你有理解他現在真正想問的重點。\n"
-        "若使用者問題像是追問，請優先根據『對話狀態摘要』理解主題、代名詞與需求類型。\n"
-        "不要在正文中輸出 source、來源編號、score、頁碼或參考資料清單。\n"
+    system = _answer_system_prompt(hybrid=False)
+    prompt = _answer_user_prompt(
+        user_q=user_q,
+        history_summary=history_summary,
+        context=context,
+        hybrid=False,
     )
 
-    prompt = (
-        f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
-        f"【使用者問題】\n{user_q}\n\n"
-        f"【檢索片段】\n{context}\n\n"
-        "請輸出：\n"
-        "1) 綜合回答\n"
-        "2) 判讀/衛教重點（列點）\n"
-        "3) 注意事項（不確定就明確說不確定）\n"
-        "請優先對準使用者這一輪真正的需求，不要只是重複上一輪內容。\n"
-    )
+    ans = _call_llm(system, prompt)
 
-    try:
-        chat = client.chat.completions.create(
-            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-        )
-        ans = chat.choices[0].message.content or ""
-        ans = re.split(
-            r"\n[-—–]*\s*\[?\s*(Sources|參考資料|Resources)\s*\]?\s*",
-            ans,
-            maxsplit=1,
-            flags=re.IGNORECASE,
-        )[0]
-        return ans.strip(), sources
-    except Exception as e:
-        print(f"❌ LLM answer failed: {e}")
-        return "檢索有命中，但生成回答時發生錯誤（請看後端 log）。", sources
+    _dbg(f"[TIME] vector_retrieve={(t1 - t0):.3f}s")
+    _dbg(f"[TIME] total={(time.perf_counter() - t0):.3f}s")
+
+    return ans, sources
 
 
 def answer_with_doc_rag(
@@ -667,32 +793,29 @@ def answer_with_doc_rag(
     doc_sources_raw: List[Dict[str, Any]] = []
     vector_sources: List[Dict[str, Any]] = []
 
+    t0 = time.perf_counter()
+
     if doc_rag_enabled() and has_fresh_uploads:
         try:
             doc_sources_raw = doc_retrieve(retrieval_query, top_k=TOP_K)
             if not doc_sources_raw and retrieval_query != user_q:
                 doc_sources_raw = doc_retrieve(user_q, top_k=TOP_K)
         except Exception as e:
-            print(f"❌ doc_rag retrieve error: {e}")
+            _dbg(f"❌ doc_rag retrieve error: {e}")
             doc_sources_raw = []
 
     try:
         vector_sources = retrieve_sources(retrieval_query, top_k=TOP_K)
+        t1 = time.perf_counter()
+
         if not vector_sources and retrieval_query != user_q:
             vector_sources = retrieve_sources(user_q, top_k=TOP_K)
     except Exception as e:
-        print(f"❌ vector_rag retrieve error: {e}")
+        _dbg(f"❌ vector_rag retrieve error: {e}")
         vector_sources = []
+        t1 = time.perf_counter()
 
-    context_lines: List[str] = []
-
-    for i, s in enumerate(doc_sources_raw, 1):
-        context_lines.append(f"【上傳檔案來源 #{i}】\n{_doc_source_to_prompt_block(s, i)}")
-
-    for i, s in enumerate(vector_sources, 1):
-        title = _sanitize_for_llm(s.get("display_title") or s.get("title") or f"kb-{i}")
-        snippet = _sanitize_for_llm(s.get("snippet") or "")
-        context_lines.append(f"【知識庫來源 #{i}】\n[{title}]\n{snippet}")
+    context_lines = _build_hybrid_context_lines(doc_sources_raw, vector_sources)
 
     doc_resources = _normalize_doc_sources(doc_sources_raw)
     merged_resources = doc_resources + vector_sources
@@ -712,59 +835,29 @@ def answer_with_doc_rag(
         deduped_resources.append(s)
 
     if not context_lines:
-        print("DEBUG no doc/vector hit, fallback to vector rag default path")
+        _dbg("DEBUG no doc/vector hit, fallback to vector rag default path")
         return answer_with_rag(user_q, session, dialog_state=state)
 
     context = "\n\n".join(context_lines)
 
-    system = (
-        "你是骨科衛教/判讀輔助的助手。\n"
-        "你只能根據提供的檢索片段回答。\n"
-        "若上傳檔案內容不足，請再結合知識庫片段補充；若整體片段仍不足，必須明確說資料不足，不要自行腦補。\n"
-        "請優先理解使用者這一輪真正需求，並根據『對話狀態摘要』判斷目前主題與追問對象。\n"
-        "不要在正文中輸出 source、來源編號、score、頁碼或參考資料清單。\n"
+    system = _answer_system_prompt(hybrid=True)
+    prompt = _answer_user_prompt(
+        user_q=user_q,
+        history_summary=history_summary,
+        context=context,
+        hybrid=True,
     )
 
-    prompt = (
-        f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
-        f"【使用者問題】\n{user_q}\n\n"
-        f"【檢索片段（含上傳檔案與既有知識庫）】\n{context}\n\n"
-        "請輸出：\n"
-        "1) 綜合回答\n"
-        "2) 判讀/衛教重點（列點）\n"
-        "3) 注意事項（不確定就明確說不確定）\n"
-        "若這一輪是追問，請把代名詞補回真正主題再回答。\n"
-        "不要輸出 Sources、參考資料、來源編號、score、頁碼。\n"
-    )
+    ans = _call_llm(system, prompt, print_usage=True)
 
-    try:
-        safe_system = _sanitize_for_llm(system)
-        safe_prompt = _sanitize_for_llm(prompt)
+    _dbg("[CONTEXT LEN]", len(context))
+    _dbg(f"[TIME] vector_retrieve={(t1 - t0):.3f}s")
+    _dbg(f"[TIME] total={(time.perf_counter() - t0):.3f}s")
 
-        chat = client.chat.completions.create(
-            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-            messages=[
-                {"role": "system", "content": safe_system},
-                {"role": "user", "content": safe_prompt},
-            ],
-            temperature=0.2,
-        )
-        ans = chat.choices[0].message.content or ""
-        ans = re.split(
-            r"\n[-—–]*\s*\[?\s*(Sources|參考資料|Resources)\s*\]?\s*",
-            ans,
-            maxsplit=1,
-            flags=re.IGNORECASE,
-        )[0]
+    _dbg("✅ HYBRID DOC+VECTOR RAG HIT")
+    _dbg("DEBUG doc retrieval_query =", retrieval_query)
+    _dbg("DEBUG dialog_state =", state)
+    _dbg("DEBUG doc_sources =", len(doc_sources_raw))
+    _dbg("DEBUG vector_sources =", len(vector_sources))
 
-        print("✅ HYBRID DOC+VECTOR RAG HIT")
-        print("DEBUG doc retrieval_query =", retrieval_query)
-        print("DEBUG dialog_state =", state)
-        print("DEBUG doc_sources =", len(doc_sources_raw))
-        print("DEBUG vector_sources =", len(vector_sources))
-
-        return ans.strip(), deduped_resources
-
-    except Exception as e:
-        print(f"❌ HYBRID DOC+VECTOR RAG answer failed: {e}")
-        return "檢索有命中，但生成回答時發生錯誤（請看後端 log）。", deduped_resources
+    return ans, deduped_resources
