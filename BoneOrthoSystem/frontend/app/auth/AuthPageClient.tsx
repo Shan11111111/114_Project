@@ -1,11 +1,9 @@
 "use client";
 
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-//還沒加圖片當logo，先引入import放個占位用的
 
 import {
   apiJSON,
@@ -15,6 +13,8 @@ import {
   setUser,
   type AuthUser,
 } from "../lib/auth";
+
+import "./auth.css";
 
 /** =========================
  *  API Base + endpoints (with fallback)
@@ -42,6 +42,7 @@ async function postWithFallback<T>(
   body: any
 ): Promise<{ url: string; data: T }> {
   let lastErr: any = null;
+
   for (const url of urls) {
     try {
       const data = await apiJSON<T>(url, {
@@ -56,11 +57,13 @@ async function postWithFallback<T>(
         msg.includes("404") ||
         msg.toLowerCase().includes("not found") ||
         msg.includes("Cannot POST")
-      )
+      ) {
         continue;
+      }
       throw e;
     }
   }
+
   throw lastErr || new Error("No endpoint matched.");
 }
 
@@ -70,26 +73,33 @@ async function postWithFallback<T>(
 function cx(...cls: Array<string | false | null | undefined>) {
   return cls.filter(Boolean).join(" ");
 }
+
 function utf8BytesLen(s: string) {
   return new TextEncoder().encode(s).length;
 }
+
 function truncateUtf8ToBytes(s: string, maxBytes: number) {
   const enc = new TextEncoder();
   const bytes = enc.encode(s);
   if (bytes.length <= maxBytes) return s;
-  let lo = 0,
-    hi = s.length;
+
+  let lo = 0;
+  let hi = s.length;
+
   while (lo < hi) {
     const mid = Math.floor((lo + hi + 1) / 2);
     const part = s.slice(0, mid);
     if (enc.encode(part).length <= maxBytes) lo = mid;
     else hi = mid - 1;
   }
+
   return s.slice(0, lo);
 }
+
 function isEmailLike(s: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
+
 function passwordScore(pw: string) {
   let s = 0;
   if (pw.length >= 8) s += 1;
@@ -112,6 +122,7 @@ function useTilt<T extends HTMLElement>(
     if (!el || !enabled) return;
 
     let raf = 0;
+
     const onMove = (e: PointerEvent) => {
       const r = el.getBoundingClientRect();
       const px = (e.clientX - r.left) / r.width;
@@ -130,14 +141,15 @@ function useTilt<T extends HTMLElement>(
 
     const onLeave = () => {
       cancelAnimationFrame(raf);
-      el.style.setProperty("--rx", `0deg`);
-      el.style.setProperty("--ry", `0deg`);
-      el.style.setProperty("--mx", `50%`);
-      el.style.setProperty("--my", `50%`);
+      el.style.setProperty("--rx", "0deg");
+      el.style.setProperty("--ry", "0deg");
+      el.style.setProperty("--mx", "50%");
+      el.style.setProperty("--my", "50%");
     };
 
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerleave", onLeave);
+
     return () => {
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerleave", onLeave);
@@ -150,11 +162,13 @@ function useTilt<T extends HTMLElement>(
  *  Types
  *  ========================= */
 type Mode = "login" | "register" | "verify";
+
 type LoginOut = {
   access_token: string;
   refresh_token: string;
   token_type?: string;
 };
+
 type Role = "manager" | "student" | "teacher" | "doctor" | "assistant";
 
 type Flow = {
@@ -177,6 +191,7 @@ function PillToast({
   onClose: () => void;
 }) {
   if (!toast) return null;
+
   return (
     <div className={cx("toast", toast.type)} role="status" aria-live="polite">
       <div className="toastMsg">{toast.msg}</div>
@@ -210,7 +225,7 @@ function Field({
   error?: string | null;
   ok?: boolean;
   hint?: React.ReactNode;
-  inputMode?: any;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
 }) {
   return (
     <div className="f">
@@ -293,7 +308,6 @@ function RoleCards({
     desc: string;
     badge?: string;
   }> = [
-    // { r: "manager", title: "manager", desc: "管理者" },
     { r: "student", title: "student", desc: "學生/學習用途" },
     {
       r: "teacher",
@@ -307,8 +321,13 @@ function RoleCards({
       desc: "專業醫療人員/醫師（未來要審核）",
       badge: "review",
     },
-    { r: "assistant", title: "assistant", desc: "研究人員/專題成員/研究助理" },
+    {
+      r: "assistant",
+      title: "assistant",
+      desc: "研究人員/專題成員/研究助理",
+    },
   ];
+
   return (
     <div className="roleGrid">
       {items.map((x) => (
@@ -432,18 +451,21 @@ export default function AuthPageClient() {
 
   const nextHint = useMemo(() => {
     if (verifyOpen) {
-      if (!email.trim())
+      if (!email.trim()) {
         return {
           t: "先填 Email",
           d: "驗證要用 Email 當 key，你空著系統也救不了你。",
         };
-      if (!flow.verifySentEmail)
+      }
+      if (!flow.verifySentEmail) {
         return { t: "先寄驗證碼", d: "按「寄驗證碼」，拿到 6 碼再驗證。" };
-      if (flow.verifySentEmail !== email.trim())
+      }
+      if (flow.verifySentEmail !== email.trim()) {
         return {
           t: "Email 對不上",
           d: `你寄到 ${flow.verifySentEmail}，但現在填的是 ${email.trim()}。改回去或重寄。`,
         };
+      }
       return {
         t: "輸入驗證碼",
         d: "把收到的 6 碼貼上，按「確認驗證」。",
@@ -451,25 +473,36 @@ export default function AuthPageClient() {
     }
 
     if (tab === "register") {
-      if (!userOk)
+      if (!userOk) {
         return {
           t: "填暱稱",
           d: "至少 2 個字以上。",
         };
-      if (!emailOk)
+      }
+      if (!emailOk) {
         return {
           t: "請填有效 Email",
           d: "請先填能收信的那種，後續開通寄信服務才能繼續使用。",
         };
-      if (!pwOk)
+      }
+      if (!pwOk) {
         return {
           t: "設定密碼",
           d: pwTooLong
             ? "太長了（bcrypt 72 字元 上限）"
             : "至少 8 字元，混點字母數字更香。",
         };
-      if (!pw2Ok) return { t: "確認密碼", d: "兩次要一致，如果之後忘記密碼，請聯繫我們。" };
-      return { t: "建立帳號", d: "送出後立刻去驗證 Email，流程才算完成。" };
+      }
+      if (!pw2Ok) {
+        return {
+          t: "確認密碼",
+          d: "兩次要一致，如果之後忘記密碼，請聯繫我們。",
+        };
+      }
+      return {
+        t: "建立帳號",
+        d: "送出後立刻去驗證 Email，流程才算完成。",
+      };
     }
 
     if (!emailOk) return { t: "填 Email", d: "用你註冊的 Email。" };
@@ -480,7 +513,6 @@ export default function AuthPageClient() {
     tab,
     email,
     pw,
-    pw2,
     userOk,
     emailOk,
     pwOk,
@@ -543,12 +575,6 @@ export default function AuthPageClient() {
         body: JSON.stringify({ email: e, password: pw }),
       });
 
-      console.log("[auth] access_token head=", out.access_token?.slice(0, 20));
-      console.log(
-        "[auth] localStorage access=",
-        localStorage.getItem("gb_access")?.slice(0, 20)
-      );
-
       setTokens(out.access_token, out.refresh_token);
 
       const me = await apiJSON<AuthUser>(EP.me, {
@@ -560,11 +586,6 @@ export default function AuthPageClient() {
       const meId = (me as any)?.id ?? (me as any)?.userId ?? null;
       if (typeof meId === "number") {
         localStorage.setItem("galabone_me_id", String(meId));
-      } else {
-        console.warn(
-          "[auth] /auth/me 沒回傳 id(int)，無法存 galabone_me_id。me=",
-          me
-        );
       }
 
       setToast({ type: "ok", msg: "登入成功 ✅" });
@@ -628,10 +649,11 @@ export default function AuthPageClient() {
       const e = email.trim();
       if (!e) throw new Error("請先填 Email。");
       if (!flow.verifySentEmail) throw new Error("你還沒寄驗證碼。先寄再驗證。");
-      if (flow.verifySentEmail !== e)
+      if (flow.verifySentEmail !== e) {
         throw new Error(
           `你寄碼給 ${flow.verifySentEmail}，但現在填 ${e}。請改回去或重寄。`
         );
+      }
       if (!code.trim()) throw new Error("請輸入驗證碼。");
 
       const clean = code.replace(/\s+/g, "");
@@ -693,133 +715,131 @@ export default function AuthPageClient() {
       <div className="bg" aria-hidden="true" />
       <div className="noise" aria-hidden="true" />
 
-      <div className="shell">
-        <div className="top">
-          <div className="brand">
-            <div className="logo">G</div>
-            <div className="brandTxt">
-              <div className="name">GalaBone</div>
-              <div className="desc">登入註冊小天地</div>
+      <div ref={shellRef} className={cx("card3d", shake && "shake")}>
+        <div className="shine" aria-hidden="true" />
+
+        <aside className="leftPane">
+          <div className="hero">
+            <div className="heroTitle">GalaBone 入口</div>
+            <div className="heroSub">
+              歡迎使用我們的系統！請在右側登入或註冊帳號，完成 Email 驗證後即可使用。這裡是專為骨科醫師、學生、教師打造的影像分析與知識查詢平台。立即加入我們，開啟您的骨科影像分析之旅！
             </div>
-          </div>
 
-          <div className="topActions">
-            <button className="linkBtn" onClick={() => setVerifyOpen(true)}>
-              開啟驗證
-            </button>
-            <button className="linkBtn" onClick={resetFlow}>
-              重置流程
-            </button>
-          </div>
-        </div>
-
-        <div ref={shellRef} className={cx("card3d", shake && "shake")}>
-          <div className="shine" aria-hidden="true" />
-
-          <aside className="leftPane">
-            <div className="hero">
-              <div className="heroTitle">GalaBone 入口</div>
-              <div className="heroSub">
-                歡迎使用我們的系統！請在右側登入或註冊帳號，完成 Email 驗證後即可使用。這裡是專為骨科醫師、學生、教師打造的影像分析與知識查詢平台。立即加入我們，開啟您的骨科影像分析之旅！
-              </div>
-
-              <div className="stats">
-                <div className="stat">
-                  <div className="k">目前介面</div>
-                  <div className="v">
-                    {verifyOpen
-                      ? "Verify"
-                      : tab === "register"
-                      ? "註冊"
-                      : "登入"}
-                  </div>
-                </div>
-                <div className="stat">
-                  <div className="k">Email</div>
-                  <div className="v">
-                    {email.trim() ? (emailOk ? "格式合法" : "格式不合法") : "尚未填寫"}
-                  </div>
-                </div>
-                <div className="stat">
-                  <div className="k">是否驗證</div>
-                  <div className="v">
-                    {flow.verifiedEmail
-                      ? "已驗證"
-                      : flow.verifySentEmail
-                      ? "驗證碼已送出"
-                      : flow.registeredEmail
-                      ? "已註冊"
-                      : "新使用者"}
-                  </div>
+            <div className="stats">
+              <div className="stat">
+                <div className="k">目前介面</div>
+                <div className="v">
+                  {verifyOpen ? "Verify" : tab === "register" ? "註冊" : "登入"}
                 </div>
               </div>
-
-              <div className="guide">
-                <div className="gT">下一步建議</div>
-                <div className="gH">{nextHint.t}</div>
-                <div className="gD">{nextHint.d}</div>
-
-                <div className="miniSteps">
-                  <div className={cx("mini", !!flow.registeredEmail && "on")}>
-                    <span className="dot" /> 註冊完成
-                  </div>
-                  <div className={cx("mini", !!flow.verifySentEmail && "on")}>
-                    <span className="dot" /> 已寄驗證碼
-                  </div>
-                  <div className={cx("mini", !!flow.verifiedEmail && "on")}>
-                    <span className="dot" /> 已驗證
-                  </div>
-                </div>
-
-                <div className="smallNote">
-                  尚無寄信服務，驗證碼會直接顯示在畫面上（dev code）。這樣測試流程比較快，也不怕收不到信。正式環境會改成寄信的。
-                  {/* 小提醒：後端收的是 <b>role</b>，資料庫欄位叫 <b>roles</b>{" "} */}
-                  {/* 沒關係，後端映射就好。 */}
+              <div className="stat">
+                <div className="k">Email</div>
+                <div className="v">
+                  {email.trim() ? (emailOk ? "格式合法" : "格式不合法") : "尚未填寫"}
                 </div>
               </div>
-
-              <div className="leftFoot">
-                <button
-                  className="ghost"
-                  onClick={handleLogout}
-                  disabled={busy}
-                  title="如果你目前已登入，這顆會登出"
-                >
-                  我已登入 → 登出
-                </button>
-                <div className="muted">GalaBone</div>
+              <div className="stat">
+                <div className="k">是否驗證</div>
+                <div className="v">
+                  {flow.verifiedEmail
+                    ? "已驗證"
+                    : flow.verifySentEmail
+                    ? "驗證碼已送出"
+                    : flow.registeredEmail
+                    ? "已註冊"
+                    : "新使用者"}
+                </div>
               </div>
             </div>
-          </aside>
 
-          <main className="rightPane">
-            <div className="paneTop">
-              <SegmentedTabs
-                value={tab}
-                onChange={(v) => {
-                  setTab(v);
-                  goto(v);
-                }}
-                a="登入"
-                b="註冊"
+            <div className="guide">
+              <div className="gT">下一步建議</div>
+              <div className="gH">{nextHint.t}</div>
+              <div className="gD">{nextHint.d}</div>
+
+              <div className="miniSteps">
+                <div className={cx("mini", !!flow.registeredEmail && "on")}>
+                  <span className="dot" /> 註冊完成
+                </div>
+                <div className={cx("mini", !!flow.verifySentEmail && "on")}>
+                  <span className="dot" /> 已寄驗證碼
+                </div>
+                <div className={cx("mini", !!flow.verifiedEmail && "on")}>
+                  <span className="dot" /> 已驗證
+                </div>
+              </div>
+
+              <div className="smallNote">
+                尚無寄信服務，驗證碼會直接顯示在畫面上（dev code）。這樣測試流程比較快，也不怕收不到信。正式環境會改成寄信的。
+              </div>
+            </div>
+
+            <div className="leftFoot">
+              <button
+                className="ghost"
+                onClick={handleLogout}
                 disabled={busy}
-              />
-
-              <div className="paneMeta">
-                <div className="metaChip">
-                  <span className={cx("pill", verifyOpen && "on")} />
-                  email驗證:{verifyOpen ? "成功" : "尚未成功"}
-                </div>
-              </div>
+                title="如果你目前已登入，這顆會登出"
+              >
+                我已登入 → 登出
+              </button>
+              <div className="muted">GalaBone</div>
             </div>
+          </div>
+        </aside>
 
-            {tab === "login" ? (
-              <div className="form">
+        <main className="rightPane">
+          <div className="paneTop">
+            <SegmentedTabs
+              value={tab}
+              onChange={(v) => {
+                setTab(v);
+                goto(v);
+              }}
+              a="登入"
+              b="註冊"
+              disabled={busy}
+            />
+
+            {tab === "register" && (
+              <>
+                <div className="paneActions">
+                  <button
+                    className="linkBtn"
+                    type="button"
+                    onClick={() => {
+                      setVerifyOpen(true);
+                      goto("verify");
+                    }}
+                  >
+                    開啟驗證
+                  </button>
+
+                  <button className="linkBtn" type="button" onClick={resetFlow}>
+                    重置流程
+                  </button>
+                </div>
+
+                <div className="paneMeta">
+                  <div className="metaChip">
+                    <span className={cx("pill", flow.verifiedEmail && "on")} />
+                    email驗證:{flow.verifiedEmail ? "成功" : "尚未成功"}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {tab === "login" ? (
+            <div className="form formFixed">
+              <div className="formHead">
                 <div className="h1">登入</div>
                 <div className="sub">
-                  註冊完後，請先點擊我想驗證 Email，完成驗證流程，等待系統螢幕上顯示dev code，尚未開通寄信服務，感謝配合。
+                  註冊完成後即可登入；若帳號尚未完成 Email 驗證，系統會提示你先完成驗證。
                 </div>
+              </div>
 
+              <div className="formBody formBodyLogin">
                 <Field
                   label="Email"
                   value={email}
@@ -861,7 +881,9 @@ export default function AuthPageClient() {
                     </span>
                   }
                 />
+              </div>
 
+              <div className="formFoot">
                 <button
                   className={cx("btn", "primary")}
                   disabled={!loginReady}
@@ -871,7 +893,7 @@ export default function AuthPageClient() {
                   {busy ? "登入中…" : "登入"}
                 </button>
 
-                <div className="row">
+                <div className="row rowSingle">
                   <button
                     className="btn soft"
                     disabled={busy}
@@ -882,25 +904,19 @@ export default function AuthPageClient() {
                   >
                     沒帳號？去註冊 →
                   </button>
-                  <button
-                    className="btn soft"
-                    disabled={busy}
-                    onClick={() => {
-                      setVerifyOpen(true);
-                      goto("verify");
-                    }}
-                  >
-                    我想驗證 Email →
-                  </button>
                 </div>
               </div>
-            ) : (
-              <div className="form">
+            </div>
+          ) : (
+            <div className="form formFixed">
+              <div className="formHead">
                 <div className="h1">註冊</div>
                 <div className="sub">
-                  請在註冊後，點擊我想驗證 Email，完成驗證流程，等待系統螢幕上顯示dev code，尚未開通寄信服務，感謝配合。
+                  請在註冊後，點擊開啟驗證完成 Email 驗證流程，等待系統螢幕上顯示 dev code，尚未開通寄信服務，感謝配合。
                 </div>
+              </div>
 
+              <div className="formBody">
                 <Field
                   label="使用者名稱"
                   value={username}
@@ -915,7 +931,7 @@ export default function AuthPageClient() {
                   <div className="blockTop">
                     <div className="lab">角色（role）</div>
                     <div className="msg">
-                     請選擇你要註冊的身分:student/teacher/doctor/assistant，未來會根據不同角色開放不同功能，目前只是 demo，所以先選一個玩玩看就好，之後會有審核機制。
+                      請選擇你要註冊的身分:student/teacher/doctor/assistant，未來會根據不同角色開放不同功能，目前只是 demo，所以先選一個玩玩看就好，之後會有審核機制。
                     </div>
                   </div>
                   <RoleCards value={role} onChange={setRole} disabled={busy} />
@@ -991,7 +1007,9 @@ export default function AuthPageClient() {
                     }
                   />
                 </div>
+              </div>
 
+              <div className="formFoot">
                 <button
                   className={cx("btn", "primary")}
                   disabled={!registerReady}
@@ -1010,909 +1028,134 @@ export default function AuthPageClient() {
                   }}
                   title={!emailOk ? "先填正確 Email" : ""}
                 >
-                  我已註冊/想驗證 → 打開驗證小視窗
-                </button>
-              </div>
-            )}
-          </main>
-
-          <div className={cx("drawer", verifyOpen && "open")} aria-hidden={!verifyOpen}>
-            <div className="drawerHead">
-              <div>
-                <div className="dTitle">Email 驗證</div>
-                <div className="dSub">
-                  沒有寄信服務，請先看螢幕顯示的dev code → 再輸入code → 點擊確認。成功的話會出現綠色勾勾的浮動提示。
-                </div>
-              </div>
-
-              <div className="dBtns">
-                <button
-                  className="btn soft"
-                  onClick={() => {
-                    setVerifyOpen(false);
-                    goto(tab);
-                  }}
-                  disabled={busy}
-                >
-                  收起
+                  我已註冊 / 想驗證 → 打開驗證小視窗
                 </button>
               </div>
             </div>
+          )}
+        </main>
 
-            <div className="drawerBody">
-              <Field
-                label="Email"
-                value={email}
-                onChange={setEmail}
-                placeholder="name@example.com"
-                autoComplete="email"
-                ok={!!email.trim() && emailOk}
-                error={email.trim() && !emailOk ? "Email 格式不正確" : null}
-                hint={
-                  flow.registeredEmail && flow.registeredEmail !== email.trim() ? (
-                    <span className="warn">
-                      你註冊的是 <b>{flow.registeredEmail}</b>，建議改回去才不會對不上。
-                    </span>
-                  ) : (
-                    <span>建議用你註冊時的 Email。</span>
-                  )
-                }
-              />
-
-              <div className="row3">
-                <button
-                  className={cx("btn", "ok")}
-                  disabled={busy || resendLeft > 0 || !emailOk}
-                  onClick={handleSendVerify}
-                >
-                  {busy ? <span className="spin" /> : null}
-                  {resendLeft > 0 ? `請稍等 ${resendLeft}s` : "寄驗證碼"}
-                </button>
-
-                <button
-                  className={cx("btn", "soft")}
-                  disabled={busy}
-                  onClick={() => {
-                    setDevCodeHint(null);
-                    setCode("");
-                    setToast({ type: "info", msg: "已清空驗證碼欄位" });
-                  }}
-                >
-                  清空
-                </button>
-
-                <div className="statusLine">
-                  狀態：<b>{flow.verifySentEmail ? " 已寄碼" : " 尚未寄碼"}</b>
-                  {flow.verifySentEmail ? (
-                    <span className="muted">（寄到 {flow.verifySentEmail}）</span>
-                  ) : null}
-                </div>
+        <div className={cx("drawer", verifyOpen && "open")} aria-hidden={!verifyOpen}>
+          <div className="drawerHead">
+            <div>
+              <div className="dTitle">Email 驗證</div>
+              <div className="dSub">
+                沒有寄信服務，請先看螢幕顯示的 dev code → 再輸入 code → 點擊確認。成功的話會出現綠色勾勾的浮動提示。
               </div>
+            </div>
 
-              {devCodeHint ? (
-                <div className="devHint">
-                  dev_code：<code>{devCodeHint}</code>
-                  <span className="muted">（正式上線要改成寄信，不回傳 code）</span>
-                </div>
-              ) : null}
-
-              <Field
-                label="驗證碼"
-                value={code}
-                onChange={setCode}
-                placeholder="例如：123456"
-                inputMode="numeric"
-                ok={code.trim().length >= 4}
-                error={null}
-                hint={<span>貼上 6 碼後按「確認驗證」。</span>}
-              />
-
+            <div className="dBtns">
               <button
-                className={cx("btn", "primary")}
-                disabled={
-                  busy ||
-                  !emailOk ||
-                  !flow.verifySentEmail ||
-                  flow.verifySentEmail !== email.trim() ||
-                  code.trim().length < 4
-                }
-                onClick={handleVerify}
-                title={
-                  !flow.verifySentEmail
-                    ? "請先寄驗證碼"
-                    : flow.verifySentEmail !== email.trim()
-                    ? "Email 要跟寄碼時一致"
-                    : ""
-                }
+                className="btn soft"
+                onClick={() => {
+                  setVerifyOpen(false);
+                  goto(tab);
+                }}
+                disabled={busy}
+              >
+                X
+              </button>
+            </div>
+          </div>
+
+          <div className="drawerBody">
+            <Field
+              label="Email"
+              value={email}
+              onChange={setEmail}
+              placeholder="name@example.com"
+              autoComplete="email"
+              ok={!!email.trim() && emailOk}
+              error={email.trim() && !emailOk ? "Email 格式不正確" : null}
+              hint={
+                flow.registeredEmail && flow.registeredEmail !== email.trim() ? (
+                  <span className="warn">
+                    你註冊的是 <b>{flow.registeredEmail}</b>，建議改回去才不會對不上。
+                  </span>
+                ) : (
+                  <span>建議用你註冊時的 Email。</span>
+                )
+              }
+            />
+
+            <div className="row3">
+              <button
+                className={cx("btn", "ok")}
+                disabled={busy || resendLeft > 0 || !emailOk}
+                onClick={handleSendVerify}
               >
                 {busy ? <span className="spin" /> : null}
-                {busy ? "驗證中…" : "確認驗證"}
+                {resendLeft > 0 ? `請稍等 ${resendLeft}s` : "寄驗證碼"}
               </button>
 
-              <div className="drawerTip">
-                常見Q/A: 如果一直說「錯誤或過期」，請重新驗證一次。
+              <button
+                className={cx("btn", "soft")}
+                disabled={busy}
+                onClick={() => {
+                  setDevCodeHint(null);
+                  setCode("");
+                  setToast({ type: "info", msg: "已清空驗證碼欄位" });
+                }}
+              >
+                清空
+              </button>
+
+              <div className="statusLine">
+                狀態：<b>{flow.verifySentEmail ? " 已寄碼" : " 尚未寄碼"}</b>
+                {flow.verifySentEmail ? (
+                  <span className="muted">（寄到 {flow.verifySentEmail}）</span>
+                ) : null}
               </div>
+            </div>
+
+            {devCodeHint ? (
+              <div className="devHint">
+                dev_code：<code>{devCodeHint}</code>
+                <span className="muted">（正式上線要改成寄信，不回傳 code）</span>
+              </div>
+            ) : null}
+
+            <Field
+              label="驗證碼"
+              value={code}
+              onChange={setCode}
+              placeholder="例如：123456"
+              inputMode="numeric"
+              ok={code.trim().length >= 4}
+              error={null}
+              hint={<span>貼上 6 碼後按「確認驗證」。</span>}
+            />
+
+            <button
+              className={cx("btn", "primary")}
+              disabled={
+                busy ||
+                !emailOk ||
+                !flow.verifySentEmail ||
+                flow.verifySentEmail !== email.trim() ||
+                code.trim().length < 4
+              }
+              onClick={handleVerify}
+              title={
+                !flow.verifySentEmail
+                  ? "請先寄驗證碼"
+                  : flow.verifySentEmail !== email.trim()
+                  ? "Email 要跟寄碼時一致"
+                  : ""
+              }
+            >
+              {busy ? <span className="spin" /> : null}
+              {busy ? "驗證中…" : "確認驗證"}
+            </button>
+
+            <div className="drawerTip">
+              常見Q/A: 如果一直說「錯誤或過期」，請重新驗證一次。
             </div>
           </div>
         </div>
-
-        <PillToast toast={toast} onClose={() => setToast(null)} />
       </div>
 
-      <style jsx global>{`
-        .root {
-          min-height: calc(100vh - 64px);
-          display: grid;
-          place-items: center;
-          padding: 36px 16px;
-          position: relative;
-          overflow: hidden;
-          background: #0b1220;
-          color: rgba(255, 255, 255, 0.92);
-        }
-        .bg {
-          position: absolute;
-          inset: -40%;
-          background: radial-gradient(
-              closest-side at 15% 15%,
-              rgba(56, 189, 248, 0.35),
-              transparent 62%
-            ),
-            radial-gradient(
-              closest-side at 80% 25%,
-              rgba(168, 85, 247, 0.26),
-              transparent 58%
-            ),
-            radial-gradient(
-              closest-side at 40% 85%,
-              rgba(16, 185, 129, 0.22),
-              transparent 62%
-            );
-          filter: blur(16px);
-          animation: floaty 10s ease-in-out infinite alternate;
-          opacity: 0.95;
-        }
-        .noise {
-          position: absolute;
-          inset: 0;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
-          opacity: 0.22;
-          mix-blend-mode: overlay;
-          pointer-events: none;
-        }
-        @keyframes floaty {
-          from {
-            transform: translate3d(-10px, -12px, 0) scale(1);
-          }
-          to {
-            transform: translate3d(14px, 10px, 0) scale(1.03);
-          }
-        }
-
-        .shell {
-          width: min(1120px, 100%);
-          position: relative;
-          z-index: 2;
-        }
-
-        .top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          margin-bottom: 14px;
-          flex-wrap: wrap;
-        }
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        .logo {
-          width: 44px;
-          height: 44px;
-          border-radius: 14px;
-          display: grid;
-          place-items: center;
-          background: linear-gradient(
-            135deg,
-            rgba(56, 189, 248, 1),
-            rgba(168, 85, 247, 1)
-          );
-          box-shadow: 0 16px 50px rgba(0, 0, 0, 0.38);
-          font-weight: 950;
-          letter-spacing: -0.02em;
-        }
-        .brandTxt .name {
-          font-weight: 950;
-          letter-spacing: -0.02em;
-        }
-        .brandTxt .desc {
-          font-size: 12px;
-          opacity: 0.7;
-          margin-top: 2px;
-        }
-        .topActions {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .linkBtn {
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          background: rgba(255, 255, 255, 0.06);
-          color: rgba(255, 255, 255, 0.85);
-          border-radius: 999px;
-          padding: 8px 12px;
-          font-size: 12px;
-          cursor: pointer;
-          transition: transform 0.12s ease, background 0.12s ease;
-          text-decoration: none;
-        }
-        .linkBtn:hover {
-          transform: translateY(-1px);
-          background: rgba(255, 255, 255, 0.09);
-        }
-
-        .card3d {
-          --rx: 0deg;
-          --ry: 0deg;
-          --mx: 50%;
-          --my: 50%;
-          position: relative;
-          border-radius: 28px;
-          overflow: hidden;
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          background: rgba(255, 255, 255, 0.06);
-          box-shadow: 0 28px 120px rgba(0, 0, 0, 0.55);
-          transform: perspective(1200px) rotateX(var(--rx)) rotateY(var(--ry));
-          transition: transform 0.18s ease;
-          display: grid;
-          grid-template-columns: 420px 1fr;
-        }
-        .card3d::before {
-          content: "";
-          position: absolute;
-          inset: -2px;
-          background: linear-gradient(
-            135deg,
-            rgba(56, 189, 248, 0.75),
-            rgba(168, 85, 247, 0.55),
-            rgba(16, 185, 129, 0.45)
-          );
-          opacity: 0.36;
-          filter: blur(14px);
-          z-index: 0;
-        }
-        .shine {
-          position: absolute;
-          inset: 0;
-          background: radial-gradient(
-            900px 420px at var(--mx) var(--my),
-            rgba(255, 255, 255, 0.18),
-            transparent 58%
-          );
-          mix-blend-mode: overlay;
-          pointer-events: none;
-          z-index: 0;
-        }
-        .shake {
-          animation: shake 0.52s ease both;
-        }
-        @keyframes shake {
-          10%,
-          90% {
-            transform: translateX(-1px);
-          }
-          20%,
-          80% {
-            transform: translateX(2px);
-          }
-          30%,
-          50%,
-          70% {
-            transform: translateX(-4px);
-          }
-          40%,
-          60% {
-            transform: translateX(4px);
-          }
-        }
-
-        .leftPane,
-        .rightPane {
-          position: relative;
-          z-index: 1;
-        }
-        .leftPane {
-          padding: 22px;
-          background: rgba(255, 255, 255, 0.04);
-          border-right: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .heroTitle {
-          font-size: 18px;
-          font-weight: 950;
-          letter-spacing: -0.02em;
-        }
-        .heroSub {
-          margin-top: 6px;
-          font-size: 12px;
-          opacity: 0.75;
-          line-height: 1.5;
-        }
-
-        .stats {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
-          margin-top: 14px;
-        }
-        .stat {
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.06);
-          border-radius: 16px;
-          padding: 10px;
-        }
-        .stat .k {
-          font-size: 11px;
-          opacity: 0.7;
-        }
-        .stat .v {
-          margin-top: 6px;
-          font-weight: 950;
-          letter-spacing: -0.02em;
-        }
-
-        .guide {
-          margin-top: 14px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(0, 0, 0, 0.18);
-          border-radius: 18px;
-          padding: 12px;
-        }
-        .gT {
-          font-size: 11px;
-          opacity: 0.75;
-        }
-        .gH {
-          margin-top: 8px;
-          font-weight: 950;
-          letter-spacing: -0.02em;
-        }
-        .gD {
-          margin-top: 6px;
-          font-size: 12px;
-          opacity: 0.76;
-          line-height: 1.55;
-        }
-
-        .miniSteps {
-          margin-top: 10px;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .mini {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 12px;
-          opacity: 0.72;
-        }
-        .mini .dot {
-          width: 10px;
-          height: 10px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.22);
-        }
-        .mini.on {
-          opacity: 1;
-        }
-        .mini.on .dot {
-          background: rgba(16, 185, 129, 1);
-          box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.12);
-        }
-
-        .smallNote {
-          margin-top: 10px;
-          font-size: 12px;
-          opacity: 0.7;
-          line-height: 1.5;
-        }
-
-        .leftFoot {
-          margin-top: 14px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-        }
-        .muted {
-          opacity: 0.65;
-          font-size: 12px;
-        }
-
-        .rightPane {
-          padding: 22px;
-          background: rgba(255, 255, 255, 0.03);
-        }
-        .paneTop {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .paneMeta {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .metaChip {
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.05);
-          border-radius: 999px;
-          padding: 8px 10px;
-          font-size: 12px;
-          opacity: 0.85;
-          display: flex;
-          gap: 10px;
-          align-items: center;
-        }
-        .pill {
-          width: 10px;
-          height: 10px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.25);
-        }
-        .pill.on {
-          background: rgba(56, 189, 248, 1);
-          box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.14);
-        }
-
-        .tabs {
-          position: relative;
-          display: flex;
-          border-radius: 999px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(255, 255, 255, 0.06);
-          overflow: hidden;
-        }
-        .tabs.dis {
-          opacity: 0.65;
-          pointer-events: none;
-        }
-        .tab {
-          width: 140px;
-          padding: 10px 12px;
-          font-weight: 950;
-          color: rgba(255, 255, 255, 0.78);
-          background: transparent;
-          border: 0;
-          cursor: pointer;
-          position: relative;
-          z-index: 1;
-        }
-        .tab.on {
-          color: rgba(0, 0, 0, 0.92);
-        }
-        .slider {
-          position: absolute;
-          inset: 3px;
-          width: calc(50% - 3px);
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.9);
-          transition: transform 0.18s ease;
-        }
-        .slider.r {
-          transform: translateX(100%);
-        }
-
-        .form {
-          margin-top: 16px;
-        }
-        .h1 {
-          font-size: 26px;
-          font-weight: 950;
-          letter-spacing: -0.02em;
-        }
-        .sub {
-          margin-top: 6px;
-          font-size: 12px;
-          opacity: 0.75;
-          line-height: 1.55;
-        }
-
-        .f {
-          margin-top: 14px;
-        }
-        .fTop {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          justify-content: space-between;
-        }
-        .lab {
-          font-size: 12px;
-          font-weight: 900;
-          opacity: 0.85;
-        }
-        .tag {
-          font-size: 11px;
-          padding: 4px 10px;
-          border-radius: 999px;
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          opacity: 0.9;
-        }
-        .tag.ok {
-          background: rgba(16, 185, 129, 0.2);
-          border-color: rgba(16, 185, 129, 0.35);
-        }
-        .tag.err {
-          background: rgba(220, 38, 38, 0.18);
-          border-color: rgba(220, 38, 38, 0.35);
-        }
-
-        .inpWrap {
-          margin-top: 8px;
-          border-radius: 18px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(255, 255, 255, 0.06);
-          display: flex;
-          align-items: center;
-          overflow: hidden;
-          transition: box-shadow 0.15s ease, border-color 0.15s ease;
-        }
-        .inpWrap:focus-within {
-          box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
-          border-color: rgba(56, 189, 248, 0.35);
-        }
-        .inpWrap.bad {
-          border-color: rgba(220, 38, 38, 0.45);
-          box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
-        }
-        .inpWrap.good {
-          border-color: rgba(16, 185, 129, 0.45);
-          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
-        }
-
-        .inp {
-          flex: 1;
-          padding: 12px 14px;
-          border: 0;
-          outline: none;
-          color: rgba(255, 255, 255, 0.9);
-          background: transparent;
-          font-size: 14px;
-        }
-        .inp::placeholder {
-          color: rgba(255, 255, 255, 0.35);
-        }
-        .right {
-          padding-right: 10px;
-          display: flex;
-          align-items: center;
-        }
-        .iconBtn {
-          border: 0;
-          background: rgba(255, 255, 255, 0.1);
-          color: rgba(255, 255, 255, 0.92);
-          border-radius: 12px;
-          padding: 8px 10px;
-          cursor: pointer;
-          transition: transform 0.12s ease;
-        }
-        .iconBtn:hover {
-          transform: translateY(-1px);
-        }
-
-        .msg {
-          margin-top: 8px;
-          font-size: 12px;
-          opacity: 0.72;
-        }
-        .msg.err {
-          color: rgba(252, 165, 165, 1);
-          opacity: 1;
-        }
-        .warn {
-          color: rgba(253, 224, 71, 1);
-        }
-        .hintRow {
-          display: inline-flex;
-          gap: 10px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .sep {
-          opacity: 0.4;
-        }
-
-        .block {
-          margin-top: 14px;
-        }
-        .blockTop {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: baseline;
-          flex-wrap: wrap;
-        }
-
-        .roleGrid {
-          margin-top: 10px;
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
-        }
-        .roleCard {
-          text-align: left;
-          border-radius: 16px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(255, 255, 255, 0.06);
-          padding: 10px;
-          cursor: pointer;
-          transition: transform 0.12s ease, box-shadow 0.12s ease,
-            border-color 0.12s ease;
-          color: rgba(255, 255, 255, 0.88);
-        }
-        .roleCard:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25);
-        }
-        .roleCard.on {
-          border-color: rgba(56, 189, 248, 0.55);
-          box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
-        }
-        .roleHead {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-        }
-        .roleTitle {
-          font-weight: 950;
-          letter-spacing: -0.02em;
-        }
-        .roleBadge {
-          font-size: 11px;
-          padding: 3px 8px;
-          border-radius: 999px;
-          background: rgba(253, 224, 71, 0.2);
-          border: 1px solid rgba(253, 224, 71, 0.35);
-          color: rgba(255, 255, 255, 0.9);
-        }
-        .roleDesc {
-          margin-top: 6px;
-          font-size: 12px;
-          opacity: 0.72;
-          line-height: 1.45;
-        }
-
-        .grid2 {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-        }
-
-        .btn {
-          margin-top: 14px;
-          width: 100%;
-          border-radius: 18px;
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          padding: 12px 14px;
-          font-weight: 950;
-          cursor: pointer;
-          display: inline-flex;
-          gap: 10px;
-          align-items: center;
-          justify-content: center;
-          transition: transform 0.12s ease, box-shadow 0.12s ease,
-            opacity 0.12s ease;
-          user-select: none;
-        }
-        .btn:disabled {
-          opacity: 0.55;
-          cursor: not-allowed;
-        }
-        .btn:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 14px 50px rgba(0, 0, 0, 0.3);
-        }
-
-        .primary {
-          background: linear-gradient(
-            135deg,
-            rgba(56, 189, 248, 1),
-            rgba(168, 85, 247, 1)
-          );
-          border-color: rgba(56, 189, 248, 0.35);
-          color: rgba(0, 0, 0, 0.92);
-        }
-        .soft {
-          background: rgba(255, 255, 255, 0.06);
-          color: rgba(255, 255, 255, 0.9);
-        }
-        .softWide {
-          background: rgba(16, 185, 129, 0.12);
-          border-color: rgba(16, 185, 129, 0.22);
-          color: rgba(255, 255, 255, 0.92);
-        }
-        .ok {
-          background: rgba(16, 185, 129, 1);
-          border-color: rgba(16, 185, 129, 1);
-          color: rgba(0, 0, 0, 0.9);
-        }
-        .ghost {
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          color: rgba(255, 255, 255, 0.88);
-          border-radius: 14px;
-          padding: 10px 12px;
-          cursor: pointer;
-          font-weight: 900;
-        }
-
-        .row {
-          margin-top: 10px;
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px;
-        }
-
-        .spin {
-          width: 16px;
-          height: 16px;
-          border-radius: 999px;
-          border: 2px solid rgba(255, 255, 255, 0.55);
-          border-top-color: rgba(0, 0, 0, 0.55);
-          animation: sp 0.8s linear infinite;
-        }
-        @keyframes sp {
-          to {
-            transform: rotate(360deg);
-          }
-        }
-
-        .drawer {
-          position: absolute;
-          right: 0;
-          top: 0;
-          bottom: 0;
-          width: 420px;
-          background: rgba(10, 16, 30, 0.88);
-          border-left: 1px solid rgba(255, 255, 255, 0.12);
-          transform: translateX(100%);
-          transition: transform 0.22s ease;
-          z-index: 5;
-          display: flex;
-          flex-direction: column;
-        }
-        .drawer.open {
-          transform: translateX(0);
-        }
-        .drawerHead {
-          padding: 16px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: flex-start;
-        }
-        .dTitle {
-          font-weight: 950;
-          letter-spacing: -0.02em;
-        }
-        .dSub {
-          margin-top: 4px;
-          font-size: 12px;
-          opacity: 0.72;
-          line-height: 1.5;
-        }
-        .drawerBody {
-          padding: 16px;
-          overflow: auto;
-        }
-        .row3 {
-          margin-top: 12px;
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-          align-items: center;
-        }
-        .statusLine {
-          font-size: 12px;
-          opacity: 0.78;
-        }
-        .devHint {
-          margin-top: 10px;
-          border-radius: 16px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.06);
-          padding: 10px;
-          font-size: 12px;
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .devHint code {
-          padding: 6px 10px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.1);
-          font-weight: 950;
-        }
-        .drawerTip {
-          margin-top: 10px;
-          font-size: 12px;
-          opacity: 0.75;
-        }
-
-        .toast {
-          position: fixed;
-          left: 50%;
-          bottom: 22px;
-          transform: translateX(-50%);
-          width: min(860px, calc(100% - 28px));
-          border-radius: 18px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(0, 0, 0, 0.55);
-          backdrop-filter: blur(10px);
-          padding: 12px 14px;
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-          align-items: center;
-          z-index: 9999;
-          box-shadow: 0 20px 90px rgba(0, 0, 0, 0.45);
-        }
-        .toast.ok {
-          border-color: rgba(16, 185, 129, 0.35);
-        }
-        .toast.err {
-          border-color: rgba(220, 38, 38, 0.35);
-        }
-        .toast.info {
-          border-color: rgba(56, 189, 248, 0.35);
-        }
-        .toastMsg {
-          border: 0;
-          background: rgba(255, 255, 255, 0.1);
-          color: #fff;
-          border-radius: 12px;
-          padding: 8px 10px;
-          cursor: pointer;
-        }
-        .toastX {
-          border: 0;
-          background: rgba(255, 255, 255, 0.1);
-          color: rgba(255, 255, 255, 0.92);
-          border-radius: 12px;
-          padding: 8px 10px;
-          cursor: pointer;
-        }
-
-        @media (max-width: 1080px) {
-          .card3d {
-            grid-template-columns: 1fr;
-          }
-          .leftPane {
-            border-right: 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          }
-          .drawer {
-            width: min(520px, 100%);
-          }
-          .grid2 {
-            grid-template-columns: 1fr;
-          }
-          .roleGrid {
-            grid-template-columns: 1fr;
-          }
-          .row {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
+      <PillToast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }
