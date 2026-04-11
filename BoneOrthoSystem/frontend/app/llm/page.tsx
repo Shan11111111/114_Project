@@ -168,6 +168,7 @@ const API = {
   health: `${S2X_BASE}/health`,
   upload: `${S2X_BASE}/upload`,
   chat: `${S2X_BASE}/agent/chat`,
+  chatStream: `${S2X_BASE}/agent/chat/stream`,
   exportPdf: `${S2X_BASE}/export/pdf`,
   exportPptx: `${S2X_BASE}/export/pptx`,
   listConvs: (uid: string) =>
@@ -236,6 +237,71 @@ async function postChatToBackend(payload: any) {
   }
   return data;
 }
+
+async function postChatStreamToBackend(
+  payload: any,
+  handlers: {
+    onMeta?: (data: any) => void;
+    onSources?: (data: any[]) => void;
+    onToken?: (token: string) => void;
+    onDone?: (data: any) => void;
+    onError?: (data: any) => void;
+  }
+) {
+  const res = await fetch(API.chatStream, {
+    method: "POST",
+    headers: buildAuthHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok || !res.body) {
+    const raw = await res.text().catch(() => "");
+    throw new Error(`Chat 串流失敗 ${res.status}：${raw.slice(0, 300)}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+
+      let evt: any = null;
+      try {
+        evt = JSON.parse(line);
+      } catch (err) {
+        console.error("stream parse failed:", line);
+        continue;
+      }
+
+      if (evt.type === "meta") handlers.onMeta?.(evt);
+      else if (evt.type === "sources") handlers.onSources?.(evt.data || []);
+      else if (evt.type === "token") handlers.onToken?.(String(evt.data || ""));
+      else if (evt.type === "done") handlers.onDone?.(evt);
+      else if (evt.type === "error") handlers.onError?.(evt);
+    }
+  }
+
+  if (buffer.trim()) {
+    try {
+      const evt = JSON.parse(buffer);
+      if (evt.type === "done") handlers.onDone?.(evt);
+    } catch {
+      console.warn("最後殘留 buffer 不是完整 JSON:", buffer);
+    }
+  }
+}
+
+
 
 async function apiUpdateConversationTitle(conversationId: string, title: string) {
   //   先打 /title；如果後端沒有這條路，再 fallback /{id}
@@ -1416,6 +1482,13 @@ function LLMClient() {
     },
   ]);
 
+  //  儲存最新 messages 到 ref（避免在 streaming 回應時因 state 更新導致的 closure 問題）
+  const latestMessagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    latestMessagesRef.current = messages;
+  }, [messages]);
+
+
   //  主輸入框：受控（中文/英文）
   const [draftText, setDraftText] = useState("");
 
@@ -2479,6 +2552,10 @@ function LLMClient() {
     pushHistoryMessage(threadId, "assistant", content, resources);
     bumpThreadOnMessage(threadId, content.slice(0, 80), 1);
   }
+
+
+
+
   async function reallySendMessage(
     e?: FormEvent,
     textOverride?: string,
@@ -2518,16 +2595,18 @@ function LLMClient() {
     const filesToUpload = pendingFiles.slice();
 
     resetMainInputBox();
-
     setPendingFiles([]);
 
     setLoading(true);
+
+    const assistantMessageId = Date.now() + 1;
+
     try {
       if (!HAS_BACKEND) {
         const answerText = fakeLLMReply(firstUserText);
 
         const botMessage: ChatMessage = {
-          id: Date.now() + 1,
+          id: assistantMessageId,
           role: "assistant",
           content: String(answerText),
           resources: [],
@@ -2540,17 +2619,19 @@ function LLMClient() {
           String(answerText).slice(0, 80),
           1
         );
-
-        setLoading(false);
         return;
       }
+
       const isPubmedOnly = ragMode === "pubmed_only";
       const isSoapOnly = ragMode === "soap_only";
 
-      const wantFile = ragMode === "file_then_vector" || ragMode === "file_only";
-      const wantVector = ragMode === "file_then_vector" || ragMode === "vector_only";
+      const wantFile =
+        ragMode === "file_then_vector" || ragMode === "file_only";
+      const wantVector =
+        ragMode === "file_then_vector" || ragMode === "vector_only";
+
       let fileContextText = "";
-      let summaryForUI = ""; //  新增：給聊天室看的摘要
+      let summaryForUI = "";
 
       if (wantFile) {
         const uploadedMap: Record<string, string> = {};
@@ -2573,7 +2654,7 @@ function LLMClient() {
           if (finalUrl) {
             uploadedMap[f.id] = finalUrl;
           }
-          //  1) 聊天室立即顯示摘要
+
           if (summary.trim()) {
             summaryForUI += `\n\n【${fn}】摘要\n${summary.trim()}`;
           } else if (warn.trim()) {
@@ -2582,7 +2663,6 @@ function LLMClient() {
             summaryForUI += `\n\n【${fn}】\n⚠️ 這份檔案沒有回傳摘要（可能是掃描檔或無可抽取文字）`;
           }
 
-          //  2) 仍保留你原本：把摘要/節錄塞進 prompt（供後續 RAG 用）
           if (summary.trim()) {
             fileContextText += `\n\n---\n[檔案：${fn}]\n摘要：\n${summary.trim()}\n`;
           }
@@ -2595,19 +2675,17 @@ function LLMClient() {
           }
         }
 
-        //  3) 上傳完成後，立刻丟一則 assistant 訊息（你要的效果）
         if (summaryForUI.trim()) {
           appendAssistantMessage(
             threadIdAtSend,
             ` 已解析上傳檔案：${filesToUpload.length} 份\n${summaryForUI.trim()}`
           );
         }
-        //  4) 上傳完成後，更新 message 中的檔案 URL（從 local blob 換成 server URL）
+
         if (Object.keys(uploadedMap).length > 0) {
           updateMessageFilesToServerUrl(userMessageId, uploadedMap);
         }
       }
-
 
       const vectorHint =
         wantVector && !isPubmedOnly
@@ -2640,98 +2718,116 @@ function LLMClient() {
         messages: [{ role: "user", type: "text", content: basePrompt }],
       };
 
-      const data = await postChatToBackend(payload);
-
-      const cid = String(data?.conversation_id ?? "");
-      const sidFromServer = String(data?.session_id ?? "");
-
-      if (sidFromServer) setSessionId(sidFromServer);
-
-      if (cid) {
-        replaceThreadId(threadIdAtSend, cid, sidFromServer || sid);
-        //   這行是你要的重點：拿到「真 cid」後，補一次 PATCH title（不改 db.py）
-        // 只有當 thread title 仍是「新對話」才會動
-        // （replaceThreadId 會把本地 title/preview 帶過去，所以 UI 不變）
-        setTimeout(() => {
-          ensureBackendAutoTitleOnce(cid, firstUserText);
-        }, 0);
-      }
-
-      let answerText = "";
-      if (data?.answer || data?.content || data?.message) {
-        answerText = String(data.answer ?? data.content ?? data.message);
-      } else {
-        answerText =
-          String(
-            data?.reply ??
-            (Array.isArray(data?.messages)
-              ? [...data.messages]
-                .reverse()
-                .find((m: any) => m?.role === "assistant")?.content ??
-              data.messages[data.messages.length - 1]?.content ??
-              ""
-              : "")
-          ) ||
-          (typeof data === "string" ? data : "") ||
-          `⚠️ chat 回傳格式看不懂：${JSON.stringify(data).slice(0, 200)}`;
-      }
-
-      const botResources: ChatResource[] = Array.isArray(data?.resources)
-        ? data.resources.map((r: any) => ({
-          title: String(r?.title ?? "未命名來源"),
-          display_title: r?.display_title
-            ? String(r.display_title)
-            : String(r?.title ?? "未命名來源"),
-          url: r?.url ? String(r.url) : undefined,
-          download_url: r?.download_url ? String(r.download_url) : undefined,
-          external_url: r?.external_url ? String(r.external_url) : undefined,
-          source_type: r?.source_type ? String(r.source_type) : undefined,
-          page: r?.page ? String(r.page) : undefined,
-          snippet: r?.snippet ? String(r.snippet) : undefined,
-          material_id: r?.material_id ? String(r.material_id) : undefined,
-          score:
-            typeof r?.score === "number"
-              ? r.score
-              : r?.score != null
-                ? Number(r.score)
-                : undefined,
-        }))
-        : [];
-
-      const botMessage: ChatMessage = {
-        id: Date.now() + 1,
+      const emptyBotMessage: ChatMessage = {
+        id: assistantMessageId,
         role: "assistant",
-        content: String(answerText),
-        resources: botResources,
+        content: "",
+        resources: [],
       };
 
-      const finalThreadId = cid || threadIdAtSend;
+      setMessages((prev) => [...prev, emptyBotMessage]);
 
-      setMessages((prev) => [...prev, botMessage]);
-      pushHistoryMessage(
-        finalThreadId,
-        "assistant",
-        String(answerText),
-        botResources
-      );
+      let streamedConversationId = "";
+      let streamedSessionId = "";
+      let streamedResources: ChatResource[] = [];
 
-      bumpThreadOnMessage(
-        finalThreadId,
-        String(answerText).slice(0, 80),
-        1
-      );
+      await postChatStreamToBackend(payload, {
+        onMeta: (meta) => {
+          streamedConversationId = String(meta?.conversation_id ?? "");
+          streamedSessionId = String(meta?.session_id ?? "");
+
+          if (streamedSessionId) setSessionId(streamedSessionId);
+
+          if (streamedConversationId) {
+            replaceThreadId(
+              threadIdAtSend,
+              streamedConversationId,
+              streamedSessionId || sid
+            );
+
+            setTimeout(() => {
+              ensureBackendAutoTitleOnce(streamedConversationId, firstUserText);
+            }, 0);
+          }
+        },
+
+        onSources: (resources) => {
+          streamedResources = Array.isArray(resources)
+            ? resources.map((r: any) => ({
+              title: String(r?.title ?? "未命名來源"),
+              display_title: r?.display_title
+                ? String(r.display_title)
+                : String(r?.title ?? "未命名來源"),
+              url: r?.url ? String(r.url) : undefined,
+              download_url: r?.download_url ? String(r.download_url) : undefined,
+              external_url: r?.external_url ? String(r.external_url) : undefined,
+              source_type: r?.source_type ? String(r.source_type) : undefined,
+              page: r?.page ? String(r.page) : undefined,
+              snippet: r?.snippet ? String(r.snippet) : undefined,
+              material_id: r?.material_id ? String(r.material_id) : undefined,
+              score:
+                typeof r?.score === "number"
+                  ? r.score
+                  : r?.score != null
+                    ? Number(r.score)
+                    : undefined,
+            }))
+            : [];
+
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, resources: streamedResources }
+                : msg
+            )
+          );
+        },
+
+        onToken: (token) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, content: (msg.content || "") + token }
+                : msg
+            )
+          );
+        },
+
+        onDone: () => {
+          const finalThreadId = streamedConversationId || threadIdAtSend;
+          const bot = latestMessagesRef.current.find(
+            (m) => m.id === assistantMessageId
+          );
+          const finalText = bot?.content || "";
+
+          pushHistoryMessage(
+            finalThreadId,
+            "assistant",
+            finalText,
+            streamedResources
+          );
+
+          bumpThreadOnMessage(
+            finalThreadId,
+            finalText.slice(0, 80),
+            1
+          );
+        },
+
+        onError: (evt) => {
+          throw new Error(evt?.message || "串流失敗");
+        },
+      });
     } catch (err: any) {
       const msg = `⚠️ 後端呼叫失敗：${err?.message ?? String(err)}`;
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          role: "assistant",
-          content: msg,
-          resources: [],
-        },
-      ]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantMessageId
+            ? { ...m, content: msg, resources: [] }
+            : m
+        )
+      );
 
       pushHistoryMessage(threadIdAtSend, "assistant", msg);
       bumpThreadOnMessage(threadIdAtSend, msg, 1);

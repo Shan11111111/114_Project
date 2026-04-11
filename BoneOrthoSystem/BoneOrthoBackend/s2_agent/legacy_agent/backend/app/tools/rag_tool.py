@@ -1,8 +1,10 @@
+# rag_tool.py - Retrieval-Augmented Generation (RAG) helper functions for the BoneOrthoAgent.
 from __future__ import annotations
 
 import os
 import re
 import time
+import concurrent.futures
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -720,6 +722,113 @@ def _call_llm(
     )[0]
     return ans.strip()
 
+def _call_llm_stream(
+    system: str,
+    prompt: str,
+):
+    safe_system = _sanitize_for_llm(system)
+    safe_prompt = _sanitize_for_llm(prompt)
+
+    t_start = time.perf_counter()
+
+    response = client.chat.completions.create(
+        model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+        messages=[
+            {"role": "system", "content": safe_system},
+            {"role": "user", "content": safe_prompt},
+        ],
+        temperature=0.2,
+        stream=True,
+    )
+
+    for chunk in response:
+        try:
+            delta = chunk.choices[0].delta
+            content = getattr(delta, "content", None)
+            if content:
+                yield content
+        except Exception:
+            continue
+
+    t_end = time.perf_counter()
+    _dbg(f"[TIME] llm_stream_total={(t_end - t_start):.3f}s")
+
+def prepare_answer_with_doc_rag(
+    user_q: str,
+    session: dict | None = None,
+    has_fresh_uploads: bool = False,
+    dialog_state: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str, List[Dict[str, Any]]]:
+    user_q = (user_q or "").strip()
+    if not user_q:
+        raise ValueError("empty question")
+
+    state = dialog_state or _build_dialog_state(user_q, session)
+    retrieval_query = _build_retrieval_query(user_q, session, state)
+    history_summary = _build_history_summary(user_q, session, state)
+
+    doc_sources_raw: List[Dict[str, Any]] = []
+    vector_sources: List[Dict[str, Any]] = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future_vector = executor.submit(retrieve_sources, retrieval_query, TOP_K)
+
+        future_doc = None
+        if doc_rag_enabled() and has_fresh_uploads:
+            future_doc = executor.submit(doc_retrieve, retrieval_query, TOP_K)
+
+        try:
+            vector_sources = future_vector.result()
+            if not vector_sources and retrieval_query != user_q:
+                vector_sources = retrieve_sources(user_q, top_k=TOP_K)
+        except Exception as e:
+            _dbg(f"❌ vector_rag retrieve error: {e}")
+            vector_sources = []
+
+        if future_doc:
+            try:
+                doc_sources_raw = future_doc.result()
+                if not doc_sources_raw and retrieval_query != user_q:
+                    doc_sources_raw = doc_retrieve(user_q, top_k=TOP_K)
+            except Exception as e:
+                _dbg(f"❌ doc_rag retrieve error: {e}")
+                doc_sources_raw = []
+
+    context_lines = _build_hybrid_context_lines(doc_sources_raw, vector_sources)
+    doc_resources = _normalize_doc_sources(doc_sources_raw)
+    merged_resources = doc_resources + vector_sources
+
+    deduped_resources: List[Dict[str, Any]] = []
+    seen = set()
+    for s in merged_resources:
+        key = (
+            s.get("material_id")
+            or s.get("url")
+            or s.get("download_url")
+            or s.get("title")
+        )
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped_resources.append(s)
+
+    if not context_lines:
+        fallback_ans, fallback_sources = answer_with_rag(
+            user_q, session, dialog_state=state
+        )
+        return "", fallback_ans, fallback_sources
+
+    context = "\n\n".join(context_lines)
+    system = _answer_system_prompt(hybrid=True)
+    prompt = _answer_user_prompt(
+        user_q=user_q,
+        history_summary=history_summary,
+        context=context,
+        hybrid=True,
+    )
+
+    return system, prompt, deduped_resources
+
 
 def answer_with_rag(
     user_q: str,
@@ -734,6 +843,7 @@ def answer_with_rag(
     retrieval_query = _build_retrieval_query(user_q, session, state)
 
     t0 = time.perf_counter()
+    # 單一來源檢索維持原樣
     sources = retrieve_sources(retrieval_query)
     t1 = time.perf_counter()
 
@@ -795,31 +905,42 @@ def answer_with_doc_rag(
 
     t0 = time.perf_counter()
 
-    if doc_rag_enabled() and has_fresh_uploads:
+    # 優化重點：使用 ThreadPoolExecutor 併發執行兩個檢索
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        # 1. 提交向量知識庫檢索
+        future_vector = executor.submit(retrieve_sources, retrieval_query, TOP_K)
+        
+        # 2. 提交文件檢索 (如果啟用且有上傳)
+        future_doc = None
+        if doc_rag_enabled() and has_fresh_uploads:
+            future_doc = executor.submit(doc_retrieve, retrieval_query, TOP_K)
+        
+        # 3. 收集結果
         try:
-            doc_sources_raw = doc_retrieve(retrieval_query, top_k=TOP_K)
-            if not doc_sources_raw and retrieval_query != user_q:
-                doc_sources_raw = doc_retrieve(user_q, top_k=TOP_K)
+            vector_sources = future_vector.result()
+            # 如果第一次沒中，嘗試用原始問題 fallback (此處同步處理以求穩定)
+            if not vector_sources and retrieval_query != user_q:
+                vector_sources = retrieve_sources(user_q, top_k=TOP_K)
         except Exception as e:
-            _dbg(f"❌ doc_rag retrieve error: {e}")
-            doc_sources_raw = []
+            _dbg(f"❌ vector_rag retrieve error: {e}")
+            vector_sources = []
 
-    try:
-        vector_sources = retrieve_sources(retrieval_query, top_k=TOP_K)
-        t1 = time.perf_counter()
+        if future_doc:
+            try:
+                doc_sources_raw = future_doc.result()
+                if not doc_sources_raw and retrieval_query != user_q:
+                    doc_sources_raw = doc_retrieve(user_q, top_k=TOP_K)
+            except Exception as e:
+                _dbg(f"❌ doc_rag retrieve error: {e}")
+                doc_sources_raw = []
 
-        if not vector_sources and retrieval_query != user_q:
-            vector_sources = retrieve_sources(user_q, top_k=TOP_K)
-    except Exception as e:
-        _dbg(f"❌ vector_rag retrieve error: {e}")
-        vector_sources = []
-        t1 = time.perf_counter()
+    t1 = time.perf_counter()
 
     context_lines = _build_hybrid_context_lines(doc_sources_raw, vector_sources)
-
     doc_resources = _normalize_doc_sources(doc_sources_raw)
     merged_resources = doc_resources + vector_sources
 
+    # 去重邏輯
     deduped_resources: List[Dict[str, Any]] = []
     seen = set()
     for s in merged_resources:
@@ -834,6 +955,7 @@ def answer_with_doc_rag(
         seen.add(key)
         deduped_resources.append(s)
 
+    # 如果都沒中，走預設失敗路徑
     if not context_lines:
         _dbg("DEBUG no doc/vector hit, fallback to vector rag default path")
         return answer_with_rag(user_q, session, dialog_state=state)
@@ -848,15 +970,14 @@ def answer_with_doc_rag(
         hybrid=True,
     )
 
+    # 調用 LLM
     ans = _call_llm(system, prompt, print_usage=True)
 
     _dbg("[CONTEXT LEN]", len(context))
-    _dbg(f"[TIME] vector_retrieve={(t1 - t0):.3f}s")
+    _dbg(f"[TIME] concurrent_retrieve={(t1 - t0):.3f}s")
     _dbg(f"[TIME] total={(time.perf_counter() - t0):.3f}s")
 
-    _dbg("✅ HYBRID DOC+VECTOR RAG HIT")
-    _dbg("DEBUG doc retrieval_query =", retrieval_query)
-    _dbg("DEBUG dialog_state =", state)
+    _dbg("✅ HYBRID DOC+VECTOR RAG HIT (Optimized)")
     _dbg("DEBUG doc_sources =", len(doc_sources_raw))
     _dbg("DEBUG vector_sources =", len(vector_sources))
 

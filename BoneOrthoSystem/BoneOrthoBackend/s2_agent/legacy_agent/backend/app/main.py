@@ -9,6 +9,8 @@ import sys
 import uuid
 
 import time #計時器套件
+from fastapi.responses import StreamingResponse # 用於串流回應
+import json
 
 from .tools.doc_tool import extract_text_and_summary, index_document
 
@@ -27,7 +29,7 @@ from .tools.pubmed_tool import answer_with_pubmed
 from .tools.soap_csv_service import answer_with_soap_csv
 
 #  重要：RAG 匯入（防爆）
-from .tools.rag_tool import answer_with_rag, _build_dialog_state
+from .tools.rag_tool import answer_with_rag, _build_dialog_state, prepare_answer_with_doc_rag, _call_llm_stream
 try:
     from .tools.rag_tool import answer_with_doc_rag
 except Exception:
@@ -44,6 +46,8 @@ except Exception:
     doc_rag_enabled = lambda: False  # type: ignore
 
 from .routers.export import router as export_router
+
+
 
 
 # =========================================================
@@ -124,6 +128,144 @@ app.include_router(export_router)
 # =========================================================
 # Helpers
 # =========================================================
+
+@app.post("/agent/chat/stream")
+def agent_chat_stream(req: ChatRequest):
+    if not req.session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    if not req.messages:
+        raise HTTPException(status_code=400, detail="messages is empty")
+
+    user_id = (getattr(req, "user_id", None) or "guest").strip() or "guest"
+    session_id = req.session_id.strip()
+
+    raw_cid = (getattr(req, "conversation_id", None) or "").strip()
+    if raw_cid:
+        conversation_id = session_to_conversation_uuid(raw_cid)
+    else:
+        conversation_id = session_to_conversation_uuid(session_id)
+
+    ensure_conversation_exists(conversation_id, user_id=user_id, source="s2x")
+
+    session = get_session(conversation_id)
+    append_messages(session, [req.messages[-1]])
+
+    last = req.messages[-1]
+    if last.role != "user" or last.type != "text":
+        raise HTTPException(status_code=400, detail="stream only supports user text message")
+
+    raw_q = (last.content or "").strip()
+    if not raw_q:
+        raise HTTPException(status_code=400, detail="empty text message")
+
+    clean_q = _extract_question(raw_q)
+
+    has_fresh_uploads = False
+    for m in req.messages:
+        if getattr(m, "role", None) != "user":
+            continue
+        msg_type = getattr(m, "type", None)
+        msg_url = getattr(m, "url", None)
+        msg_content = getattr(m, "content", None) or ""
+        if msg_type in {"image", "file"} and msg_url:
+            has_fresh_uploads = True
+            break
+        if "/uploads/" in str(msg_content):
+            has_fresh_uploads = True
+            break
+
+    dialog_state = _build_dialog_state(clean_q, session)
+
+    add_message(
+        conversation_id=conversation_id,
+        role="user",
+        content=last.content or "",
+        attachments_json=None,
+        sources=None,
+        user_id=user_id,
+        source="s2x",
+    )
+
+    def generate():
+        full_answer_parts = []
+        resources = []
+
+        try:
+            system, prompt, resources = prepare_answer_with_doc_rag(
+                clean_q,
+                session,
+                has_fresh_uploads=has_fresh_uploads,
+                dialog_state=dialog_state,
+            )
+
+            yield json.dumps({
+                "type": "meta",
+                "conversation_id": conversation_id,
+                "session_id": session_id,
+            }, ensure_ascii=False) + "\n"
+
+            yield json.dumps({
+                "type": "sources",
+                "data": resources,
+            }, ensure_ascii=False) + "\n"
+
+            # fallback: prepare 直接塞完整答案回來
+            if not system:
+                fallback_answer = prompt or ""
+                if fallback_answer:
+                    full_answer_parts.append(fallback_answer)
+                    yield json.dumps({
+                        "type": "token",
+                        "data": fallback_answer,
+                    }, ensure_ascii=False) + "\n"
+            else:
+                for token in _call_llm_stream(system, prompt):
+                    full_answer_parts.append(token)
+                    yield json.dumps({
+                        "type": "token",
+                        "data": token,
+                    }, ensure_ascii=False) + "\n"
+
+            final_answer = "".join(full_answer_parts).strip()
+
+            reply = ChatMessage(role="assistant", type="text", content=final_answer)
+            append_messages(session, [reply])
+
+            add_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=final_answer,
+                attachments_json=None,
+                sources=resources,
+                user_id=user_id,
+                source="s2x",
+            )
+
+            set_conversation_title_if_empty(conversation_id, _title_seed(clean_q, 80))
+
+            yield json.dumps({
+                "type": "done",
+                "conversation_id": conversation_id,
+                "session_id": session_id,
+            }, ensure_ascii=False) + "\n"
+
+        except Exception as e:
+            yield json.dumps({
+                "type": "error",
+                "message": str(e),
+            }, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+
 URL_RE = re.compile(r"(https?://[^\s\]\)]+)", re.IGNORECASE)
 
 
