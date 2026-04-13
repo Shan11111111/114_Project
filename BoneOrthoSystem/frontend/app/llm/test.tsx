@@ -1,3 +1,4 @@
+// 沒修好的地方會先放在這裡
 "use client";
 import "./llm-page.css";
 
@@ -19,7 +20,7 @@ import React, {
 
 import S2PrivacyConsent from "./S2PrivacyConsent";
 import S2SensitiveInfoModal from "./S2SensitiveInfoModal";
-import { getUser } from "../lib/auth";
+import { getUser, getAccessToken } from "../lib/auth";
 import {
   detectSensitiveInfo,
   maskSensitiveInfo,
@@ -411,16 +412,19 @@ function lsRead(uid: string): any | null {
 function lsWrite(uid: string, value: any) {
   if (typeof window === "undefined") return;
 
+  // 訪客不保存聊天歷史
+  if (isGuestUid(uid)) {
+    try {
+      localStorage.removeItem(lsKey(uid));
+    } catch { }
+    return;
+  }
+
   try {
-    const payload = isGuestUid(uid)
-      ? {
-        ...value,
-        expireAt: Date.now() + GUEST_TTL_MS,
-      }
-      : {
-        ...value,
-        expireAt: null,
-      };
+    const payload = {
+      ...value,
+      expireAt: null,
+    };
 
     localStorage.setItem(lsKey(uid), JSON.stringify(payload));
   } catch {
@@ -445,16 +449,14 @@ function getClientIdentity() {
   }
 
   try {
-    // 先看有沒有真正登入的使用者
-    const authUser = getAuthUserFromLS();
-    if (authUser?.userId) {
+    const authUser = getUser();
+    if (authUser?.user_id) {
       return {
         mode: "member" as const,
-        userId: authUser.userId,
+        userId: String(authUser.user_id),
       };
     }
 
-    // 沒登入就走訪客模式
     const GUEST_KEY = "guest_user_id";
     let guestId = localStorage.getItem(GUEST_KEY);
 
@@ -490,43 +492,10 @@ function cleanupPendingFiles(files: UploadedFile[]) {
   });
 }
 
-function getAuthUserFromLS() {
-  if (typeof window === "undefined") return null;
 
-  try {
-    const raw =
-      localStorage.getItem("auth_user") ||
-      localStorage.getItem("user") ||
-      localStorage.getItem("currentUser");
-
-    if (!raw) return null;
-
-    const user = JSON.parse(raw);
-    const userId = String(user?.user_id || user?.id || "").trim();
-
-    if (!userId) return null;
-
-    return {
-      userId,
-      raw: user,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function getAccessTokenFromLS() {
-  if (typeof window === "undefined") return "";
-  return (
-    localStorage.getItem("access_token") ||
-    localStorage.getItem("token") ||
-    localStorage.getItem("auth_token") ||
-    ""
-  ).trim();
-}
 
 function buildAuthHeaders(extra?: Record<string, string>) {
-  const token = getAccessTokenFromLS();
+  const token = getAccessToken() || "";
   return {
     ...(extra || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -1318,7 +1287,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
               >
                 <div className="min-w-0 flex-1">
                   <div className="text-[11px] opacity-60 mb-0.5">
-                    {currentThread?.updatedAt || ""}
+                    {formatThreadTime(currentThread?.updatedAt)}
                   </div>
 
                   {isRenaming ? (
@@ -1438,6 +1407,35 @@ const HistoryOverlay = memo(function HistoryOverlay({
   );
 });
 
+// 統一時間格式
+function formatThreadTime(value?: string) {
+  if (!value) return "";
+
+  let raw = String(value).trim();
+
+  // 後端若回 2026-04-12T06:40:27 或 2026-04-12T06:40:27.123456
+  // 這種「沒時區」字串，這裡一律當成 UTC 來解，再轉成台北時間顯示
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+    raw += "Z";
+  }
+
+  const d = new Date(raw);
+  if (!Number.isNaN(d.getTime())) {
+    return d.toLocaleString("zh-TW", {
+      timeZone: "Asia/Taipei",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  }
+
+  return value;
+}
+
 function LLMClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -1457,6 +1455,9 @@ function LLMClient() {
   const touchCurrentXRef = useRef<number | null>(null);
   const [mobileDrawerOffsetX, setMobileDrawerOffsetX] = useState(0);
   const [isDraggingDrawer, setIsDraggingDrawer] = useState(false);
+
+
+
 
   //  目前頁面
   const [activeView, setActiveView] = useState<ViewKey>("llm");
@@ -1545,6 +1546,48 @@ function LLMClient() {
   const didHydrateRef = useRef(false);
   const [hydrated, setHydrated] = useState(false);
 
+  const lastModeRef = useRef<"guest" | "member" | "">("");
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const prevMode = lastModeRef.current;
+    const nowMode = userMode;
+
+    if (prevMode === "guest" && nowMode === "member") {
+      setHistoryThreads([]);
+      setHistoryMessages([]);
+      setMessages([
+        {
+          id: 1,
+          role: "assistant",
+          content: WELCOME_TEXT,
+        },
+      ]);
+      setActiveThreadId("");
+      activeThreadIdRef.current = "";
+      setSessionId("");
+      setIsHistoryOpen(false);
+      setHistoryPreviewThreadId("");
+
+      try {
+        localStorage.removeItem("guest_user_id");
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith("gab_llm_v1::guest"))
+          .forEach((k) => localStorage.removeItem(k));
+      } catch { }
+    }
+
+    lastModeRef.current = nowMode;
+  }, [hydrated, userMode]);
+
+
+
+
+
+
+
+
   //   新增：確保「讀取快取完成」後才允許 auto-newThread（避免覆蓋快取）
   const cacheLoadedRef = useRef(false);
 
@@ -1600,7 +1643,6 @@ function LLMClient() {
 
     return titleIsNew && (noUserMsgYet || onlyWelcome);
   }
-
   useEffect(() => {
     const identity = getClientIdentity();
 
@@ -1610,86 +1652,11 @@ function LLMClient() {
     setUserId(identity.userId);
     setUserMode(identity.mode);
 
-    if (identity.mode === "guest") {
-      const cached = lsRead(identity.userId);
+    const cached = isGuestUid(identity.userId) ? null : lsRead(identity.userId);
 
-      if (cached && typeof cached === "object") {
-        const cRag: RagMode | undefined = cached.ragMode;
-        const cThreads: HistoryThread[] | undefined = cached.historyThreads;
-        const cMsgs: HistoryMessage[] | undefined = cached.historyMessages;
-        const cActive: string | undefined = cached.activeThreadId;
-        const cSession: string | undefined = cached.sessionId;
-        const cMain: ChatMessage[] | undefined = cached.messages;
-
-        if (cRag) setRagMode(cRag);
-        if (Array.isArray(cThreads)) setHistoryThreads(cThreads);
-        if (Array.isArray(cMsgs)) setHistoryMessages(cMsgs);
-        if (typeof cSession === "string") setSessionId(cSession);
-
-        if (Array.isArray(cMain) && cMain.length > 0) {
-          const safeMain = cMain.map((m) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            files: Array.isArray(m.files)
-              ? m.files.map((f) => ({
-                id: f.id,
-                name: f.name,
-                size: f.size,
-                type: f.type,
-                url:
-                  f.serverUrl && f.serverUrl.startsWith("http")
-                    ? f.serverUrl
-                    : f.url && (f.url.startsWith("http") || f.url.startsWith("/"))
-                      ? f.url
-                      : "",
-                serverUrl: f.serverUrl,
-              }))
-              : undefined,
-            resources: Array.isArray((m as any).resources)
-              ? (m as any).resources.map((r: any) => ({
-                title: String(r?.title ?? "未命名來源"),
-                display_title: r?.display_title
-                  ? String(r.display_title)
-                  : String(r?.title ?? "未命名來源"),
-                url: r?.url ? String(r.url) : undefined,
-                download_url: r?.download_url ? String(r.download_url) : undefined,
-                external_url: r?.external_url ? String(r.external_url) : undefined,
-                source_type: r?.source_type ? String(r.source_type) : undefined,
-                page: r?.page ? String(r.page) : undefined,
-                snippet: r?.snippet ? String(r.snippet) : undefined,
-                material_id: r?.material_id ? String(r.material_id) : undefined,
-                score:
-                  typeof r?.score === "number"
-                    ? r.score
-                    : r?.score != null
-                      ? Number(r.score)
-                      : undefined,
-              }))
-              : undefined,
-          }));
-          setMessages(safeMain);
-        }
-
-        if (typeof cActive === "string") setActiveThreadId(cActive);
-      }
-    } else {
-      // 會員不要讀 localStorage，交給後端 conversations / messages
-      try {
-        localStorage.removeItem(lsKey(identity.userId));
-      } catch { }
-
-      setHistoryThreads([]);
-      setHistoryMessages([]);
-      setActiveThreadId("");
-      setSessionId("");
-      setMessages([
-        {
-          id: 1,
-          role: "assistant",
-          content: WELCOME_TEXT,
-        },
-      ]);
+    if (cached && typeof cached === "object") {
+      const cRag: RagMode | undefined = cached.ragMode;
+      if (cRag) setRagMode(cRag);
     }
 
     cacheLoadedRef.current = true;
@@ -1703,34 +1670,19 @@ function LLMClient() {
 
     const uid = (uidRef.current || "guest").trim() || "guest";
 
-    // 只有訪客才寫 localStorage
-    if (userMode !== "guest" || !isGuestUid(uid)) return;
-
     const payload = {
       version: 1,
       savedAt: lsSafeNow(),
       userId: uid,
       ragMode,
-      sessionId,
-      activeThreadId,
-      historyThreads,
-      historyMessages,
-      messages,
     };
 
     lsWrite(uid, payload);
-  }, [
-    userMode,
-    ragMode,
-    sessionId,
-    activeThreadId,
-    historyThreads,
-    historyMessages,
-    messages,
-  ]);
+  }, [ragMode]);
+
 
   function nowText() {
-    return new Date().toLocaleString();
+    return new Date().toISOString();
   }
 
   //   新增：如果 URL 上有 caseId 但沒有 thread 了，就清掉 URL 上的 caseId（避免一直 boot 同一個不存在的 case）
@@ -1766,6 +1718,14 @@ function LLMClient() {
       },
     ]);
   }
+
+  function requireLoginForHistory() {
+    alert("請先登入後才能查看對話紀錄。");
+    router.push("/auth");
+  }
+
+
+
   //   新增：用第一句生成 title（跟你 UI 現在的 18 字一致）
   function makeAutoTitleFromText(userText: string) {
     const t = (userText || "").trim().replace(/\s+/g, " ");
@@ -1779,7 +1739,7 @@ function LLMClient() {
     userText: string
   ) {
     if (!conversationId) return;
-    if (isLocalOnlyThreadId(conversationId)) return;
+    if (conversationId.startsWith("t-")) return;
     if (autoTitledSetRef.current.has(conversationId)) return;
 
     const nextTitle = makeAutoTitleFromText(userText);
@@ -1811,7 +1771,7 @@ function LLMClient() {
     // 2) 同步後端：只有「真的 conversation_id」才打
     (async () => {
       try {
-        if (!threadId || isLocalOnlyThreadId(threadId)) return;
+        if (!threadId || threadId.startsWith("t-")) return;
         await apiUpdateConversationTitle(threadId, title);
       } catch (e: any) {
         console.error(e);
@@ -1850,35 +1810,12 @@ function LLMClient() {
         setActiveThreadId(fallbackId);
         void loadThreadToMain(fallbackId);
       } else {
-        if (userMode === "member") {
-          activeThreadIdRef.current = "";
-          setActiveThreadId("");
-          setSessionId("");
-          setActiveView("llm");
-          setSeedImageUrl("");
-          setSeedDetections([]);
-          setMessages([
-            {
-              id: 1,
-              role: "assistant",
-              content: WELCOME_TEXT,
-            },
-          ]);
-          setShowToolMenu(false);
-          setRagOpen(false);
-          setMobileRagOpen(false);
-        } else {
-          void newThread();
-        }
+        void newThread();
       }
     }
 
     // 再同步後端：失敗不回滾 UI，只記錄錯誤
-    if (
-      userMode === "member" &&
-      threadId &&
-      !isLocalOnlyThreadId(threadId)
-    ) {
+    if (userMode === "member" && threadId && !threadId.startsWith("t-")) {
       try {
         await apiDeleteConversation(threadId);
       } catch (e) {
@@ -1888,10 +1825,11 @@ function LLMClient() {
   }
 
   async function shareThread(threadId: string) {
-    if (!threadId || isLocalOnlyThreadId(threadId)) {
-      alert("這個對話尚未同步到系統，暫時不能分享。");
+    if (!threadId || threadId.startsWith("t-")) {
+      alert("請先登入才能分享對話");
       return;
     }
+
     const url = `${location.origin}/llm?thread=${encodeURIComponent(threadId)}`;
     try {
       await navigator.clipboard.writeText(url);
@@ -1921,14 +1859,46 @@ function LLMClient() {
 
     return items
       .map((c: any) => ({
-        id: String(c.id ?? c.conversation_id ?? c.conversationId ?? ""),
-        title: String(c.title ?? c.name ?? "未命名對話"),
-        updatedAt: String(
-          c.updatedAt ?? c.updated_at ?? c.createdAt ?? c.created_at ?? ""
+        id: String(
+          c.id ??
+          c.conversation_id ??
+          c.conversationId ??
+          c.ConversationId ??
+          ""
         ),
-        preview: String(c.preview ?? c.last_message ?? ""),
-        messageCount: Number(c.messageCount ?? c.message_count ?? 0),
-        sessionId: String(c.session_id ?? c.sessionId ?? ""),
+        title: String(
+          c.title ??
+          c.name ??
+          c.Title ??
+          "未命名對話"
+        ),
+        updatedAt: String(
+          c.updatedAt ??
+          c.updated_at ??
+          c.UpdatedAt ??
+          c.createdAt ??
+          c.created_at ??
+          c.CreatedAt ??
+          ""
+        ),
+        preview: String(
+          c.preview ??
+          c.last_message ??
+          c.Preview ??
+          ""
+        ),
+        messageCount: Number(
+          c.messageCount ??
+          c.message_count ??
+          c.MessageCount ??
+          0
+        ),
+        sessionId: String(
+          c.session_id ??
+          c.sessionId ??
+          c.SessionId ??
+          ""
+        ),
       }))
       .filter((t: any) => t.id);
   }
@@ -2035,7 +2005,7 @@ function LLMClient() {
     if (!isHistoryOpen) return;
     if (!historyPreviewThreadId) return;
     if (userMode !== "member") return;
-    if (isLocalOnlyThreadId(historyPreviewThreadId)) return;
+    if (historyPreviewThreadId.startsWith("t-")) return;
 
     const alreadyLoaded = historyMessages.some(
       (m) => m.threadId === historyPreviewThreadId
@@ -2078,19 +2048,13 @@ function LLMClient() {
     setActiveThreadId(threadId);
     setActiveView("llm");
     resetMainInputBox();
-    setShowToolMenu(false);
-    setRagOpen(false);
-    setMobileRagOpen(false);
 
     setPendingFiles((prev) => {
       cleanupPendingFiles(prev);
       return [];
     });
 
-    if (
-      userMode === "member" &&
-      !isLocalOnlyThreadId(threadId)
-    ) {
+    if (userMode === "member" && !threadId.startsWith("t-")) {
       try {
         const remoteMsgs = await fetchConversationMessages(threadId);
 
@@ -2116,7 +2080,7 @@ function LLMClient() {
             ]
         );
       } catch (err) {
-        console.error("載入 conversation messages 失敗，改用目前前端暫存訊息：", err);
+        console.error("載入 conversation messages 失敗，改用本地快取：", err);
         setMessages(buildChatMessagesFromThread(threadId));
       }
     } else {
@@ -2261,45 +2225,17 @@ function LLMClient() {
     activeThreadIdRef.current = newId;
     setActiveThreadId(newId);
   }
-  //  新增：判斷 threadId 是否為「後端還沒建立完成的暫存用」（會員模式）
-  function isPendingThreadId(threadId: string) {
-    return threadId.startsWith("pending-");
-  }
-  //   新增：判斷 threadId 是否為「本地暫存用」，包含 t- 開頭的和 pending- 開頭的（會員模式）
-  function isLocalOnlyThreadId(threadId: string) {
-    return threadId.startsWith("t-") || isPendingThreadId(threadId);
-  }
   //   新增：保證有 threadId（避免 refresh/初始化時送到空字串）
   function ensureActiveThreadIdForSend() {
     if (activeThreadIdRef.current) return activeThreadIdRef.current;
 
     const uid = (uidRef.current || userId || "guest").trim() || "guest";
-
-    // member：先建立前端暫存 thread，等後端成功後再 replace 成真正 conversation_id
-    if (userMode === "member") {
-      const pendingThreadId = `pending-${Date.now()}`;
-      const pendingSessionId = `${uid}::pending::${makeUuid()}`;
-
-      activeThreadIdRef.current = pendingThreadId;
-      setActiveThreadId(pendingThreadId);
-      setSessionId(pendingSessionId);
-
-      ensureThreadExists(pendingThreadId, {
-        title: "新對話",
-        updatedAt: nowText(),
-        preview: "",
-        messageCount: 0,
-        sessionId: pendingSessionId,
-      });
-
-      return pendingThreadId;
-    }
-
-    // guest：維持原本本地 thread 模式
     const localThreadId = `t-${Date.now()}`;
     const localSessionId = `${uid}::${makeUuid()}`;
 
+    // 關鍵：先寫 ref
     activeThreadIdRef.current = localThreadId;
+
     setActiveThreadId(localThreadId);
     setSessionId(localSessionId);
 
@@ -2313,49 +2249,10 @@ function LLMClient() {
 
     return localThreadId;
   }
-
   async function newThread() {
     if (hasUnsavedDraft()) {
       const ok = confirm("你有尚未送出的內容，確定要開新對話嗎？");
       if (!ok) return;
-    }
-
-    // ⭐ member 不建立本地 thread，直接回到 welcome 狀態
-    if (userMode === "member") {
-      activeThreadIdRef.current = "";
-      setActiveThreadId("");
-      setSessionId("");
-
-      setActiveView("llm");
-      setSeedImageUrl("");
-      setSeedDetections([]);
-
-      setMessages([
-        {
-          id: Date.now(),
-          role: "assistant",
-          content: WELCOME_TEXT,
-          resources: [],
-        },
-      ]);
-
-      resetMainInputBox();
-
-      setPendingFiles((prev) => {
-        cleanupPendingFiles(prev);
-        return [];
-      });
-
-      setIsHistoryOpen(false);
-      setHistoryPreviewThreadId("");
-      setIsMobileNavOpen(false);
-
-      setShowToolMenu(false);
-      setRagOpen(false);
-      setMobileRagOpen(false);
-
-      setTimeout(() => inputRef.current?.focus(), 60);
-      return; //直接結束
     }
 
     const curId = activeThreadIdRef.current;
@@ -2447,76 +2344,71 @@ function LLMClient() {
         setHistoryThreads((prev) => {
           const map = new Map<string, HistoryThread>();
 
-          for (const t of prev) map.set(t.id, t);
+          for (const t of prev) {
+            if (userMode === "member" && !isGuestUid(userId) && String(t.id).startsWith("t-")) {
+              continue;
+            }
+            map.set(t.id, t);
+          }
+
           for (const t of convs) {
             map.set(t.id, { ...map.get(t.id), ...t });
           }
 
-          mergedThreads = Array.from(map.values()).sort((a, b) =>
+          return Array.from(map.values()).sort((a, b) =>
             String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
           );
-
-          return mergedThreads;
         });
 
         const activeId = activeThreadIdRef.current;
         const activeExists =
-          !!activeId && convs.some((t: { id: any; }) => String(t.id) === String(activeId));
+          !!activeId &&
+          convs.some((t: { id: any }) => String(t.id) === String(activeId));
 
-        if (!activeId && convs.length === 0) {
-          activeThreadIdRef.current = "";
-          setActiveThreadId("");
-          setSessionId("");
-          setHistoryThreads([]);
-          setHistoryMessages([]);
-          setMessages([
-            {
-              id: 1,
-              role: "assistant",
-              content: WELCOME_TEXT,
-            },
-          ]);
-          return;
-        }
+        // 有歷史紀錄時：
+        // 1) 沒 activeId -> 載第一筆
+        // 2) activeId 不在目前清單裡 -> 載第一筆
+        // 3) activeId 有效 -> 載 activeId
+        const targetId =
+          convs.length > 0
+            ? (!activeId || !activeExists ? convs[0].id : activeId)
+            : "";
 
-        if (activeId && !activeExists && convs.length > 0) {
-          const firstId = convs[0].id;
-          activeThreadIdRef.current = firstId;
-          setActiveThreadId(firstId);
+        if (!targetId) return;
 
-          try {
-            const msgs = await fetchConversationMessages(firstId);
-            if (cancelled) return;
+        activeThreadIdRef.current = targetId;
+        setActiveThreadId(targetId);
 
-            setHistoryMessages((prev) => {
-              const others = prev.filter((m) => m.threadId !== firstId);
-              return [...others, ...msgs];
-            });
+        try {
+          const msgs = await fetchConversationMessages(targetId);
+          if (cancelled) return;
 
-            const t = convs.find((x: { id: any }) => x.id === firstId);
-            if (t?.sessionId) setSessionId(t.sessionId);
+          setHistoryMessages((prev) => {
+            const others = prev.filter((m) => m.threadId !== targetId);
+            return [...others, ...msgs];
+          });
 
-            setMessages(
-              msgs.length > 0
-                ? msgs.map((m, idx) => ({
-                  id: Date.now() + idx,
-                  role: m.role,
-                  content: m.content,
-                  resources: (m as HistoryMessageWithResources).resources,
-                }))
-                : [
-                  {
-                    id: 1,
-                    role: "assistant",
-                    content: WELCOME_TEXT,
-                  },
-                ]
-            );
-          } catch (err) {
-            console.error("activeThread 不存在，改載入第一筆失敗：", err);
-          }
+          const t = convs.find((x: { id: any }) => String(x.id) === String(targetId));
+          if (t?.sessionId) setSessionId(t.sessionId);
 
-          return;
+          setMessages(
+            msgs.length > 0
+              ? msgs.map((m, idx) => ({
+                id: Date.now() + idx,
+                role: m.role,
+                content: m.content,
+                resources: (m as HistoryMessageWithResources).resources,
+              }))
+              : [
+                {
+                  id: 1,
+                  role: "assistant",
+                  content: WELCOME_TEXT,
+                },
+              ]
+          );
+        } catch (err) {
+          console.error("載入 conversation messages 失敗：", err);
         }
       } catch (err) {
         console.error("載入會員 conversations 失敗：", err);
@@ -2527,7 +2419,7 @@ function LLMClient() {
       cancelled = true;
     };
   }, [hydrated, userId, userMode]);
-
+  //   修掉「hydrate 還沒完成就 newThread 覆蓋快取」的 bug（最重要）
   const bootNewThreadOnceRef = useRef(false);
   useEffect(() => {
     if (!hydrated) return;
@@ -2542,20 +2434,13 @@ function LLMClient() {
 
     if (hasThread || hasCase) return;
 
-    // 會員不要在這裡自動 newThread，等資料庫 conversations
-    if (userMode === "member") {
-      bootNewThreadOnceRef.current = true;
-      return;
-    }
-
     bootNewThreadOnceRef.current = true;
 
     if (!activeThreadId) {
       newThread();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, activeThreadId, searchParams, userMode]);
-
+  }, [hydrated, activeThreadId, searchParams]);
   function autoResizeTextarea() {
     const el = inputRef.current;
     if (!el) return;
@@ -2731,12 +2616,10 @@ function LLMClient() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    pushHistoryMessage(threadIdAtSend, "user", firstUserText);
 
-    if (threadIdAtSend) {
-      pushHistoryMessage(threadIdAtSend, "user", firstUserText);
-      bumpThreadOnMessage(threadIdAtSend, firstUserText, 1);
-      maybeAutoTitle(threadIdAtSend, firstUserText);
-    }
+    bumpThreadOnMessage(threadIdAtSend, firstUserText, 1);
+    maybeAutoTitle(threadIdAtSend, firstUserText);
 
     const filesToUpload = pendingFiles.slice();
 
@@ -2821,10 +2704,10 @@ function LLMClient() {
           }
         }
 
-        if (summaryForUI.trim() && threadIdAtSend) {
+        if (summaryForUI.trim()) {
           appendAssistantMessage(
             threadIdAtSend,
-            `已解析上傳檔案：${filesToUpload.length} 份\n${summaryForUI.trim()}`
+            ` 已解析上傳檔案：${filesToUpload.length} 份\n${summaryForUI.trim()}`
           );
         }
 
@@ -2841,18 +2724,11 @@ function LLMClient() {
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
       const sid =
         (sessionId || "").trim() ||
-        (userMode === "guest"
-          ? `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}`
-          : "");
+        `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}`;
+
       const safeText = normalizeLegacyMaskedText(firstUserText);
 
-      const basePrompt = isPubmedOnly
-        ? safeText || "請根據 PubMed 文獻回答"
-        : isSoapOnly
-          ? safeText || "請根據目前療法與醫院 SOAP 記錄回答"
-          : (safeText || "（已上傳檔案，請根據檔案內容協助）") +
-          (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
-          vectorHint;
+
 
       const payload = {
         session_id: sid,
@@ -2862,7 +2738,17 @@ function LLMClient() {
         pii_mode: piiMode,
         rag_mode: ragMode,
         pubmed_max_results: 5,
-        messages: [{ role: "user", type: "text", content: basePrompt }],
+
+
+
+        // 保留舊格式相容，但不要再塞 basePrompt
+        messages: [
+          {
+            role: "user",
+            type: "text",
+            content: safeText || firstUserText || "（已上傳檔案）",
+          },
+        ],
       };
 
       const emptyBotMessage: ChatMessage = {
@@ -2883,9 +2769,7 @@ function LLMClient() {
           streamedConversationId = String(meta?.conversation_id ?? "");
           streamedSessionId = String(meta?.session_id ?? "");
 
-          if (streamedSessionId) {
-            setSessionId(streamedSessionId);
-          }
+          if (streamedSessionId) setSessionId(streamedSessionId);
 
           if (streamedConversationId) {
             replaceThreadId(
@@ -2899,6 +2783,7 @@ function LLMClient() {
             }, 0);
           }
         },
+
         onSources: (resources) => {
           streamedResources = Array.isArray(resources)
             ? resources.map((r: any) => ({
@@ -2943,8 +2828,6 @@ function LLMClient() {
 
         onDone: () => {
           const finalThreadId = streamedConversationId || threadIdAtSend;
-          if (!finalThreadId) return;
-
           const bot = latestMessagesRef.current.find(
             (m) => m.id === assistantMessageId
           );
@@ -2963,6 +2846,7 @@ function LLMClient() {
             1
           );
         },
+
         onError: (evt) => {
           throw new Error(evt?.message || "串流失敗");
         },
@@ -3572,8 +3456,7 @@ function LLMClient() {
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
 
       if (userMode === "guest" || isGuestUid(uid)) {
-        setHistoryPreviewThreadId("");
-        setIsHistoryOpen(true);
+        requireLoginForHistory();
         return;
       }
 
@@ -3581,8 +3464,18 @@ function LLMClient() {
 
       setHistoryThreads((prev) => {
         const map = new Map<string, HistoryThread>();
-        for (const t of prev) map.set(t.id, t);
-        for (const t of threads) map.set(t.id, { ...map.get(t.id), ...t });
+
+        for (const t of prev) {
+          if (userMode === "member" && !isGuestUid(userId) && String(t.id).startsWith("t-")) {
+            continue;
+          }
+          map.set(t.id, t);
+        }
+
+        for (const t of threads) {
+          map.set(t.id, { ...map.get(t.id), ...t });
+        }
+
         return Array.from(map.values()).sort((a, b) =>
           String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
         );
@@ -3653,7 +3546,7 @@ function LLMClient() {
     const caseId = Number(caseIdStr);
     if (!Number.isFinite(caseId) || caseId <= 0) return;
 
-    if (typeof window !== "undefined" && isGuestUid(uidRef.current || userId || "guest")) {
+    if (typeof window !== "undefined") {
       localStorage.setItem("gab_last_case_id", String(caseIdStr));
     }
 
@@ -3900,7 +3793,11 @@ function LLMClient() {
           setIsHistoryOpen(false);
           setHistoryPreviewThreadId("");
         }}
-        historyThreads={historyThreads}
+        historyThreads={
+          userMode === "member" && !isGuestUid(userId)
+            ? historyThreads.filter((t) => !String(t.id).startsWith("t-"))
+            : historyThreads
+        }
         historyMessages={historyMessages}
         activeThreadId={historyPreviewThreadId}
         onSelectThread={(id) => setHistoryPreviewThreadId(id)}
@@ -4164,16 +4061,27 @@ function LLMClient() {
                   </div>
 
                   <div className="min-h-0 flex-1 overflow-y-auto space-y-1 pr-1">
-                    {historyThreads.slice(0, 8).map((t) => (
-                      <SideThreadItem
-                        key={t.id}
-                        threadId={t.id}
-                        title={t.title}
-                        meta={t.updatedAt}
-                        active={activeThreadId === t.id}
-                        onClick={() => loadThreadToMain(t.id)}
-                      />
-                    ))}
+                    {historyThreads
+                      .filter((t) => {
+                        // member 只顯示正式 conversation，不顯示前端暫時 t-xxx
+                        if (userMode === "member" && !isGuestUid(userId)) {
+                          return !!t.id && !String(t.id).startsWith("t-");
+                        }
+
+                        // guest 只保留目前 active 那一筆
+                        return t.id === activeThreadId;
+                      })
+                      .slice(0, 8)
+                      .map((t) => (
+                        <SideThreadItem
+                          key={t.id}
+                          threadId={t.id}
+                          title={t.title}
+                          meta={formatThreadTime(t.updatedAt)}
+                          active={activeThreadId === t.id}
+                          onClick={() => loadThreadToMain(t.id)}
+                        />
+                      ))}
                   </div>
                 </div>
               </div>
@@ -4433,19 +4341,27 @@ function LLMClient() {
                     </div>
 
                     <div className="space-y-1">
-                      {historyThreads.slice(0, 8).map((t) => (
-                        <SideThreadItem
-                          key={t.id}
-                          threadId={t.id}
-                          title={t.title}
-                          meta={t.updatedAt}
-                          active={activeThreadId === t.id}
-                          onClick={() => {
-                            loadThreadToMain(t.id);
-                            setIsMobileNavOpen(false);
-                          }}
-                        />
-                      ))}
+                      {historyThreads
+                        .filter((t) => {
+                          if (userMode === "member" && !isGuestUid(userId)) {
+                            return !!t.id && !String(t.id).startsWith("t-");
+                          }
+                          return t.id === activeThreadId;
+                        })
+                        .slice(0, 8)
+                        .map((t) => (
+                          <SideThreadItem
+                            key={t.id}
+                            threadId={t.id}
+                            title={t.title}
+                            meta={formatThreadTime(t.updatedAt)}
+                            active={activeThreadId === t.id}
+                            onClick={() => {
+                              loadThreadToMain(t.id);
+                              setIsMobileNavOpen(false);
+                            }}
+                          />
+                        ))}
                     </div>
                   </div>
                 </div>

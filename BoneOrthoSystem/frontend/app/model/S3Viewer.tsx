@@ -669,6 +669,10 @@ export default function S3Viewer() {
   const cameraRef = useRef<THREE.Camera | null>(null);
   const [registryTick, setRegistryTick] = useState(0);
 
+  //抽屜式
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const SIDEBAR_WIDTH = 360;
+
   // ✅ 新增：Solo / Isolate 模式（只顯示某顆）
   const [soloNormSet, setSoloNormSet] = useState<Set<string> | null>(null);
   const soloActive = soloNormSet != null;
@@ -998,12 +1002,22 @@ export default function S3Viewer() {
    *  Styles（完全不動）
    *  ========================= */
   const sAside: React.CSSProperties = {
-    width: 360,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    zIndex: 30,
+    width: SIDEBAR_WIDTH,
+    height: '100%',
     background: 'var(--panel-bg)',
     color: 'var(--panel-text)',
     borderRight: '1px solid var(--panel-border)',
     padding: 12,
-    overflow: 'auto',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    boxShadow: '8px 0 24px rgba(0,0,0,0.12)',
+    transform: sidebarOpen ? 'translateX(0)' : `translateX(calc(-100% + 56px))`,
+    transition: 'transform 0.28s ease',
+    backdropFilter: 'blur(10px)',
   };
 
   const sGroupBtn = (open: boolean): React.CSSProperties => ({
@@ -1073,15 +1087,50 @@ export default function S3Viewer() {
   };
 
   return (
-    <div style={{ display: 'flex', width: '100%', height: 'calc(100vh - 64px)' }}>
-      {/* 左側清單 */}
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: 'calc(100vh - 64px)',
+        overflow: 'hidden',
+        background: 'var(--viewer-bg)',
+      }}
+    >      {/* 左側清單 */}
       <aside style={sAside}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>骨頭清單</div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            marginBottom: 10,
+          }}
+        >
+          <div style={{ fontWeight: 900, fontSize: 16, whiteSpace: 'nowrap' }}>
+            骨頭清單
+          </div>
 
-          <button style={sTopToggleBtn} onClick={toggleAllGroups} title="切換：全部展開 / 全部收起">
-            {allOpen ? '一鍵收起' : '一鍵展開'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              style={sTopToggleBtn}
+              onClick={toggleAllGroups}
+              title="切換：全部展開 / 全部收起"
+            >
+              {allOpen ? '一鍵收起' : '一鍵展開'}
+            </button>
+
+            <button
+              style={{
+                ...sTopToggleBtn,
+                minWidth: 52,
+                padding: '0 12px',
+              }}
+              onClick={() => setSidebarOpen((prev) => !prev)}
+              title={sidebarOpen ? '收合側欄' : '展開側欄'}
+            >
+              {sidebarOpen ? '←' : '→'}
+            </button>
+          </div>
         </div>
 
         <input
@@ -1271,22 +1320,50 @@ export default function S3Viewer() {
             </div>
           );
         })}
+        <button
+          onClick={() => setSidebarOpen((prev) => !prev)}
+          title={sidebarOpen ? '收合骨頭清單' : '展開骨頭清單'}
+          style={{
+            position: 'absolute',
+            top: '50%',
+            right: 8,
+            transform: 'translateY(-50%)',
+            width: 32,
+            height: 72,
+            borderRadius: 16,
+            border: '1px solid var(--panel-border)',
+            background: 'var(--panel-btn-bg)',
+            color: 'var(--panel-text)',
+            cursor: 'pointer',
+            fontWeight: 900,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+          }}
+        >
+          {sidebarOpen ? '〈' : '〉'}
+        </button>
       </aside>
 
       {/* 右側 3D */}
-      <main style={{ flex: 1, background: 'var(--viewer-bg)', position: 'relative' }}>
-        <div
-          style={{
-            position: 'absolute',
-            top: 20,
-            right: 20,
-            zIndex: 20,
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, auto)',
-            gap: 10,
-            justifyContent: 'end',
-          }}
-        >
+      <main
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          background: 'var(--viewer-bg)',
+        }}
+      >        <div
+        style={{
+          position: 'absolute',
+          top: 20,
+          right: 20,
+          zIndex: 20,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, auto)',
+          gap: 10,
+          justifyContent: 'end',
+        }}
+      >
           {viewButtons.map(([label, fn]) => (
             <button
               key={label}
