@@ -1541,7 +1541,7 @@ function LLMClient() {
   const NAV_HOVER_BG = "rgba(148,163,184,0.10)";
 
   // ==============================
-  //  LocalStorage：初始化載入 + 持久化
+//  身份初始化 / Hydration
   // ==============================
   const didHydrateRef = useRef(false);
   const [hydrated, setHydrated] = useState(false);

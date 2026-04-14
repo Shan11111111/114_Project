@@ -308,25 +308,25 @@ function RoleCards({
     desc: string;
     badge?: string;
   }> = [
-    { r: "student", title: "student", desc: "學生/學習用途" },
-    {
-      r: "teacher",
-      title: "teacher",
-      desc: "教學/帶課（未來要審核）",
-      badge: "review",
-    },
-    {
-      r: "doctor",
-      title: "doctor",
-      desc: "專業醫療人員/醫師（未來要審核）",
-      badge: "review",
-    },
-    {
-      r: "assistant",
-      title: "assistant",
-      desc: "研究人員/專題成員/研究助理",
-    },
-  ];
+      { r: "student", title: "student", desc: "學生/學習用途" },
+      {
+        r: "teacher",
+        title: "teacher",
+        desc: "教學/帶課（未來要審核）",
+        badge: "review",
+      },
+      {
+        r: "doctor",
+        title: "doctor",
+        desc: "專業醫療人員/醫師（未來要審核）",
+        badge: "review",
+      },
+      {
+        r: "assistant",
+        title: "assistant",
+        desc: "研究人員/專題成員/研究助理",
+      },
+    ];
 
   return (
     <div className="roleGrid">
@@ -397,13 +397,13 @@ export default function AuthPageClient() {
     try {
       const raw = localStorage.getItem(FLOW_KEY);
       if (raw) setFlow(JSON.parse(raw));
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
     try {
       localStorage.setItem(FLOW_KEY, JSON.stringify(flow));
-    } catch {}
+    } catch { }
   }, [flow]);
 
   useEffect(() => {
@@ -581,6 +581,7 @@ export default function AuthPageClient() {
         method: "GET",
         headers: { Authorization: `Bearer ${out.access_token}` },
       });
+
       setUser(me);
 
       const meId = (me as any)?.id ?? (me as any)?.userId ?? null;
@@ -588,7 +589,10 @@ export default function AuthPageClient() {
         localStorage.setItem("galabone_me_id", String(meId));
       }
 
-      setToast({ type: "ok", msg: "登入成功 ✅" });
+      window.dispatchEvent(new Event("auth-changed"));
+
+      setToast({ type: "ok", msg: "登入成功 " });
+
       router.push("/");
     } catch (e: any) {
       const msg = String(e?.message || e);
@@ -694,8 +698,10 @@ export default function AuthPageClient() {
       }
     } finally {
       clearAuth();
+      window.dispatchEvent(new Event("auth-changed"));
+
       setBusy(false);
-      setToast({ type: "ok", msg: "已登出 ✅" });
+      setToast({ type: "ok", msg: "已登出" });
       router.push("/");
     }
   }
@@ -707,7 +713,7 @@ export default function AuthPageClient() {
     setToast({ type: "info", msg: "已重置流程狀態（local）" });
     try {
       localStorage.removeItem(FLOW_KEY);
-    } catch {}
+    } catch { }
   }
 
   return (
@@ -744,10 +750,10 @@ export default function AuthPageClient() {
                   {flow.verifiedEmail
                     ? "已驗證"
                     : flow.verifySentEmail
-                    ? "驗證碼已送出"
-                    : flow.registeredEmail
-                    ? "已註冊"
-                    : "新使用者"}
+                      ? "驗證碼已送出"
+                      : flow.registeredEmail
+                        ? "已註冊"
+                        : "新使用者"}
                 </div>
               </div>
             </div>
@@ -960,8 +966,8 @@ export default function AuthPageClient() {
                       pwTooLong
                         ? "超過 72 字元（bcrypt 上限）"
                         : pw.length > 0 && pw.length < 8
-                        ? "至少 8 碼"
-                        : null
+                          ? "至少 8 碼"
+                          : null
                     }
                     right={
                       <button
@@ -1140,8 +1146,8 @@ export default function AuthPageClient() {
                 !flow.verifySentEmail
                   ? "請先寄驗證碼"
                   : flow.verifySentEmail !== email.trim()
-                  ? "Email 要跟寄碼時一致"
-                  : ""
+                    ? "Email 要跟寄碼時一致"
+                    : ""
               }
             >
               {busy ? <span className="spin" /> : null}

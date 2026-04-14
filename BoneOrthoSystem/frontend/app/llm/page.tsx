@@ -171,8 +171,7 @@ const API = {
   chatStream: `${S2X_BASE}/agent/chat/stream`,
   exportPdf: `${S2X_BASE}/export/pdf`,
   exportPptx: `${S2X_BASE}/export/pptx`,
-  listConvs: (uid: string) =>
-    `${S2X_BASE}/agent/conversations?user_id=${encodeURIComponent(uid)}`,
+  listConvs: () => `${S2X_BASE}/agent/conversations`,
   getMsgs: (cid: string) => `${S2X_BASE}/agent/conversations/${cid}/messages`,
 
   //   修正：後端正確的 title endpoint（你 main.py 是 /agent/conversations/{id}/title）
@@ -349,7 +348,7 @@ function downloadBlob(blob: Blob, filename: string) {
 //  export：沿用 D 現在的 UI，但 endpoint 改用 C 的 API.exportPdf/exportPptx
 async function exportToBackend(
   type: "pdf" | "pptx",
-  payload: { session_id: string; user_id: string; messages: any[] }
+  payload: { session_id: string; messages: any[]; user_id?: string }
 ) {
   const url = type === "pdf" ? API.exportPdf : API.exportPptx;
 
@@ -367,73 +366,27 @@ async function exportToBackend(
   return await res.blob();
 }
 
-// ==============================
-//  LocalStorage 快取（方案 A）
-// ==============================
-const LS_NS = "gab_llm_v1";
-
-function lsKey(uid: string) {
-  const safe = (uid || "guest").trim() || "guest";
-  return `${LS_NS}::${safe}`;
+// 清理 URL.createObjectURL 產生的 blob URL，避免 memory leak
+function cleanupPendingFiles(files: UploadedFile[]) {
+  files.forEach((f) => {
+    if (f.url?.startsWith("blob:")) {
+      URL.revokeObjectURL(f.url);
+    }
+  });
 }
-
-const GUEST_TTL_MS = 24 * 60 * 60 * 1000;
 
 function isGuestUid(uid: string) {
   return !uid || uid === "guest" || uid.startsWith("guest-");
 }
 
-function lsRead(uid: string): any | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = localStorage.getItem(lsKey(uid));
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-
-    // 訪客資料超過一天就清掉
-    if (isGuestUid(uid)) {
-      const expireAt = Number(parsed.expireAt || 0);
-      if (expireAt && Date.now() > expireAt) {
-        localStorage.removeItem(lsKey(uid));
-        return null;
-      }
-    }
-
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function lsWrite(uid: string, value: any) {
-  if (typeof window === "undefined") return;
-
-  try {
-    const payload = isGuestUid(uid)
-      ? {
-        ...value,
-        expireAt: Date.now() + GUEST_TTL_MS,
-      }
-      : {
-        ...value,
-        expireAt: null,
-      };
-
-    localStorage.setItem(lsKey(uid), JSON.stringify(payload));
-  } catch {
-    // ignore
-  }
-}
-
-function lsSafeNow() {
-  try {
-    return new Date().toLocaleString();
-  } catch {
-    return "";
-  }
+function getAccessTokenFromLS() {
+  if (typeof window === "undefined") return "";
+  return (
+    localStorage.getItem("access_token") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("auth_token") ||
+    ""
+  ).trim();
 }
 
 function getClientIdentity() {
@@ -445,16 +398,19 @@ function getClientIdentity() {
   }
 
   try {
-    // 先看有沒有真正登入的使用者
-    const authUser = getAuthUserFromLS();
-    if (authUser?.userId) {
+    const token = getAccessTokenFromLS();
+
+    if (token) {
+      const memberId = (
+        localStorage.getItem("galabone_me_id") || ""
+      ).trim();
+
       return {
         mode: "member" as const,
-        userId: authUser.userId,
+        userId: memberId,
       };
     }
 
-    // 沒登入就走訪客模式
     const GUEST_KEY = "guest_user_id";
     let guestId = localStorage.getItem(GUEST_KEY);
 
@@ -481,55 +437,18 @@ function getClientIdentity() {
   }
 }
 
-// 清理 URL.createObjectURL 產生的 blob URL，避免 memory leak
-function cleanupPendingFiles(files: UploadedFile[]) {
-  files.forEach((f) => {
-    if (f.url?.startsWith("blob:")) {
-      URL.revokeObjectURL(f.url);
-    }
-  });
-}
-
-function getAuthUserFromLS() {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw =
-      localStorage.getItem("auth_user") ||
-      localStorage.getItem("user") ||
-      localStorage.getItem("currentUser");
-
-    if (!raw) return null;
-
-    const user = JSON.parse(raw);
-    const userId = String(user?.user_id || user?.id || "").trim();
-
-    if (!userId) return null;
-
-    return {
-      userId,
-      raw: user,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function getAccessTokenFromLS() {
-  if (typeof window === "undefined") return "";
-  return (
-    localStorage.getItem("access_token") ||
-    localStorage.getItem("token") ||
-    localStorage.getItem("auth_token") ||
-    ""
-  ).trim();
-}
-
 function buildAuthHeaders(extra?: Record<string, string>) {
   const token = getAccessTokenFromLS();
+
+  const memberId =
+    typeof window !== "undefined"
+      ? (localStorage.getItem("galabone_me_id") || "").trim()
+      : "";
+
   return {
     ...(extra || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(memberId ? { "X-User-Id": memberId } : {}),
   };
 }
 
@@ -1492,7 +1411,6 @@ function LLMClient() {
   //  主輸入框：受控（中文/英文）
   const [draftText, setDraftText] = useState("");
 
-  const [privacyConsent, setPrivacyConsent] = useState(false);
   const [showSensitiveModal, setShowSensitiveModal] = useState(false);
   const [sensitiveHits, setSensitiveHits] = useState<SensitiveHit[]>([]);
 
@@ -1540,7 +1458,7 @@ function LLMClient() {
   const NAV_HOVER_BG = "rgba(148,163,184,0.10)";
 
   // ==============================
-  //  LocalStorage：初始化載入 + 持久化
+  // 身份初始化 / 畫面重設
   // ==============================
   const didHydrateRef = useRef(false);
   const [hydrated, setHydrated] = useState(false);
@@ -1601,133 +1519,53 @@ function LLMClient() {
     return titleIsNew && (noUserMsgYet || onlyWelcome);
   }
 
-  useEffect(() => {
+  //   判斷 threadId 是否是「本地專用」（不對後端造成影響）
+  const syncIdentity = useCallback(() => {
     const identity = getClientIdentity();
 
-    uidRef.current = identity.userId;
+    uidRef.current = identity.userId || "guest";
     uidReadyRef.current = true;
 
-    setUserId(identity.userId);
+    setUserId(identity.userId || "guest");
     setUserMode(identity.mode);
 
-    if (identity.mode === "guest") {
-      const cached = lsRead(identity.userId);
-
-      if (cached && typeof cached === "object") {
-        const cRag: RagMode | undefined = cached.ragMode;
-        const cThreads: HistoryThread[] | undefined = cached.historyThreads;
-        const cMsgs: HistoryMessage[] | undefined = cached.historyMessages;
-        const cActive: string | undefined = cached.activeThreadId;
-        const cSession: string | undefined = cached.sessionId;
-        const cMain: ChatMessage[] | undefined = cached.messages;
-
-        if (cRag) setRagMode(cRag);
-        if (Array.isArray(cThreads)) setHistoryThreads(cThreads);
-        if (Array.isArray(cMsgs)) setHistoryMessages(cMsgs);
-        if (typeof cSession === "string") setSessionId(cSession);
-
-        if (Array.isArray(cMain) && cMain.length > 0) {
-          const safeMain = cMain.map((m) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            files: Array.isArray(m.files)
-              ? m.files.map((f) => ({
-                id: f.id,
-                name: f.name,
-                size: f.size,
-                type: f.type,
-                url:
-                  f.serverUrl && f.serverUrl.startsWith("http")
-                    ? f.serverUrl
-                    : f.url && (f.url.startsWith("http") || f.url.startsWith("/"))
-                      ? f.url
-                      : "",
-                serverUrl: f.serverUrl,
-              }))
-              : undefined,
-            resources: Array.isArray((m as any).resources)
-              ? (m as any).resources.map((r: any) => ({
-                title: String(r?.title ?? "未命名來源"),
-                display_title: r?.display_title
-                  ? String(r.display_title)
-                  : String(r?.title ?? "未命名來源"),
-                url: r?.url ? String(r.url) : undefined,
-                download_url: r?.download_url ? String(r.download_url) : undefined,
-                external_url: r?.external_url ? String(r.external_url) : undefined,
-                source_type: r?.source_type ? String(r.source_type) : undefined,
-                page: r?.page ? String(r.page) : undefined,
-                snippet: r?.snippet ? String(r.snippet) : undefined,
-                material_id: r?.material_id ? String(r.material_id) : undefined,
-                score:
-                  typeof r?.score === "number"
-                    ? r.score
-                    : r?.score != null
-                      ? Number(r.score)
-                      : undefined,
-              }))
-              : undefined,
-          }));
-          setMessages(safeMain);
-        }
-
-        if (typeof cActive === "string") setActiveThreadId(cActive);
-      }
-    } else {
-      // 會員不要讀 localStorage，交給後端 conversations / messages
-      try {
-        localStorage.removeItem(lsKey(identity.userId));
-      } catch { }
-
-      setHistoryThreads([]);
-      setHistoryMessages([]);
-      setActiveThreadId("");
-      setSessionId("");
-      setMessages([
-        {
-          id: 1,
-          role: "assistant",
-          content: WELCOME_TEXT,
-        },
-      ]);
-    }
+    resetChatState();
 
     cacheLoadedRef.current = true;
     didHydrateRef.current = true;
     setHydrated(true);
   }, []);
+  useEffect(() => {
+    syncIdentity();
+  }, [syncIdentity]);
 
   useEffect(() => {
-    if (!didHydrateRef.current) return;
-    if (!uidReadyRef.current) return;
+    function handleStorage(e: StorageEvent) {
+      if (
+        e.key === "auth_user" ||
+        e.key === "user" ||
+        e.key === "currentUser" ||
+        e.key === "access_token" ||
+        e.key === "token" ||
+        e.key === "auth_token"
+      ) {
+        syncIdentity();
+      }
+    }
 
-    const uid = (uidRef.current || "guest").trim() || "guest";
+    function handleAuthChanged() {
+      syncIdentity();
+    }
 
-    // 只有訪客才寫 localStorage
-    if (userMode !== "guest" || !isGuestUid(uid)) return;
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("auth-changed", handleAuthChanged as EventListener);
 
-    const payload = {
-      version: 1,
-      savedAt: lsSafeNow(),
-      userId: uid,
-      ragMode,
-      sessionId,
-      activeThreadId,
-      historyThreads,
-      historyMessages,
-      messages,
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("auth-changed", handleAuthChanged as EventListener);
     };
+  }, [syncIdentity]);
 
-    lsWrite(uid, payload);
-  }, [
-    userMode,
-    ragMode,
-    sessionId,
-    activeThreadId,
-    historyThreads,
-    historyMessages,
-    messages,
-  ]);
 
   function nowText() {
     return new Date().toLocaleString();
@@ -1851,22 +1689,7 @@ function LLMClient() {
         void loadThreadToMain(fallbackId);
       } else {
         if (userMode === "member") {
-          activeThreadIdRef.current = "";
-          setActiveThreadId("");
-          setSessionId("");
-          setActiveView("llm");
-          setSeedImageUrl("");
-          setSeedDetections([]);
-          setMessages([
-            {
-              id: 1,
-              role: "assistant",
-              content: WELCOME_TEXT,
-            },
-          ]);
-          setShowToolMenu(false);
-          setRagOpen(false);
-          setMobileRagOpen(false);
+          resetCurrentChatOnly();
         } else {
           void newThread();
         }
@@ -1901,13 +1724,17 @@ function LLMClient() {
     }
   }
 
-  async function apiFetchConversations(uid: string) {
-    const res = await fetch(API.listConvs(uid), {
+  async function apiFetchConversations() {
+    const res = await fetch(API.listConvs(), {
       method: "GET",
       headers: buildAuthHeaders(),
     });
+
     const raw = await res.text();
     const data = safeJsonParse(raw);
+
+    console.log("listConvs status =", res.status);
+    console.log("listConvs raw =", raw);
 
     if (!res.ok || !data) {
       throw new Error(`listConvs 失敗 ${res.status}: ${raw.slice(0, 200)}`);
@@ -1919,18 +1746,53 @@ function LLMClient() {
         ? data
         : [];
 
-    return items
+    const mapped = items
       .map((c: any) => ({
-        id: String(c.id ?? c.conversation_id ?? c.conversationId ?? ""),
-        title: String(c.title ?? c.name ?? "未命名對話"),
-        updatedAt: String(
-          c.updatedAt ?? c.updated_at ?? c.createdAt ?? c.created_at ?? ""
+        id: String(
+          c.id ??
+          c.conversation_id ??
+          c.conversationId ??
+          c.ConversationId ??
+          ""
         ),
-        preview: String(c.preview ?? c.last_message ?? ""),
-        messageCount: Number(c.messageCount ?? c.message_count ?? 0),
-        sessionId: String(c.session_id ?? c.sessionId ?? ""),
+        title: String(
+          c.title ??
+          c.name ??
+          c.Title ??
+          "未命名對話"
+        ),
+        updatedAt: String(
+          c.updatedAt ??
+          c.updated_at ??
+          c.createdAt ??
+          c.created_at ??
+          c.UpdatedAt ??
+          c.CreatedAt ??
+          ""
+        ),
+        preview: String(
+          c.preview ??
+          c.last_message ??
+          c.Preview ??
+          ""
+        ),
+        messageCount: Number(
+          c.messageCount ??
+          c.message_count ??
+          c.MessageCount ??
+          0
+        ),
+        sessionId: String(
+          c.session_id ??
+          c.sessionId ??
+          c.SessionId ??
+          ""
+        ),
       }))
       .filter((t: any) => t.id);
+
+    console.log("mapped conversations =", mapped);
+    return mapped;
   }
 
   async function fetchConversationMessages(cid: string): Promise<HistoryMessageWithResources[]> {
@@ -1984,18 +1846,37 @@ function LLMClient() {
       }));
 
       return {
-        id: String(m.id ?? `${cid}-${idx}`),
+        id: String(
+          m.id ??
+          m.messageId ??
+          m.message_id ??
+          m.MessageId ??
+          `${cid}-${idx}`
+        ),
         threadId: cid,
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: String(m.content ?? m.message ?? ""),
-        createdAt: String(m.createdAt ?? m.created_at ?? m.time ?? ""),
+        role:
+          (m.role ?? m.Role) === "assistant"
+            ? "assistant"
+            : "user",
+        content: String(
+          m.content ??
+          m.message ??
+          m.Content ??
+          ""
+        ),
+        createdAt: String(
+          m.createdAt ??
+          m.created_at ??
+          m.time ??
+          m.CreatedAt ??
+          ""
+        ),
         resources,
       };
     });
-
     return mapped;
   }
-
+  
   function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
     const threadMsgs = historyMessages
       .filter((m) => m.threadId === threadId)
@@ -2017,6 +1898,71 @@ function LLMClient() {
     }
 
     return threadMsgs;
+  }
+
+  function resetChatState() {
+    activeThreadIdRef.current = "";
+    setActiveThreadId("");
+    setSessionId("");
+
+    setHistoryThreads([]);
+    setHistoryMessages([]);
+
+    setSeedImageUrl("");
+    setSeedDetections([]);
+
+    setActiveView("llm");
+    setMessages([
+      {
+        id: 1,
+        role: "assistant",
+        content: WELCOME_TEXT,
+      },
+    ]);
+
+    setShowToolMenu(false);
+    setRagOpen(false);
+    setMobileRagOpen(false);
+    setIsHistoryOpen(false);
+    setHistoryPreviewThreadId("");
+
+    setPendingFiles((prev) => {
+      cleanupPendingFiles(prev);
+      return [];
+    });
+
+    resetMainInputBox();
+  }
+
+  function resetCurrentChatOnly() {
+    activeThreadIdRef.current = "";
+    setActiveThreadId("");
+    setSessionId("");
+
+    setSeedImageUrl("");
+    setSeedDetections([]);
+
+    setActiveView("llm");
+    setMessages([
+      {
+        id: 1,
+        role: "assistant",
+        content: WELCOME_TEXT,
+      },
+    ]);
+
+    setShowToolMenu(false);
+    setRagOpen(false);
+    setMobileRagOpen(false);
+    setIsHistoryOpen(false);
+    setHistoryPreviewThreadId("");
+
+    setPendingFiles((prev) => {
+      cleanupPendingFiles(prev);
+      return [];
+    });
+
+    resetMainInputBox();
   }
 
   function resetMainInputBox() {
@@ -2273,7 +2219,10 @@ function LLMClient() {
   function ensureActiveThreadIdForSend() {
     if (activeThreadIdRef.current) return activeThreadIdRef.current;
 
-    const uid = (uidRef.current || userId || "guest").trim() || "guest";
+    const uid =
+      userMode === "guest"
+        ? (uidRef.current || userId || "guest").trim() || "guest"
+        : "m";
 
     // member：先建立前端暫存 thread，等後端成功後再 replace 成真正 conversation_id
     if (userMode === "member") {
@@ -2320,42 +2269,12 @@ function LLMClient() {
       if (!ok) return;
     }
 
-    // ⭐ member 不建立本地 thread，直接回到 welcome 狀態
+    //  member 不建立本地 thread，直接回到 welcome 狀態
     if (userMode === "member") {
-      activeThreadIdRef.current = "";
-      setActiveThreadId("");
-      setSessionId("");
-
-      setActiveView("llm");
-      setSeedImageUrl("");
-      setSeedDetections([]);
-
-      setMessages([
-        {
-          id: Date.now(),
-          role: "assistant",
-          content: WELCOME_TEXT,
-          resources: [],
-        },
-      ]);
-
-      resetMainInputBox();
-
-      setPendingFiles((prev) => {
-        cleanupPendingFiles(prev);
-        return [];
-      });
-
-      setIsHistoryOpen(false);
-      setHistoryPreviewThreadId("");
+      resetCurrentChatOnly();
       setIsMobileNavOpen(false);
-
-      setShowToolMenu(false);
-      setRagOpen(false);
-      setMobileRagOpen(false);
-
       setTimeout(() => inputRef.current?.focus(), 60);
-      return; //直接結束
+      return;
     }
 
     const curId = activeThreadIdRef.current;
@@ -2429,20 +2348,18 @@ function LLMClient() {
     } finally {
       creatingThreadRef.current = false;
     }
-  }  //自動抓取會員清單
+  }
+  //自動抓取會員清單
   useEffect(() => {
     if (!hydrated) return;
     if (userMode !== "member") return;
-    if (!userId || isGuestUid(userId)) return;
 
     let cancelled = false;
 
     (async () => {
       try {
-        const convs = await apiFetchConversations(userId);
+        const convs = await apiFetchConversations();
         if (cancelled) return;
-
-        let mergedThreads: HistoryThread[] = [];
 
         setHistoryThreads((prev) => {
           const map = new Map<string, HistoryThread>();
@@ -2452,16 +2369,15 @@ function LLMClient() {
             map.set(t.id, { ...map.get(t.id), ...t });
           }
 
-          mergedThreads = Array.from(map.values()).sort((a, b) =>
+          return Array.from(map.values()).sort((a, b) =>
             String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
           );
-
-          return mergedThreads;
         });
 
         const activeId = activeThreadIdRef.current;
         const activeExists =
-          !!activeId && convs.some((t: { id: any; }) => String(t.id) === String(activeId));
+          !!activeId &&
+          convs.some((t: { id: any }) => String(t.id) === String(activeId));
 
         if (!activeId && convs.length === 0) {
           activeThreadIdRef.current = "";
@@ -2476,6 +2392,46 @@ function LLMClient() {
               content: WELCOME_TEXT,
             },
           ]);
+          return;
+        }
+
+        if (!activeId && convs.length > 0) {
+          const firstId = convs[0].id;
+          activeThreadIdRef.current = firstId;
+          setActiveThreadId(firstId);
+
+          try {
+            const msgs = await fetchConversationMessages(firstId);
+            if (cancelled) return;
+
+            setHistoryMessages((prev) => {
+              const others = prev.filter((m) => m.threadId !== firstId);
+              return [...others, ...msgs];
+            });
+
+            const t = convs.find((x: { id: any }) => x.id === firstId);
+            if (t?.sessionId) setSessionId(t.sessionId);
+
+            setMessages(
+              msgs.length > 0
+                ? msgs.map((m, idx) => ({
+                  id: Date.now() + idx,
+                  role: m.role,
+                  content: m.content,
+                  resources: (m as HistoryMessageWithResources).resources,
+                }))
+                : [
+                  {
+                    id: 1,
+                    role: "assistant",
+                    content: WELCOME_TEXT,
+                  },
+                ]
+            );
+          } catch (err) {
+            console.error("初始化第一筆 conversation 失敗：", err);
+          }
+
           return;
         }
 
@@ -2518,6 +2474,46 @@ function LLMClient() {
 
           return;
         }
+
+        if (activeId && activeExists) {
+          const hasCurrentMessages =
+            messages.length > 1 ||
+            (messages.length === 1 && messages[0]?.content !== WELCOME_TEXT);
+
+          if (!hasCurrentMessages) {
+            try {
+              const msgs = await fetchConversationMessages(activeId);
+              if (cancelled) return;
+
+              setHistoryMessages((prev) => {
+                const others = prev.filter((m) => m.threadId !== activeId);
+                return [...others, ...msgs];
+              });
+
+              const t = convs.find((x: { id: any }) => x.id === activeId);
+              if (t?.sessionId) setSessionId(t.sessionId);
+
+              setMessages(
+                msgs.length > 0
+                  ? msgs.map((m, idx) => ({
+                    id: Date.now() + idx,
+                    role: m.role,
+                    content: m.content,
+                    resources: (m as HistoryMessageWithResources).resources,
+                  }))
+                  : [
+                    {
+                      id: 1,
+                      role: "assistant",
+                      content: WELCOME_TEXT,
+                    },
+                  ]
+              );
+            } catch (err) {
+              console.error("補載入當前 conversation 失敗：", err);
+            }
+          }
+        }
       } catch (err) {
         console.error("載入會員 conversations 失敗：", err);
       }
@@ -2526,7 +2522,7 @@ function LLMClient() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, userId, userMode]);
+  }, [hydrated, userMode, messages]);
 
   const bootNewThreadOnceRef = useRef(false);
   useEffect(() => {
@@ -2804,9 +2800,9 @@ function LLMClient() {
           if (summary.trim()) {
             summaryForUI += `\n\n【${fn}】摘要\n${summary.trim()}`;
           } else if (warn.trim()) {
-            summaryForUI += `\n\n【${fn}】\n⚠️ 無法抽取文字/摘要：${warn.trim()}`;
+            summaryForUI += `\n\n【${fn}】\n⚠️無法抽取文字/摘要：${warn.trim()}`;
           } else {
-            summaryForUI += `\n\n【${fn}】\n⚠️ 這份檔案沒有回傳摘要（可能是掃描檔或無可抽取文字）`;
+            summaryForUI += `\n\n【${fn}】\n⚠️這份檔案沒有回傳摘要（可能是掃描檔或無可抽取文字）`;
           }
 
           if (summary.trim()) {
@@ -2838,12 +2834,14 @@ function LLMClient() {
           ? `\n\n---\n【RAG】請先用既有教材向量庫檢索後回答，並附 sources/citations（檔名/頁碼或chunk/score）。找不到就說找不到。`
           : "";
 
-      const uid = (uidRef.current || userId || "guest").trim() || "guest";
+      const uid =
+        userMode === "guest"
+          ? (uidRef.current || userId || "guest").trim() || "guest"
+          : "member";
+
       const sid =
         (sessionId || "").trim() ||
-        (userMode === "guest"
-          ? `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}`
-          : "");
+        `${userMode === "guest" ? uid : "member"}::${makeUuid()}`;
       const safeText = normalizeLegacyMaskedText(firstUserText);
 
       const basePrompt = isPubmedOnly
@@ -2854,16 +2852,27 @@ function LLMClient() {
           (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
           vectorHint;
 
-      const payload = {
+      const payload: any = {
         session_id: sid,
-        user_id: uid,
-        conversation_id: threadIdAtSend,
         privacy_consent: true,
         pii_mode: piiMode,
         rag_mode: ragMode,
         pubmed_max_results: 5,
         messages: [{ role: "user", type: "text", content: basePrompt }],
       };
+
+      // 🔥 只有「真正的 conversation_id」才送
+      if (
+        threadIdAtSend &&
+        !isLocalOnlyThreadId(threadIdAtSend)
+      ) {
+        payload.conversation_id = threadIdAtSend;
+      }
+
+      if (userMode === "guest") {
+        payload.user_id =
+          (uidRef.current || userId || "guest").trim() || "guest";
+      }
 
       const emptyBotMessage: ChatMessage = {
         id: assistantMessageId,
@@ -3056,11 +3065,15 @@ function LLMClient() {
         alert("尚未設定 NEXT_PUBLIC_BACKEND_URL，無法匯出");
         return;
       }
-      const payload = {
+      const payload: any = {
         session_id: (sessionId || "").trim(),
-        user_id: (uidRef.current || userId || "guest").trim(),
         messages: toBackendMessages(messages),
       };
+
+      if (userMode === "guest") {
+        payload.user_id =
+          (uidRef.current || userId || "guest").trim() || "guest";
+      }
 
       if (type === "pdf") {
         const blob = await exportToBackend("pdf", payload);
@@ -3577,7 +3590,7 @@ function LLMClient() {
         return;
       }
 
-      const threads = await apiFetchConversations(uid);
+      const threads = await apiFetchConversations();
 
       setHistoryThreads((prev) => {
         const map = new Map<string, HistoryThread>();
@@ -3652,10 +3665,6 @@ function LLMClient() {
 
     const caseId = Number(caseIdStr);
     if (!Number.isFinite(caseId) || caseId <= 0) return;
-
-    if (typeof window !== "undefined" && isGuestUid(uidRef.current || userId || "guest")) {
-      localStorage.setItem("gab_last_case_id", String(caseIdStr));
-    }
 
     const uid = (uidRef.current || userId || "guest").trim() || "guest";
     const localThreadId = `t-${Date.now()}`;
@@ -3778,12 +3787,16 @@ function LLMClient() {
         bumpThreadOnMessage(threadIdAtBoot, String(question).slice(0, 80), 1);
         maybeAutoTitle(threadIdAtBoot, question);
 
-        const payload = {
+        const payload: any = {
           session_id: (bootSession || sessionId || "").trim(),
-          user_id: (uidRef.current || userId || "guest").trim(),
           conversation_id: threadIdAtBoot,
           messages: [{ role: "user", type: "text", content: question }],
         };
+
+        if (userMode === "guest") {
+          payload.user_id =
+            (uidRef.current || userId || "guest").trim() || "guest";
+        }
 
         const resp = await postChatToBackend(payload);
 
@@ -4026,16 +4039,12 @@ function LLMClient() {
                           >
                             {ragMode === "file_then_vector" &&
                               "查詢上傳檔案與衛教智慧庫"}
-                            {/* {ragMode === "vector_only" &&
-                              "查詢衛教智慧庫"}
-                            {/* {ragMode === "file_only" &&
-                              "查詢上傳檔案"} */}
+                            {/* {ragMode === "vector_only" && "查詢衛教智慧庫"} */}
+                            {/* {ragMode === "file_only" && "查詢上傳檔案"} */}
                             {ragMode === "pubmed_only" &&
                               "查詢 PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
                             {ragMode === "soap_only" &&
                               "查詢已授權的輔大醫院之去識別化soap記錄"}
-
-
                           </span>
 
                           <i
