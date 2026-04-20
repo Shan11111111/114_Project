@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-from pyexpat.errors import messages
 import re
 import sys
 import uuid
@@ -18,11 +17,10 @@ from .tools.doc_tool import extract_text_and_summary, index_document
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Response, Depends, Header
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from fastapi import Header, HTTPException
 
 from .models import ChatRequest, ChatResponse, ChatMessage, Action, ChatResource
 from .state.sessions import get_session, append_messages
@@ -126,35 +124,19 @@ app.mount("/uploads", StaticFiles(directory=str(USER_UPLOAD_DIR)), name="uploads
 app.mount("/materials", StaticFiles(directory=str(MATERIALS_DIR)), name="materials")
 app.include_router(export_router)
 
-# =========================================================
-# 認證相關（示意）
-# =========================================================
 
-def get_current_user_id(
-    x_user_id: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-) -> str:
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    if not x_user_id:
-        raise HTTPException(status_code=401, detail="Missing user id")
-
-    return str(x_user_id).strip()
 # =========================================================
 # Helpers
 # =========================================================
 
 @app.post("/agent/chat/stream")
-def agent_chat_stream(
-    req: ChatRequest,
-    current_user_id: str = Depends(get_current_user_id),):
+def agent_chat_stream(req: ChatRequest):
     if not req.session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     if not req.messages:
         raise HTTPException(status_code=400, detail="messages is empty")
 
-    user_id = current_user_id
+    user_id = (getattr(req, "user_id", None) or "guest").strip() or "guest"
     session_id = req.session_id.strip()
 
     raw_cid = (getattr(req, "conversation_id", None) or "").strip()
@@ -577,14 +559,13 @@ async def upload_file(file: UploadFile = File(...)):
 # Chat (RAG)
 # =========================================================
 @app.post("/agent/chat", response_model=ChatResponse)
-def agent_chat(req: ChatRequest,current_user_id: str = Depends(get_current_user_id),):
-    
+def agent_chat(req: ChatRequest):
     if not req.session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     if not req.messages:
         raise HTTPException(status_code=400, detail="messages is empty")
 
-    user_id = current_user_id
+    user_id = (getattr(req, "user_id", None) or "guest").strip() or "guest"
     session_id = req.session_id.strip()
 
     raw_cid = (getattr(req, "conversation_id", None) or "").strip()
@@ -966,40 +947,32 @@ def agent_chat(req: ChatRequest,current_user_id: str = Depends(get_current_user_
 # Conversation APIs
 # =========================================================
 class ConversationCreate(BaseModel):
+    user_id: str
     title: str | None = None
 
+
 @app.get("/agent/conversations")
-def api_list_conversations(current_user_id: str = Depends(get_current_user_id)):
-    convs = list_conversations(current_user_id)
+def api_list_conversations(user_id: str = Query(..., alias="user_id")):
+    convs = list_conversations(user_id)
     return {"conversations": convs}
+
 
 class ConversationTitleUpdate(BaseModel):
     title: str
 
 
 @app.patch("/agent/conversations/{conversation_id}/title")
-def api_update_conversation_title(
-    conversation_id: str,
-    payload: ConversationTitleUpdate,
-    current_user_id: str = Depends(get_current_user_id),
-):
+def api_update_conversation_title(conversation_id: str, payload: ConversationTitleUpdate):
     new_title = payload.title.strip()
     if not new_title:
         raise HTTPException(status_code=400, detail="title cannot be empty")
-
-    update_conversation_title(conversation_id, new_title, current_user_id)
+    update_conversation_title(conversation_id, new_title)
     return {"conversation_id": conversation_id, "title": new_title}
 
-# =========================================================
-# 注意：這裡的 conversation_id 是 session_to_conversation_uuid 轉換前的原始 ID（通常是 UUID 字串），不是轉換後的那個帶 user_id 前綴的格式。
-# 這樣前端就不需要知道 session_to_conversation_uuid 的存在，可以直接用 conversation_id 就好。
-# =========================================================
+
 @app.post("/agent/conversations")
-def api_create_conversation(
-    payload: ConversationCreate,
-    current_user_id: str = Depends(get_current_user_id),
-):
-    uid = current_user_id
+def api_create_conversation(payload: ConversationCreate):
+    uid = (payload.user_id or "guest").strip() or "guest"
     title = (payload.title or "新對話").strip() or "新對話"
 
     conv_id = create_conversation(uid, title=title, source="s2x")
@@ -1007,12 +980,11 @@ def api_create_conversation(
 
     return {"conversation_id": conv_id, "session_id": sid, "title": title}
 
+
 @app.get("/agent/conversations/{conversation_id}/messages", response_model=ChatResponse)
-def api_get_conversation_messages(
-    conversation_id: str,
-    current_user_id: str = Depends(get_current_user_id),):
-    
-    rows = get_messages(conversation_id, current_user_id)
+def api_get_conversation_messages(conversation_id: str):
+    rows = get_messages(conversation_id)
+
     messages: list[ChatMessage] = []
     resources_by_msg_index: dict[int, list[ChatResource]] = {}
 
@@ -1067,17 +1039,16 @@ def api_get_conversation_messages(
     return ChatResponse(
         messages=messages,
         actions=[],
-        conversation_id=conversation_id,
+        conversation_id=cid,
         resources_by_msg_index=resources_by_msg_index,
     )
-    
+
 @app.delete("/agent/conversations/{conversation_id}")
-def api_delete_conversation(
-    conversation_id: str,
-    current_user_id: str = Depends(get_current_user_id),
-):
-    delete_conversation(conversation_id, current_user_id)
-    return {"conversation_id": conversation_id, "deleted": True}
+def api_delete_conversation(conversation_id: str):
+    cid = session_to_conversation_uuid(str(conversation_id))
+    delete_conversation(cid)
+    return {"conversation_id": cid, "deleted": True}
+
 
 # =========================================================
 # bone image

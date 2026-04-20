@@ -59,15 +59,11 @@ export default function Navbar() {
 
   const onLogout = async () => {
     await logoutUser();
-
-    window.dispatchEvent(new Event("auth-changed"));
-
-    setUserState(getUser());
     setOpen(false);
     setMobileMenuOpen(false);
     router.push("/auth");
   };
-  
+
   const role = String(user?.roles || "").toLowerCase();
   const isManager = role === "manager";
   const canAccessMaterials = role === "teacher" || role === "manager";
@@ -193,7 +189,7 @@ export default function Navbar() {
             <i className={`fa-solid ${mobileMenuOpen ? "fa-xmark" : "fa-bars-staggered"}`} />
             {!mobileMenuOpen && <span className="navbar-hamburger-text">選單</span>}
           </button>
-
+          
           {/* 桌機版帳號下拉 */}
           {user && open && (
             <div

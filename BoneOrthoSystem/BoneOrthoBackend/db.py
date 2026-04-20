@@ -211,29 +211,18 @@ def list_conversations(user_id: str) -> List[Dict[str, Any]]:
         rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     return rows
 
-def get_conversation_messages(conversation_id: str, user_id: str) -> List[Dict[str, Any]]:
+def get_conversation_messages(conversation_id: str) -> List[Dict[str, Any]]:
     conv_id = session_to_conversation_uuid(str(conversation_id))
 
     sql = """
-    SELECT
-        m.MessageId,
-        m.ConversationId,
-        m.Role,
-        m.Content,
-        m.AttachmentsJson,
-        m.MetaJson,
-        m.CreatedAt
-    FROM agent.ConversationMessage AS m
-    INNER JOIN agent.Conversation AS c
-        ON c.ConversationId = m.ConversationId
-    WHERE m.ConversationId = ?
-      AND c.UserId = ?
-    ORDER BY m.CreatedAt ASC, m.MessageId ASC;
+    SELECT MessageId, ConversationId, Role, Content, AttachmentsJson, MetaJson, CreatedAt
+    FROM agent.ConversationMessage
+    WHERE ConversationId = ?
+    ORDER BY CreatedAt ASC, MessageId ASC;
     """
-
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql, conv_id, user_id)
+        cur.execute(sql, conv_id)
         cols = [c[0] for c in cur.description]
         rows = [dict(zip(cols, row)) for row in cur.fetchall()]
 
@@ -247,44 +236,35 @@ def get_conversation_messages(conversation_id: str, user_id: str) -> List[Dict[s
         else:
             r["Meta"] = None
 
-    return rows    
+    return rows
 
-def update_conversation_title(conversation_id: str, title: str, user_id: str) -> None:
+def update_conversation_title(conversation_id: str, title: str) -> None:
     conv_id = session_to_conversation_uuid(str(conversation_id))
     sql = """
     UPDATE agent.Conversation
     SET Title = ?, UpdatedAt = SYSUTCDATETIME()
-    WHERE ConversationId = ?
-      AND UserId = ?;
+    WHERE ConversationId = ?;
     """
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql, title, conv_id, user_id)
+        cur.execute(sql, title, conv_id)
         conn.commit()
-        
-def delete_conversation(conversation_id: str, user_id: str) -> None:
+
+
+def delete_conversation(conversation_id: str) -> None:
     conv_id = session_to_conversation_uuid(str(conversation_id))
-
-    sql1 = """
-    DELETE m
-    FROM agent.ConversationMessage AS m
-    INNER JOIN agent.Conversation AS c
-        ON c.ConversationId = m.ConversationId
-    WHERE m.ConversationId = ?
-      AND c.UserId = ?;
-    """
-
-    sql2 = """
-    DELETE FROM agent.Conversation
-    WHERE ConversationId = ?
-      AND UserId = ?;
-    """
-
+    sql1 = "DELETE FROM agent.ConversationMessage WHERE ConversationId = ?;"
+    sql2 = "DELETE FROM agent.Conversation WHERE ConversationId = ?;"
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.execute(sql1, conv_id, user_id)
-        cur.execute(sql2, conv_id, user_id)
+        cur.execute(sql1, conv_id)
+        cur.execute(sql2, conv_id)
         conn.commit()
+
+
+def get_messages(conversation_id: str):
+    return get_conversation_messages(conversation_id)
+
 
 
 def add_message(
@@ -360,9 +340,18 @@ def add_message(
 
     return conv_id
 
+def delete_conversation(conversation_id: str) -> None:
+    conv_id = session_to_conversation_uuid(str(conversation_id))
+    sql1 = "DELETE FROM agent.ConversationMessage WHERE ConversationId = ?;"
+    sql2 = "DELETE FROM agent.Conversation WHERE ConversationId = ?;"
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql1, conv_id)
+        cur.execute(sql2, conv_id)
+        conn.commit()
 
-def get_messages(conversation_id: str, user_id: str):
-    return get_conversation_messages(conversation_id, user_id)
+def get_messages(conversation_id: str):
+    return get_conversation_messages(conversation_id)
 
 _CONV_TITLE_MAX = 60
 
