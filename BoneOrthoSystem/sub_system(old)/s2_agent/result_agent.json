@@ -1,0 +1,36 @@
+﻿{
+    "messages":  [
+                     {
+                         "role":  "user",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/uploads/ed4fb6f0f40d48c89f47bda7164d870c.png",
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "image",
+                         "content":  null,
+                         "url":  "/outputs/68ccfe7431944c208028fcc17147681c.png",
+                         "filetype":  null
+                     },
+                     {
+                         "role":  "assistant",
+                         "type":  "text",
+                         "content":  "ï¼ç¤ºç¯ YOLOï¼åµæ¸¬å°çéª¨é ­ï¼Femur_L, Tibia_L",
+                         "url":  null,
+                         "filetype":  null
+                     }
+                 ],
+    "actions":  [
+                    {
+                        "type":  "highlight_bones",
+                        "target_model":  "default_model",
+                        "bones":  [
+                                      "Femur_L",
+                                      "Tibia_L"
+                                  ],
+                        "image_url":  "/outputs/68ccfe7431944c208028fcc17147681c.png"
+                    }
+                ]
+}

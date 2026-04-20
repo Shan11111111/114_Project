@@ -2,7 +2,7 @@ import os
 import json
 import re
 import uuid
-from typing import Optional, List, Dict, Any, Iterable, Sequence, Tuple, Callable
+from typing import Optional, List, Dict, Any, Sequence, Callable
 
 import pyodbc
 
@@ -144,6 +144,7 @@ _UUID_RE = re.compile(
 def _is_uuid(s: str) -> bool:
     return bool(s and _UUID_RE.match(s.strip()))
 
+
 def session_to_conversation_uuid(session_id: str) -> str:
     s = (session_id or "").strip()
     if not s:
@@ -154,6 +155,7 @@ def session_to_conversation_uuid(session_id: str) -> str:
 
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"BoneOrthoSystem:{s}"))
 
+
 def ensure_conversation_exists(conversation_id: str, user_id: str, source: str = "s2x") -> None:
     sql = """
     IF EXISTS (SELECT 1 FROM agent.Conversation WHERE ConversationId = ?)
@@ -163,14 +165,13 @@ def ensure_conversation_exists(conversation_id: str, user_id: str, source: str =
             WHEN UserId IS NULL OR LTRIM(RTRIM(UserId)) = '' OR UserId = CONVERT(nvarchar(36), ConversationId)
             THEN ?
             ELSE UserId
-        END,
-        UpdatedAt = SYSUTCDATETIME()
+        END
         WHERE ConversationId = ?;
     END
     ELSE
     BEGIN
-        INSERT INTO agent.Conversation (ConversationId, UserId, Title, Source, CreatedAt, UpdatedAt)
-        VALUES (?, ?, NULL, ?, SYSUTCDATETIME(), SYSUTCDATETIME());
+        INSERT INTO agent.Conversation (ConversationId, UserId, Title, Source, CreatedAt)
+        VALUES (?, ?, NULL, ?, SYSUTCDATETIME());
     END
     """
     with get_connection() as conn:
@@ -178,18 +179,17 @@ def ensure_conversation_exists(conversation_id: str, user_id: str, source: str =
         cur.execute(sql, conversation_id, user_id, conversation_id, conversation_id, user_id, source)
         conn.commit()
 
+
 def touch_conversation(conversation_id: str) -> None:
-    sql = "UPDATE agent.Conversation SET UpdatedAt = SYSUTCDATETIME() WHERE ConversationId = ?"
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, conversation_id)
-        conn.commit()
+    # agent.Conversation 沒有 UpdatedAt，因此保留空函式避免舊碼炸掉
+    return
+
 
 def create_conversation(user_id: str, title: Optional[str] = None, source: str = "s2x") -> str:
     conv_id = str(uuid.uuid4())
     sql = """
-    INSERT INTO agent.Conversation (ConversationId, UserId, Title, Source, CreatedAt, UpdatedAt)
-    VALUES (?, ?, ?, ?, SYSUTCDATETIME(), SYSUTCDATETIME());
+    INSERT INTO agent.Conversation (ConversationId, UserId, Title, Source, CreatedAt)
+    VALUES (?, ?, ?, ?, SYSUTCDATETIME());
     """
     with get_connection() as conn:
         cur = conn.cursor()
@@ -197,12 +197,13 @@ def create_conversation(user_id: str, title: Optional[str] = None, source: str =
         conn.commit()
     return conv_id
 
+
 def list_conversations(user_id: str) -> List[Dict[str, Any]]:
     sql = """
-    SELECT ConversationId, UserId, Title, Source, CreatedAt, UpdatedAt
+    SELECT ConversationId, UserId, Title, Source, CreatedAt
     FROM agent.Conversation
     WHERE UserId = ?
-    ORDER BY UpdatedAt DESC, CreatedAt DESC;
+    ORDER BY CreatedAt DESC;
     """
     with get_connection() as conn:
         cur = conn.cursor()
@@ -210,6 +211,7 @@ def list_conversations(user_id: str) -> List[Dict[str, Any]]:
         cols = [c[0] for c in cur.description]
         rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     return rows
+
 
 def get_conversation_messages(conversation_id: str) -> List[Dict[str, Any]]:
     conv_id = session_to_conversation_uuid(str(conversation_id))
@@ -238,11 +240,12 @@ def get_conversation_messages(conversation_id: str) -> List[Dict[str, Any]]:
 
     return rows
 
+
 def update_conversation_title(conversation_id: str, title: str) -> None:
     conv_id = session_to_conversation_uuid(str(conversation_id))
     sql = """
     UPDATE agent.Conversation
-    SET Title = ?, UpdatedAt = SYSUTCDATETIME()
+    SET Title = ?
     WHERE ConversationId = ?;
     """
     with get_connection() as conn:
@@ -264,7 +267,6 @@ def delete_conversation(conversation_id: str) -> None:
 
 def get_messages(conversation_id: str):
     return get_conversation_messages(conversation_id)
-
 
 
 def add_message(
@@ -328,17 +330,10 @@ def add_message(
             attachments_json,
             meta_json,
         )
-        cur.execute(
-            """
-            UPDATE agent.Conversation
-            SET UpdatedAt = SYSUTCDATETIME()
-            WHERE ConversationId = ?
-            """,
-            conv_id,
-        )
         conn.commit()
 
     return conv_id
+
 
 def delete_conversation(conversation_id: str) -> None:
     conv_id = session_to_conversation_uuid(str(conversation_id))
@@ -350,10 +345,13 @@ def delete_conversation(conversation_id: str) -> None:
         cur.execute(sql2, conv_id)
         conn.commit()
 
+
 def get_messages(conversation_id: str):
     return get_conversation_messages(conversation_id)
 
+
 _CONV_TITLE_MAX = 60
+
 
 def _normalize_uuid(s: str | None) -> str | None:
     if not s:
@@ -369,6 +367,7 @@ def _normalize_uuid(s: str | None) -> str | None:
     except Exception:
         return None
 
+
 def _safe_title(seed: str | None) -> str | None:
     if not seed:
         return None
@@ -376,6 +375,7 @@ def _safe_title(seed: str | None) -> str | None:
     if not t:
         return None
     return t[:_CONV_TITLE_MAX]
+
 
 def set_conversation_title_if_empty(conv_id: str, title_seed: str):
     cid = _normalize_uuid(conv_id)
@@ -393,8 +393,7 @@ def set_conversation_title_if_empty(conv_id: str, title_seed: str):
         CASE
             WHEN Title IS NULL OR LTRIM(RTRIM(Title)) = '' THEN ?
             ELSE Title
-        END,
-        UpdatedAt = SYSUTCDATETIME()
+        END
     WHERE ConversationId = ?
     """
 

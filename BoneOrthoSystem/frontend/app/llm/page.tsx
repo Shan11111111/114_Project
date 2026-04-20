@@ -20,6 +20,8 @@ import React, {
 import S2PrivacyConsent from "./S2PrivacyConsent";
 import S2SensitiveInfoModal from "./S2SensitiveInfoModal";
 import { getUser } from "../lib/auth";
+
+
 import {
   detectSensitiveInfo,
   maskSensitiveInfo,
@@ -445,16 +447,39 @@ function getClientIdentity() {
   }
 
   try {
-    // 先看有沒有真正登入的使用者
-    const authUser = getAuthUserFromLS();
-    if (authUser?.userId) {
+    // 優先走你原本 auth/lib 的邏輯
+    const authUser = getUser?.() as any;
+
+    console.log("getClientIdentity getUser() =", authUser);
+
+    const userId = String(
+      authUser?.user_id ??
+      authUser?.id ??
+      authUser?.userId ??
+      authUser?.user?.user_id ??
+      authUser?.user?.id ??
+      ""
+    ).trim();
+
+    if (userId) {
+      console.log("getClientIdentity member =", userId);
       return {
         mode: "member" as const,
-        userId: authUser.userId,
+        userId,
       };
     }
 
-    // 沒登入就走訪客模式
+    // fallback：真的抓不到才看這頁舊 localStorage
+    const fromLs = getAuthUserFromLS();
+    console.log("getClientIdentity fallback LS authUser =", fromLs);
+
+    if (fromLs?.userId) {
+      return {
+        mode: "member" as const,
+        userId: fromLs.userId,
+      };
+    }
+
     const GUEST_KEY = "guest_user_id";
     let guestId = localStorage.getItem(GUEST_KEY);
 
@@ -469,18 +494,20 @@ function getClientIdentity() {
       localStorage.setItem(GUEST_KEY, guestId);
     }
 
+    console.log("getClientIdentity fallback guest =", guestId);
+
     return {
       mode: "guest" as const,
       userId: guestId,
     };
-  } catch {
+  } catch (e) {
+    console.error("getClientIdentity failed:", e);
     return {
       mode: "guest" as const,
       userId: "guest",
     };
   }
 }
-
 // 清理 URL.createObjectURL 產生的 blob URL，避免 memory leak
 function cleanupPendingFiles(files: UploadedFile[]) {
   files.forEach((f) => {
@@ -499,10 +526,30 @@ function getAuthUserFromLS() {
       localStorage.getItem("user") ||
       localStorage.getItem("currentUser");
 
+    console.log("getAuthUserFromLS raw =", {
+      auth_user: localStorage.getItem("auth_user"),
+      user: localStorage.getItem("user"),
+      currentUser: localStorage.getItem("currentUser"),
+      pickedRaw: raw,
+    });
+
     if (!raw) return null;
 
     const user = JSON.parse(raw);
-    const userId = String(user?.user_id || user?.id || "").trim();
+
+    console.log("parsed auth user full =", user);
+
+    const userId = String(
+      user?.user_id ??
+      user?.id ??
+      user?.user?.user_id ??
+      user?.user?.id ??
+      user?.data?.user_id ??
+      user?.data?.id ??
+      ""
+    ).trim();
+
+    console.log("resolved userId =", userId);
 
     if (!userId) return null;
 
@@ -510,7 +557,8 @@ function getAuthUserFromLS() {
       userId,
       raw: user,
     };
-  } catch {
+  } catch (e) {
+    console.error("getAuthUserFromLS failed:", e);
     return null;
   }
 }
@@ -2841,9 +2889,7 @@ function LLMClient() {
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
       const sid =
         (sessionId || "").trim() ||
-        (userMode === "guest"
-          ? `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}`
-          : "");
+        `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}::${makeUuid()}`;
       const safeText = normalizeLegacyMaskedText(firstUserText);
 
       const basePrompt = isPubmedOnly
@@ -3570,6 +3616,14 @@ function LLMClient() {
   async function openHistory() {
     try {
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
+
+      console.log("openHistory status =", {
+        userMode,
+        userId,
+        uidRef: uidRef.current,
+        finalUid: uid,
+        isGuest: isGuestUid(uid),
+      });
 
       if (userMode === "guest" || isGuestUid(uid)) {
         setHistoryPreviewThreadId("");
