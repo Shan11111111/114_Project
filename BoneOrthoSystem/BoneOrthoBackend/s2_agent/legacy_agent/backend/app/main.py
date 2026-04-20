@@ -981,7 +981,7 @@ def api_create_conversation(payload: ConversationCreate):
     return {"conversation_id": conv_id, "session_id": sid, "title": title}
 
 
-@app.get("/agent/conversations/{conversation_id}/messages", response_model=ChatResponse)
+@app.get("/agent/conversations/{conversation_id}/messages")
 def api_get_conversation_messages(conversation_id: str):
     rows = get_messages(conversation_id)
 
@@ -1036,12 +1036,12 @@ def api_get_conversation_messages(conversation_id: str):
     session = get_session(cid)
     session["messages"] = messages
 
-    return ChatResponse(
-        messages=messages,
-        actions=[],
-        conversation_id=cid,
-        resources_by_msg_index=resources_by_msg_index,
-    )
+    return {
+        "messages": messages,
+        "actions": [],
+        "conversation_id": cid,
+        "resources_by_msg_index": resources_by_msg_index,
+    }
 
 @app.delete("/agent/conversations/{conversation_id}")
 def api_delete_conversation(conversation_id: str):

@@ -186,6 +186,40 @@ const API = {
 };
 // 
 
+
+//轉換時區成台灣時間的工具函式，因為後端回來的時間通常是 UTC，但沒有附帶時區資訊，所以我們要補上 Z 來告訴 JavaScript 這是 UTC 時間，然後再轉換成台灣時間顯示。
+function parseApiDate(value?: string) {
+  if (!value) return null;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // SQL Server 常見格式：2026-04-20T12:35:43.593064
+  // 沒有時區資訊時，後端實際是 UTC，所以補上 Z
+  const normalized =
+    /z$/i.test(raw) || /[+\-]\d{2}:\d{2}$/.test(raw) ? raw : `${raw}Z`;
+
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatTaipeiDateTime(value?: string) {
+  const d = parseApiDate(value);
+  if (!d) return value || "";
+
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(d);
+}
+
+
 function safeJsonParse<T = any>(raw: string): T | null {
   try {
     return JSON.parse(raw) as T;
@@ -1051,6 +1085,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
   NAV_ACTIVE_BG,
   NAV_HOVER_BG,
   persistedQueryRef,
+  renderResources,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -1066,6 +1101,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
   NAV_ACTIVE_BG: string;
   NAV_HOVER_BG: string;
   persistedQueryRef: React.MutableRefObject<string>;
+  renderResources: (resources?: ChatResource[]) => React.ReactNode;
 }) {
   const historyInputRef = useRef<HTMLInputElement | null>(null);
   const historyLiveValueRef = useRef<string>(persistedQueryRef.current || "");
@@ -1366,7 +1402,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
               >
                 <div className="min-w-0 flex-1">
                   <div className="text-[11px] opacity-60 mb-0.5">
-                    {currentThread?.updatedAt || ""}
+                    {formatTaipeiDateTime(currentThread?.updatedAt)}
                   </div>
 
                   {isRenaming ? (
@@ -1448,8 +1484,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                     return (
                       <div
                         key={m.id}
-                        className={`flex ${isUser ? "justify-end" : "justify-start"
-                          }`}
+                        className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                       >
                         <div
                           className="max-w-[min(78%,65ch)] rounded-2xl px-4 py-3 text-sm leading-relaxed"
@@ -1465,6 +1500,8 @@ const HistoryOverlay = memo(function HistoryOverlay({
                           <div className="whitespace-pre-wrap break-words">
                             {m.content}
                           </div>
+
+                          {!isUser && renderResources((m as HistoryMessageWithResources).resources)}
                         </div>
                       </div>
                     );
@@ -1969,19 +2006,51 @@ function LLMClient() {
 
     return items
       .map((c: any) => ({
-        id: String(c.id ?? c.conversation_id ?? c.conversationId ?? ""),
-        title: String(c.title ?? c.name ?? "未命名對話"),
-        updatedAt: String(
-          c.updatedAt ?? c.updated_at ?? c.createdAt ?? c.created_at ?? ""
+        id: String(
+          c.id ??
+          c.conversation_id ??
+          c.conversationId ??
+          c.ConversationId ??
+          ""
         ),
-        preview: String(c.preview ?? c.last_message ?? ""),
-        messageCount: Number(c.messageCount ?? c.message_count ?? 0),
-        sessionId: String(c.session_id ?? c.sessionId ?? ""),
+        title: String(
+          c.title ??
+          c.name ??
+          c.Title ??
+          "未命名對話"
+        ),
+        updatedAt: String(
+          c.updatedAt ??
+          c.updated_at ??
+          c.createdAt ??
+          c.created_at ??
+          c.CreatedAt ??
+          ""
+        ),
+        preview: String(
+          c.preview ??
+          c.last_message ??
+          c.Preview ??
+          ""
+        ),
+        messageCount: Number(
+          c.messageCount ??
+          c.message_count ??
+          c.MessageCount ??
+          0
+        ),
+        sessionId: String(
+          c.session_id ??
+          c.sessionId ??
+          c.SessionId ??
+          ""
+        ),
       }))
       .filter((t: any) => t.id);
   }
 
   async function fetchConversationMessages(cid: string): Promise<HistoryMessageWithResources[]> {
+
     const res = await fetch(API.getMsgs(cid), {
       method: "GET",
       headers: buildAuthHeaders(),
@@ -1989,6 +2058,9 @@ function LLMClient() {
 
     const raw = await res.text();
     const data = safeJsonParse(raw);
+
+    console.log("getMsgs full data =", data);
+    console.log("getMsgs resources_by_msg_index =", (data as any)?.resources_by_msg_index);
 
     if (!res.ok || !data) {
       throw new Error(`getMsgs 失敗 ${res.status}: ${raw.slice(0, 200)}`);
@@ -2527,6 +2599,47 @@ function LLMClient() {
           return;
         }
 
+        // ✅ 新增這段：沒有 activeId，但資料庫有 conversation，就自動載第一筆
+        if (!activeId && convs.length > 0) {
+          const firstId = convs[0].id;
+          activeThreadIdRef.current = firstId;
+          setActiveThreadId(firstId);
+
+          try {
+            const msgs = await fetchConversationMessages(firstId);
+            if (cancelled) return;
+
+            setHistoryMessages((prev) => {
+              const others = prev.filter((m) => m.threadId !== firstId);
+              return [...others, ...msgs];
+            });
+
+            const t = convs.find((x: { id: any }) => x.id === firstId);
+            if (t?.sessionId) setSessionId(t.sessionId);
+
+            setMessages(
+              msgs.length > 0
+                ? msgs.map((m, idx) => ({
+                  id: Date.now() + idx,
+                  role: m.role,
+                  content: m.content,
+                  resources: (m as HistoryMessageWithResources).resources,
+                }))
+                : [
+                  {
+                    id: 1,
+                    role: "assistant",
+                    content: WELCOME_TEXT,
+                  },
+                ]
+            );
+          } catch (err) {
+            console.error("首次載入第一筆 conversation 失敗：", err);
+          }
+
+          return;
+        }
+
         if (activeId && !activeExists && convs.length > 0) {
           const firstId = convs[0].id;
           activeThreadIdRef.current = firstId;
@@ -2883,7 +2996,7 @@ function LLMClient() {
 
       const vectorHint =
         wantVector && !isPubmedOnly
-          ? `\n\n---\n【RAG】請先用既有教材向量庫檢索後回答，並附 sources/citations（檔名/頁碼或chunk/score）。找不到就說找不到。`
+          ? ``
           : "";
 
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
@@ -3966,6 +4079,7 @@ function LLMClient() {
         NAV_ACTIVE_BG={NAV_ACTIVE_BG}
         NAV_HOVER_BG={NAV_HOVER_BG}
         persistedQueryRef={historyPersistedQueryRef}
+        renderResources={renderResources}
       />
 
       {!isMobileNavOpen && (
@@ -4223,7 +4337,7 @@ function LLMClient() {
                         key={t.id}
                         threadId={t.id}
                         title={t.title}
-                        meta={t.updatedAt}
+                        meta={formatTaipeiDateTime(t.updatedAt)}
                         active={activeThreadId === t.id}
                         onClick={() => loadThreadToMain(t.id)}
                       />
@@ -4492,7 +4606,7 @@ function LLMClient() {
                           key={t.id}
                           threadId={t.id}
                           title={t.title}
-                          meta={t.updatedAt}
+                          meta={formatTaipeiDateTime(t.updatedAt)}
                           active={activeThreadId === t.id}
                           onClick={() => {
                             loadThreadToMain(t.id);

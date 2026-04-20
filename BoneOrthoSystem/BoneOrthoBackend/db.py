@@ -1,3 +1,6 @@
+#BoneOrthoBackend/db.py
+print(">>> USING DB FILE:", __file__)
+
 import os
 import json
 import re
@@ -200,10 +203,33 @@ def create_conversation(user_id: str, title: Optional[str] = None, source: str =
 
 def list_conversations(user_id: str) -> List[Dict[str, Any]]:
     sql = """
-    SELECT ConversationId, UserId, Title, Source, CreatedAt
-    FROM agent.Conversation
-    WHERE UserId = ?
-    ORDER BY CreatedAt DESC;
+    SELECT
+        c.ConversationId,
+        c.UserId,
+        c.Title,
+        c.Source,
+        c.CreatedAt,
+        COUNT(m.MessageId) AS MessageCount,
+        MAX(CASE WHEN m.CreatedAt = lm.LastCreatedAt THEN m.Content END) AS Preview
+    FROM agent.Conversation c
+    LEFT JOIN agent.ConversationMessage m
+        ON c.ConversationId = m.ConversationId
+    LEFT JOIN (
+        SELECT
+            ConversationId,
+            MAX(CreatedAt) AS LastCreatedAt
+        FROM agent.ConversationMessage
+        GROUP BY ConversationId
+    ) lm
+        ON c.ConversationId = lm.ConversationId
+    WHERE c.UserId = ?
+    GROUP BY
+        c.ConversationId,
+        c.UserId,
+        c.Title,
+        c.Source,
+        c.CreatedAt
+    ORDER BY c.CreatedAt DESC;
     """
     with get_connection() as conn:
         cur = conn.cursor()
