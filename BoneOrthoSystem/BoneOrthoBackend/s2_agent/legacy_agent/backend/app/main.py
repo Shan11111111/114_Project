@@ -160,6 +160,10 @@ def agent_chat_stream(req: ChatRequest):
 
     clean_q = _extract_question(raw_q)
 
+    rag_mode = (getattr(req, "rag_mode", None) or "file_then_vector").strip()
+    pubmed_max_results = int(getattr(req, "pubmed_max_results", 5) or 5)
+    pubmed_max_results = max(1, min(pubmed_max_results, 8))
+
     has_fresh_uploads = False
     for m in req.messages:
         if getattr(m, "role", None) != "user":
@@ -186,45 +190,154 @@ def agent_chat_stream(req: ChatRequest):
         source="s2x",
     )
 
+    def _yield_token_chunks(text: str, chunk_size: int = 30):
+        text = text or ""
+        for i in range(0, len(text), chunk_size):
+            yield text[i:i + chunk_size]
+
     def generate():
         full_answer_parts = []
-        resources = []
+        resources: list[ChatResource] = []
 
         try:
-            system, prompt, resources = prepare_answer_with_doc_rag(
-                clean_q,
-                session,
-                has_fresh_uploads=has_fresh_uploads,
-                dialog_state=dialog_state,
-            )
-
             yield json.dumps({
                 "type": "meta",
                 "conversation_id": conversation_id,
                 "session_id": session_id,
             }, ensure_ascii=False) + "\n"
 
-            yield json.dumps({
-                "type": "sources",
-                "data": resources,
-            }, ensure_ascii=False) + "\n"
+            # =========================
+            # PubMed only 串流分支
+            # =========================
+            if rag_mode == "pubmed_only":
+                ans_text, sources = answer_with_pubmed(
+                    question=clean_q,
+                    max_results=pubmed_max_results,
+                )
 
-            # fallback: prepare 直接塞完整答案回來
-            if not system:
-                fallback_answer = prompt or ""
-                if fallback_answer:
-                    full_answer_parts.append(fallback_answer)
+                pubmed_source_lines = []
+                for i, s in enumerate(sources or [], 1):
+                    title = s.get("title") or f"pubmed-{i}"
+                    pmid = s.get("pmid") or ""
+                    journal = s.get("journal") or ""
+                    year = s.get("year") or ""
+                    url = s.get("url") or ""
+
+                    tail = " · ".join(
+                        [x for x in [journal, year, f"PMID:{pmid}" if pmid else ""] if x]
+                    )
+
+                    if tail:
+                        pubmed_source_lines.append(f"[#{i}] {title} · {tail}")
+                    else:
+                        pubmed_source_lines.append(f"[#{i}] {title}")
+
+                    if url:
+                        pubmed_source_lines.append(f"    {url}")
+
+                if pubmed_source_lines:
+                    final_answer = (
+                        (ans_text or "").rstrip()
+                        + "\n\n---\n【PubMed Sources】\n"
+                        + "\n".join(pubmed_source_lines)
+                    )
+                else:
+                    final_answer = ans_text or ""
+
+                resources = _build_resources(sources)
+
+                yield json.dumps({
+                    "type": "sources",
+                    "data": [r.model_dump() for r in resources],
+                }, ensure_ascii=False) + "\n"
+
+                for chunk in _yield_token_chunks(final_answer, chunk_size=30):
+                    full_answer_parts.append(chunk)
                     yield json.dumps({
                         "type": "token",
-                        "data": fallback_answer,
+                        "data": chunk,
                     }, ensure_ascii=False) + "\n"
+
+            # =========================
+            # SOAP only 串流分支
+            # =========================
+            elif rag_mode == "soap_only":
+                ans_text, sources = answer_with_soap_csv(
+                    question=clean_q,
+                    max_results=5,
+                )
+
+                soap_source_lines = []
+                for i, s in enumerate(sources or [], 1):
+                    title = s.get("title") or f"soap-{i}"
+                    record_id = s.get("record_id") or ""
+                    visit_date = s.get("visit_date") or ""
+
+                    tail = " · ".join(
+                        [x for x in [f"RRN:{record_id}" if record_id else "", visit_date] if x]
+                    )
+
+                    if tail:
+                        soap_source_lines.append(f"[#{i}] {title} · {tail}")
+                    else:
+                        soap_source_lines.append(f"[#{i}] {title}")
+
+                if soap_source_lines:
+                    final_answer = (
+                        (ans_text or "").rstrip()
+                        + "\n\n---\n【SOAP Sources】\n"
+                        + "\n".join(soap_source_lines)
+                    )
+                else:
+                    final_answer = ans_text or ""
+
+                resources = _build_resources(sources)
+
+                yield json.dumps({
+                    "type": "sources",
+                    "data": [r.model_dump() for r in resources],
+                }, ensure_ascii=False) + "\n"
+
+                for chunk in _yield_token_chunks(final_answer, chunk_size=30):
+                    full_answer_parts.append(chunk)
+                    yield json.dumps({
+                        "type": "token",
+                        "data": chunk,
+                    }, ensure_ascii=False) + "\n"
+
+            # =========================
+            # 預設：doc_rag 串流分支
+            # =========================
             else:
-                for token in _call_llm_stream(system, prompt):
-                    full_answer_parts.append(token)
-                    yield json.dumps({
-                        "type": "token",
-                        "data": token,
-                    }, ensure_ascii=False) + "\n"
+                system, prompt, raw_resources = prepare_answer_with_doc_rag(
+                    clean_q,
+                    session,
+                    has_fresh_uploads=has_fresh_uploads,
+                    dialog_state=dialog_state,
+                )
+
+                yield json.dumps({
+                    "type": "sources",
+                    "data": raw_resources,
+                }, ensure_ascii=False) + "\n"
+
+                if not system:
+                    fallback_answer = prompt or ""
+                    if fallback_answer:
+                        full_answer_parts.append(fallback_answer)
+                        yield json.dumps({
+                            "type": "token",
+                            "data": fallback_answer,
+                        }, ensure_ascii=False) + "\n"
+                else:
+                    for token in _call_llm_stream(system, prompt):
+                        full_answer_parts.append(token)
+                        yield json.dumps({
+                            "type": "token",
+                            "data": token,
+                        }, ensure_ascii=False) + "\n"
+
+                resources = _build_resources(raw_resources)
 
             final_answer = "".join(full_answer_parts).strip()
 
@@ -236,7 +349,7 @@ def agent_chat_stream(req: ChatRequest):
                 role="assistant",
                 content=final_answer,
                 attachments_json=None,
-                sources=resources,
+                sources=[r.model_dump() for r in resources],
                 user_id=user_id,
                 source="s2x",
             )
@@ -263,8 +376,6 @@ def agent_chat_stream(req: ChatRequest):
             "X-Accel-Buffering": "no",
         },
     )
-
-
 
 URL_RE = re.compile(r"(https?://[^\s\]\)]+)", re.IGNORECASE)
 
