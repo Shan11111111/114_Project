@@ -1529,6 +1529,7 @@ function LLMClient() {
 
   //   改動 1：由 boolean 改成記錄最後 boot 的 caseId（避免重複 boot）
   const bootOnceRef = useRef<string>("");
+  const s1BootingRef = useRef(false);
 
   //  seed card（不動原排版：只在聊天區最上方插一張卡）
   const [seedImageUrl, setSeedImageUrl] = useState<string>("");
@@ -2050,7 +2051,6 @@ function LLMClient() {
   }
 
   async function fetchConversationMessages(cid: string): Promise<HistoryMessageWithResources[]> {
-
     const res = await fetch(API.getMsgs(cid), {
       method: "GET",
       headers: buildAuthHeaders(),
@@ -2061,6 +2061,7 @@ function LLMClient() {
 
     console.log("getMsgs full data =", data);
     console.log("getMsgs resources_by_msg_index =", (data as any)?.resources_by_msg_index);
+    console.log("getMsgs image_payload_by_msg_index =", (data as any)?.image_payload_by_msg_index);
 
     if (!res.ok || !data) {
       throw new Error(`getMsgs 失敗 ${res.status}: ${raw.slice(0, 200)}`);
@@ -2076,6 +2077,12 @@ function LLMClient() {
       (data as any)?.resources_by_msg_index &&
         typeof (data as any).resources_by_msg_index === "object"
         ? (data as any).resources_by_msg_index
+        : {};
+
+    const imagePayloadByMsgIndex =
+      (data as any)?.image_payload_by_msg_index &&
+        typeof (data as any).image_payload_by_msg_index === "object"
+        ? (data as any).image_payload_by_msg_index
         : {};
 
     const mapped: HistoryMessageWithResources[] = items.map((m: any, idx: number) => {
@@ -2103,14 +2110,33 @@ function LLMClient() {
               : undefined,
       }));
 
+      const payload = imagePayloadByMsgIndex?.[idx];
+      const payloadUrl = payload?.url ? toAbsUrl(String(payload.url)) : "";
+      const payloadFiletype = payload?.filetype ? String(payload.filetype) : "image/*";
+
+      const files: UploadedFile[] | undefined = payloadUrl
+        ? [
+          {
+            id: `hist-img-${cid}-${idx}`,
+            name: `image_case_${payload?.image_case_id ?? idx}`,
+            size: 0,
+            type: payloadFiletype,
+            url: payloadUrl,
+            serverUrl: payloadUrl,
+          },
+        ]
+        : undefined;
+
       return {
         id: String(m.id ?? `${cid}-${idx}`),
         threadId: cid,
         role: m.role === "assistant" ? "assistant" : "user",
         content: String(m.content ?? m.message ?? ""),
         createdAt: String(m.createdAt ?? m.created_at ?? m.time ?? ""),
+        files,
         resources,
-      };
+        imagePayload: payload,
+      } as any;
     });
 
     return mapped;
@@ -2183,6 +2209,23 @@ function LLMClient() {
     };
   }, [isHistoryOpen, historyPreviewThreadId, userMode]);
 
+  function restoreSeedFromRemoteMsgs(remoteMsgs: any[]) {
+    const firstImageMsg = remoteMsgs.find(
+      (m: any) => Array.isArray(m.files) && m.files.length > 0
+    );
+    const firstPayload = (firstImageMsg as any)?.imagePayload;
+
+    if (firstPayload?.url) {
+      setSeedImageUrl(toAbsUrl(String(firstPayload.url)));
+      setSeedDetections(
+        Array.isArray(firstPayload.detections) ? firstPayload.detections : []
+      );
+    } else {
+      setSeedImageUrl("");
+      setSeedDetections([]);
+    }
+  }
+
   async function loadThreadToMain(threadId: string) {
     if (hasUnsavedDraft()) {
       const ok = confirm("你有尚未送出的內容，確定要切換對話嗎？");
@@ -2201,6 +2244,8 @@ function LLMClient() {
     setShowToolMenu(false);
     setRagOpen(false);
     setMobileRagOpen(false);
+    setSeedImageUrl("");
+    setSeedDetections([]);
 
     setPendingFiles((prev) => {
       cleanupPendingFiles(prev);
@@ -2213,7 +2258,23 @@ function LLMClient() {
     ) {
       try {
         const remoteMsgs = await fetchConversationMessages(threadId);
+        restoreSeedFromRemoteMsgs(remoteMsgs);
+        const firstImageMsg = remoteMsgs.find(
+          (m: any) => Array.isArray(m.files) && m.files.length > 0
+        );
+        const firstPayload = (firstImageMsg as any)?.imagePayload;
 
+        if (firstPayload?.url) {
+          setSeedImageUrl(toAbsUrl(String(firstPayload.url)));
+          setSeedDetections(
+            Array.isArray(firstPayload.detections)
+              ? firstPayload.detections
+              : []
+          );
+        } else {
+          setSeedImageUrl("");
+          setSeedDetections([]);
+        }
         setHistoryMessages((prev) => {
           const others = prev.filter((m) => m.threadId !== threadId);
           return [...others, ...remoteMsgs];
@@ -2225,6 +2286,7 @@ function LLMClient() {
               id: Date.now() + idx,
               role: m.role,
               content: m.content,
+              files: (m as any).files,
               resources: (m as HistoryMessageWithResources).resources,
             }))
             : [
@@ -2243,10 +2305,12 @@ function LLMClient() {
       setMessages(buildChatMessagesFromThread(threadId));
     }
 
+
     setIsHistoryOpen(false);
     setHistoryPreviewThreadId("");
     setTimeout(() => inputRef.current?.focus(), 60);
   }
+
 
   function ensureThreadExists(
     threadId: string,
@@ -2581,7 +2645,14 @@ function LLMClient() {
 
         const activeId = activeThreadIdRef.current;
         const activeExists =
-          !!activeId && convs.some((t: { id: any; }) => String(t.id) === String(activeId));
+          !!activeId &&
+          convs.some((t: { id: any }) => String(t.id) === String(activeId));
+
+        // ✅ 關鍵：bootstrap 正在跑，或目前還是 local thread 時，
+        // 只更新歷史列表，不要自動切到舊對話
+        if (s1BootingRef.current || (activeId && isLocalOnlyThreadId(activeId))) {
+          return;
+        }
 
         if (!activeId && convs.length === 0) {
           activeThreadIdRef.current = "";
@@ -2599,7 +2670,6 @@ function LLMClient() {
           return;
         }
 
-        // ✅ 新增這段：沒有 activeId，但資料庫有 conversation，就自動載第一筆
         if (!activeId && convs.length > 0) {
           const firstId = convs[0].id;
           activeThreadIdRef.current = firstId;
@@ -2617,12 +2687,15 @@ function LLMClient() {
             const t = convs.find((x: { id: any }) => x.id === firstId);
             if (t?.sessionId) setSessionId(t.sessionId);
 
+            restoreSeedFromRemoteMsgs(msgs);
+
             setMessages(
               msgs.length > 0
                 ? msgs.map((m, idx) => ({
                   id: Date.now() + idx,
                   role: m.role,
                   content: m.content,
+                  files: (m as any).files,
                   resources: (m as HistoryMessageWithResources).resources,
                 }))
                 : [
@@ -2657,12 +2730,15 @@ function LLMClient() {
             const t = convs.find((x: { id: any }) => x.id === firstId);
             if (t?.sessionId) setSessionId(t.sessionId);
 
+            restoreSeedFromRemoteMsgs(msgs);
+
             setMessages(
               msgs.length > 0
                 ? msgs.map((m, idx) => ({
                   id: Date.now() + idx,
                   role: m.role,
                   content: m.content,
+                  files: (m as any).files,
                   resources: (m as HistoryMessageWithResources).resources,
                 }))
                 : [
@@ -3816,6 +3892,7 @@ function LLMClient() {
 
     if (bootOnceRef.current === caseIdStr) return;
     bootOnceRef.current = caseIdStr;
+    s1BootingRef.current = true;
 
     const caseId = Number(caseIdStr);
     if (!Number.isFinite(caseId) || caseId <= 0) return;
@@ -3961,7 +4038,19 @@ function LLMClient() {
         if (cid) {
           replaceThreadId(threadIdAtBoot, cid, sidFromServer || bootSession);
 
-          //   同步 title（只在新對話時做一次）
+          activeThreadIdRef.current = cid;
+          setActiveThreadId(cid);
+          setHistoryPreviewThreadId(cid);
+
+          if (sidFromServer || bootSession) {
+            setSessionId(sidFromServer || bootSession);
+          }
+
+          // ✅ 正規化 URL：bootstrap 成功後改成 thread 模式
+          // 之後重整會走 loadThreadToMain(thread)，不會再用 caseId 重建一條新對話
+          loadedThreadFromUrlRef.current = cid;
+          router.replace(`/llm?thread=${encodeURIComponent(cid)}`);
+
           setTimeout(() => {
             ensureBackendAutoTitleOnce(cid, question);
           }, 0);
@@ -4030,6 +4119,9 @@ function LLMClient() {
           String(answerText).slice(0, 80),
           1
         );
+
+
+
       } catch (e: any) {
         const msg = `bootstrap 失敗：${e?.message ?? String(e)}`;
         setMessages((prev) => [
@@ -4045,6 +4137,8 @@ function LLMClient() {
         pushHistoryMessage(threadIdAtBoot, "assistant", msg);
 
         bumpThreadOnMessage(threadIdAtBoot, msg, 1);
+      } finally {
+        s1BootingRef.current = false;
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

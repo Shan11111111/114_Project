@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
-
 import re
 import sys
 import uuid
 
-import time #計時器套件
-from fastapi.responses import StreamingResponse # 用於串流回應
-import json
+import time  # 計時器套件
+from fastapi.responses import StreamingResponse  # 用於串流回應
 
 from .tools.doc_tool import extract_text_and_summary, index_document
 
@@ -28,7 +26,7 @@ from .state.sessions import get_session, append_messages
 from .tools.pubmed_tool import answer_with_pubmed
 from .tools.soap_csv_service import answer_with_soap_csv
 
-#  重要：RAG 匯入（防爆）
+# 重要：RAG 匯入（防爆）
 from .tools.rag_tool import answer_with_rag, _build_dialog_state, prepare_answer_with_doc_rag, _call_llm_stream
 try:
     from .tools.rag_tool import answer_with_doc_rag
@@ -37,7 +35,7 @@ except Exception:
 
 from .tools.doc_tool import extract_text_and_summary
 
-#  URL 索引：從 doc_tool 匯入（若你 doc_tool 尚未加 index_url / build_url_digest，會走 fallback）
+# URL 索引：從 doc_tool 匯入（若你 doc_tool 尚未加 index_url / build_url_digest，會走 fallback）
 try:
     from .tools.doc_tool import index_url, build_url_digest, is_enabled as doc_rag_enabled
 except Exception:
@@ -46,8 +44,6 @@ except Exception:
     doc_rag_enabled = lambda: False  # type: ignore
 
 from .routers.export import router as export_router
-
-
 
 
 # =========================================================
@@ -128,6 +124,240 @@ app.include_router(export_router)
 # =========================================================
 # Helpers
 # =========================================================
+URL_RE = re.compile(r"(https?://[^\s\]\)]+)", re.IGNORECASE)
+IMAGE_CASE_RE = re.compile(r"ImageCaseId\s*:\s*(\d+)", re.IGNORECASE)
+
+
+def _extract_image_case_id(text: str | None) -> int | None:
+    if not text:
+        return None
+    m = IMAGE_CASE_RE.search(text)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _extract_question(text: str) -> str:
+    t = (text or "").strip()
+    if "\n---\n" in t:
+        t = t.split("\n---\n", 1)[0].strip()
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _title_seed(text: str, max_len: int = 80) -> str:
+    s = (text or "").strip().splitlines()[0].strip()
+    s = re.sub(r"\s+", " ", s).strip()
+    return (s[:max_len] if s else "新對話")
+
+
+def _get_image_attachment_by_case_id(case_id: int | None) -> dict | None:
+    if not case_id:
+        return None
+
+    sql = """
+    SELECT TOP 1
+        ic.ImageCaseId,
+        bi.image_path,
+        bi.content_type
+    FROM vision.ImageCase ic
+    JOIN dbo.Bone_Images bi ON ic.BoneImageId = bi.image_id
+    WHERE ic.ImageCaseId = ?
+    """
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, case_id)
+            row = cur.fetchone()
+
+        if not row:
+            return None
+
+        image_url = (getattr(row, "image_path", None) or "").strip()
+        filetype = (getattr(row, "content_type", None) or "").strip() or None
+
+        if not image_url:
+            return None
+
+        return {
+            "url": image_url,
+            "filetype": filetype,
+        }
+    except Exception:
+        return None
+
+
+def _format_sources_for_text(sources: list[dict] | None) -> str:
+    if not sources:
+        return ""
+
+    lines = []
+    for i, s in enumerate(sources, 1):
+        if not isinstance(s, dict):
+            continue
+
+        title = (
+            s.get("title")
+            or s.get("file")
+            or s.get("name")
+            or s.get("filename")
+            or f"source-{i}"
+        )
+
+        page = s.get("page")
+        chunk = s.get("chunk") or s.get("chunk_index") or s.get("chunk_id")
+        score = s.get("score")
+
+        meta = []
+        if page is not None:
+            meta.append(f"p.{page}")
+        elif chunk is not None:
+            meta.append(f"chunk {chunk}")
+
+        if score is not None:
+            try:
+                meta.append(f"score={float(score):.3f}")
+            except Exception:
+                pass
+
+        if meta:
+            lines.append(f"[#{i}] {title} ({', '.join(meta)})")
+        else:
+            lines.append(f"[#{i}] {title}")
+
+    if not lines:
+        return ""
+
+    # 注意：這裡的格式是給純文字回答用的，如果你要在前端做更好看的展示，建議直接用 sources 裡的結構化資料，不要這個文本版本。
+    return ""
+    # return "\n\n---\n【Sources】\n" + "\n".join(lines)
+
+
+def _build_resources(sources: list[dict] | None) -> list[ChatResource]:
+    if not sources:
+        return []
+
+    resources: list[ChatResource] = []
+
+    allowed_exts = [".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".md", ".csv", ".xlsx", ".xls"]
+
+    for i, s in enumerate(sources, 1):
+        if not isinstance(s, dict):
+            continue
+
+        # 先過濾低分來源
+        try:
+            score = s.get("score")
+            if score is not None and float(score) < 0.55:
+                continue
+        except Exception:
+            pass
+
+        title = (
+            s.get("title")
+            or s.get("file")
+            or s.get("name")
+            or s.get("filename")
+            or s.get("source")
+            or f"source-{i}"
+        )
+        file_stem = (
+            s.get("file")
+            or s.get("filename")
+            or s.get("title")
+            or s.get("source")
+            or ""
+        )
+
+        title_str = str(title).strip()
+        file_stem_str = str(file_stem).strip()
+
+        url = (
+            s.get("url")
+            or s.get("download_url")
+            or s.get("file_url")
+            or s.get("serverUrl")
+            or s.get("path")
+        )
+
+        # 如果 source 沒直接給 url，就去 materials 資料夾找實際檔案
+        if not url and file_stem_str:
+            candidates = []
+
+            candidates.append(file_stem_str)
+
+            lower_name = file_stem_str.lower()
+            if not any(lower_name.endswith(ext) for ext in allowed_exts):
+                for ext in allowed_exts:
+                    candidates.append(file_stem_str + ext)
+
+            found_name = None
+            for cand in candidates:
+                p = MATERIALS_DIR / cand
+                if p.exists():
+                    found_name = cand
+                    break
+
+            if found_name:
+                url = f"/s2x/materials/{found_name}"
+
+        download_url = s.get("download_url") or url
+
+        page = None
+        if s.get("page") is not None:
+            page = f"p.{s.get('page')}"
+        else:
+            chunk = s.get("chunk") or s.get("chunk_index") or s.get("chunk_id")
+            if chunk is not None:
+                page = f"chunk {chunk}"
+
+        snippet = (
+            s.get("snippet")
+            or s.get("text")
+            or s.get("content")
+            or s.get("summary")
+            or s.get("quote")
+        )
+
+        source_type = (
+            s.get("source_type")
+            or s.get("type")
+            or s.get("collection")
+            or s.get("kind")
+            or "reference"
+        )
+
+        resources.append(
+            ChatResource(
+                title=title_str,
+                url=str(url) if url else None,
+                download_url=str(download_url) if download_url else None,
+                source_type=str(source_type) if source_type else None,
+                page=page,
+                snippet=str(snippet)[:300] if snippet else None,
+                score=float(s.get("score")) if s.get("score") is not None else None,
+            )
+        )
+
+    return resources
+
+
+def _collect_urls(text: str) -> list[str]:
+    if not text:
+        return []
+    urls = URL_RE.findall(text)
+    # 去重但保序
+    seen = set()
+    out = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
 
 @app.post("/agent/chat/stream")
 def agent_chat_stream(req: ChatRequest):
@@ -159,6 +389,7 @@ def agent_chat_stream(req: ChatRequest):
         raise HTTPException(status_code=400, detail="empty text message")
 
     clean_q = _extract_question(raw_q)
+    image_case_id = _extract_image_case_id(last.content or "")
 
     rag_mode = (getattr(req, "rag_mode", None) or "file_then_vector").strip()
     pubmed_max_results = int(getattr(req, "pubmed_max_results", 5) or 5)
@@ -188,6 +419,7 @@ def agent_chat_stream(req: ChatRequest):
         sources=None,
         user_id=user_id,
         source="s2x",
+        image_case_id=image_case_id,
     )
 
     def _yield_token_chunks(text: str, chunk_size: int = 30):
@@ -377,194 +609,6 @@ def agent_chat_stream(req: ChatRequest):
         },
     )
 
-URL_RE = re.compile(r"(https?://[^\s\]\)]+)", re.IGNORECASE)
-
-
-def _extract_question(text: str) -> str:
-    t = (text or "").strip()
-    if "\n---\n" in t:
-        t = t.split("\n---\n", 1)[0].strip()
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
-
-
-def _title_seed(text: str, max_len: int = 80) -> str:
-    s = (text or "").strip().splitlines()[0].strip()
-    s = re.sub(r"\s+", " ", s).strip()
-    return (s[:max_len] if s else "新對話")
-
-
-
-
-def _format_sources_for_text(sources: list[dict] | None) -> str:
-    if not sources:
-        return ""
-
-    lines = []
-    for i, s in enumerate(sources, 1):
-        if not isinstance(s, dict):
-            continue
-    
-
-        title = (
-            s.get("title")
-            or s.get("file")
-            or s.get("name")
-            or s.get("filename")
-            or f"source-{i}"
-        )
-
-        page = s.get("page")
-        chunk = s.get("chunk") or s.get("chunk_index") or s.get("chunk_id")
-        score = s.get("score")
-
-        meta = []
-        if page is not None:
-            meta.append(f"p.{page}")
-        elif chunk is not None:
-            meta.append(f"chunk {chunk}")
-
-        if score is not None:
-            try:
-                meta.append(f"score={float(score):.3f}")
-            except Exception:
-                pass
-
-        if meta:
-            lines.append(f"[#{i}] {title} ({', '.join(meta)})")
-        else:
-            lines.append(f"[#{i}] {title}")
-
-    if not lines:
-        return ""
-    
-    # 注意：這裡的格式是給純文字回答用的，如果你要在前端做更好看的展示，建議直接用 sources 裡的結構化資料，不要這個文本版本。
-    return ""
-    # return "\n\n---\n【Sources】\n" + "\n".join(lines)
-
-
-
-def _build_resources(sources: list[dict] | None) -> list[ChatResource]:
-    if not sources:
-        return []
-
-    resources: list[ChatResource] = []
-
-    allowed_exts = [".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".md", ".csv", ".xlsx", ".xls"]
-
-    for i, s in enumerate(sources, 1):
-        if not isinstance(s, dict):
-            continue
-
-        # 先過濾低分來源
-        try:
-            score = s.get("score")
-            if score is not None and float(score) < 0.55:
-                continue
-        except Exception:
-            pass
-
-        title = (
-            s.get("title")
-            or s.get("file")
-            or s.get("name")
-            or s.get("filename")
-            or s.get("source")
-            or f"source-{i}"
-        )
-        file_stem = (
-            s.get("file")
-            or s.get("filename")
-            or s.get("title")
-            or s.get("source")
-            or ""
-        )
-
-        title_str = str(title).strip()
-        file_stem_str = str(file_stem).strip()
-
-        url = (
-            s.get("url")
-            or s.get("download_url")
-            or s.get("file_url")
-            or s.get("serverUrl")
-            or s.get("path")
-        )
-
-        # 如果 source 沒直接給 url，就去 materials 資料夾找實際檔案
-        if not url and file_stem_str:
-            candidates = []
-
-            candidates.append(file_stem_str)
-
-            lower_name = file_stem_str.lower()
-            if not any(lower_name.endswith(ext) for ext in allowed_exts):
-                for ext in allowed_exts:
-                    candidates.append(file_stem_str + ext)
-
-            found_name = None
-            for cand in candidates:
-                p = MATERIALS_DIR / cand
-                if p.exists():
-                    found_name = cand
-                    break
-
-            if found_name:
-                url = f"/s2x/materials/{found_name}"
-
-        download_url = s.get("download_url") or url
-
-        page = None
-        if s.get("page") is not None:
-            page = f"p.{s.get('page')}"
-        else:
-            chunk = s.get("chunk") or s.get("chunk_index") or s.get("chunk_id")
-            if chunk is not None:
-                page = f"chunk {chunk}"
-
-        snippet = (
-            s.get("snippet")
-            or s.get("text")
-            or s.get("content")
-            or s.get("summary")
-            or s.get("quote")
-        )
-
-        source_type = (
-            s.get("source_type")
-            or s.get("type")
-            or s.get("collection")
-            or s.get("kind")
-            or "reference"
-        )
-
-        resources.append(
-            ChatResource(
-                title=title_str,
-                url=str(url) if url else None,
-                download_url=str(download_url) if download_url else None,
-                source_type=str(source_type) if source_type else None,
-                page=page,
-                snippet=str(snippet)[:300] if snippet else None,
-                score=float(s.get("score")) if s.get("score") is not None else None,
-            )
-        )
-
-    return resources
-
-def _collect_urls(text: str) -> list[str]:
-    if not text:
-        return []
-    urls = URL_RE.findall(text)
-    # 去重但保序
-    seen = set()
-    out = []
-    for u in urls:
-        if u not in seen:
-            seen.add(u)
-            out.append(u)
-    return out
-
 
 # =========================================================
 # Health
@@ -693,11 +737,16 @@ def agent_chat(req: ChatRequest):
     last_in = req.messages[-1]
     if last_in.role == "user":
         attachments_json = None
+        image_case_id = None
+
         if last_in.type == "image" and last_in.url:
             attachments_json = json.dumps(
                 {"url": last_in.url, "filetype": last_in.filetype},
                 ensure_ascii=False
             )
+
+        if last_in.type == "text":
+            image_case_id = _extract_image_case_id(last_in.content or "")
 
         add_message(
             conversation_id=conversation_id,
@@ -707,6 +756,7 @@ def agent_chat(req: ChatRequest):
             sources=None,
             user_id=user_id,
             source="s2x",
+            image_case_id=image_case_id,
         )
 
     last = req.messages[-1]
@@ -722,7 +772,6 @@ def agent_chat(req: ChatRequest):
         )
 
         reply = ChatMessage(role="assistant", type="text", content=tip)
-        # session["messages"].append(reply)
         append_messages(session, [reply])
 
         add_message(
@@ -735,7 +784,6 @@ def agent_chat(req: ChatRequest):
             source="s2x",
         )
 
-        
         return ChatResponse(
             messages=session["messages"],
             actions=[],
@@ -743,7 +791,7 @@ def agent_chat(req: ChatRequest):
             conversation_id=conversation_id,
             answer=tip,
             resources=[],
-            )
+        )
 
     # text
     if last.type == "text" and last.role == "user":
@@ -766,7 +814,6 @@ def agent_chat(req: ChatRequest):
                 max_results=pubmed_max_results,
             )
 
-            # 額外把 PMID / journal / year / url 整理成文字附在回答下面
             pubmed_source_lines = []
             for i, s in enumerate(sources or [], 1):
                 title = s.get("title") or f"pubmed-{i}"
@@ -794,7 +841,6 @@ def agent_chat(req: ChatRequest):
                 ans_text_out = ans_text or ""
 
             reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
-            # session["messages"].append(reply)
             append_messages(session, [reply])
 
             add_message(
@@ -819,8 +865,7 @@ def agent_chat(req: ChatRequest):
                 answer=ans_text_out,
                 resources=resources,
             )
-        
-           
+
         # =========================
         # SOAP CSV only 分支
         # =========================
@@ -854,7 +899,6 @@ def agent_chat(req: ChatRequest):
                 ans_text_out = ans_text or ""
 
             reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
-            # session["messages"].append(reply)
             append_messages(session, [reply])
 
             add_message(
@@ -880,14 +924,7 @@ def agent_chat(req: ChatRequest):
                 resources=resources,
             )
 
-
-
-
-
-
-
-
-        #  1) 先解析 URL 並索引（讓 doc_rag 真的找得到）
+        # 1) 先解析 URL 並索引（讓 doc_rag 真的找得到）
         url_digest_text = ""
         urls = _collect_urls(clean_q)
         if urls and index_url is not None and build_url_digest is not None:
@@ -901,7 +938,7 @@ def agent_chat(req: ChatRequest):
                     digests.append(f"【已解析網址】{u}\n【解析失敗】{e}")
             url_digest_text = "\n\n".join([d for d in digests if d]).strip()
 
-        #  2) 讓「解析結果」進入回答的核心（放在問題上方當 context）
+        # 2) 讓「解析結果」進入回答的核心（放在問題上方當 context）
         if url_digest_text:
             clean_q_for_answer = (
                 f"{url_digest_text}\n\n"
@@ -912,9 +949,7 @@ def agent_chat(req: ChatRequest):
         else:
             clean_q_for_answer = clean_q
 
-        #  3) 用 doc_rag（命中才會引用 doc/網址 chunk）
-        # ans_text, sources = answer_with_doc_rag(clean_q_for_answer, session)
-        
+        # 3) 用 doc_rag（命中才會引用 doc/網址 chunk）
         has_fresh_uploads = False
         for m in req.messages:
             if getattr(m, "role", None) != "user":
@@ -942,8 +977,7 @@ def agent_chat(req: ChatRequest):
             has_fresh_uploads=has_fresh_uploads,
             dialog_state=dialog_state,
         )
-        
-        
+
         print("DEBUG clean_q =", clean_q)
         print("DEBUG clean_q_for_answer =", clean_q_for_answer)
         print("DEBUG rag_mode =", rag_mode)
@@ -962,7 +996,7 @@ def agent_chat(req: ChatRequest):
             except Exception as e:
                 print(f"[{i}] source print failed: {e}")
         print("DEBUG source scores end")
-        
+
         # ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
         ans_text_out = (ans_text or "").strip()
 
@@ -1002,20 +1036,10 @@ def agent_chat(req: ChatRequest):
             # 保底：如果過濾完是空的，就不要覆蓋原本 sources
             if filtered_sources:
                 sources = filtered_sources
-                    
-            
-            
-            
-            
-            
 
         resources = _build_resources(sources)
 
-        #print("DEBUG sources =", sources)
-        #print("DEBUG resources =", [r.model_dump() for r in resources])
-
         reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
-        # session["messages"].append(reply)
         append_messages(session, [reply])
 
         add_message(
@@ -1029,7 +1053,7 @@ def agent_chat(req: ChatRequest):
         )
 
         set_conversation_title_if_empty(conversation_id, _title_seed(clean_q, 80))
-        
+
         resources = _build_resources(sources)
 
         return ChatResponse(
@@ -1040,8 +1064,6 @@ def agent_chat(req: ChatRequest):
             answer=ans_text_out,
             resources=resources,
         )
-    
-    
 
     return ChatResponse(
         messages=session["messages"],
@@ -1050,7 +1072,6 @@ def agent_chat(req: ChatRequest):
         conversation_id=conversation_id,
         answer=None,
         resources=[],
-
     )
 
 
@@ -1098,15 +1119,17 @@ def api_get_conversation_messages(conversation_id: str):
 
     messages: list[ChatMessage] = []
     resources_by_msg_index: dict[int, list[ChatResource]] = {}
+    image_payload_by_msg_index: dict[int, dict] = {}
 
     for idx, r in enumerate(rows):
         role = r.get("Role") or r.get("role")
-        content = r.get("Content") or r.get("content")
+        content = r.get("Content") or r.get("content") or ""
         attachments_json = (
             r.get("AttachmentsJson")
             or r.get("attachments_json")
             or r.get("attachments")
         )
+        image_case_id = r.get("ImageCaseId") or r.get("image_case_id")
 
         meta_json = r.get("MetaJson") or r.get("meta_json") or r.get("meta")
         sources_raw = None
@@ -1119,7 +1142,6 @@ def api_get_conversation_messages(conversation_id: str):
             except Exception:
                 sources_raw = None
 
-        msg_type = "text"
         url = None
         filetype = None
 
@@ -1128,32 +1150,43 @@ def api_get_conversation_messages(conversation_id: str):
                 att = json.loads(attachments_json)
                 url = att.get("url")
                 filetype = att.get("filetype")
-                if url:
-                    msg_type = "image"
             except Exception:
                 pass
 
-        if msg_type == "image":
-            m = ChatMessage(role=role, type="image", content=None, url=url, filetype=filetype)
-        else:
-            m = ChatMessage(role=role, type="text", content=content, url=None, filetype=None)
+        payload = None
+        if image_case_id:
+            payload = _get_image_case_payload(int(image_case_id), top_k=50)
+            if payload:
+                if not url:
+                    url = payload.get("url")
+                if not filetype:
+                    filetype = payload.get("filetype")
 
+        m = ChatMessage(
+            role=role,
+            type="text",
+            content=content,
+            url=url,
+            filetype=filetype,
+        )
         messages.append(m)
+
+        if payload:
+            image_payload_by_msg_index[idx] = payload
 
         if role == "assistant" and isinstance(sources_raw, list):
             resources_by_msg_index[idx] = _build_resources(sources_raw)
 
     cid = session_to_conversation_uuid(str(conversation_id))
-    session = get_session(cid)
-    session["messages"] = messages
+   
 
     return {
         "messages": messages,
         "actions": [],
         "conversation_id": cid,
         "resources_by_msg_index": resources_by_msg_index,
+        "image_payload_by_msg_index": image_payload_by_msg_index,
     }
-
 @app.delete("/agent/conversations/{conversation_id}")
 def api_delete_conversation(conversation_id: str):
     cid = session_to_conversation_uuid(str(conversation_id))
@@ -1195,3 +1228,131 @@ def api_get_bone_image(bone_id: int):
             return Response(content=data, media_type=media_type)
 
     raise HTTPException(status_code=404, detail="image file not found")
+@app.get("/image-case/{image_case_id}/image")
+def api_get_image_case_image(image_case_id: int):
+    sql = """
+        SELECT TOP 1
+            bi.image_path,
+            bi.content_type,
+            bi.image_data
+        FROM vision.ImageCase ic
+        JOIN dbo.Bone_Images bi
+            ON ic.BoneImageId = bi.image_id
+        WHERE ic.ImageCaseId = ?
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, image_case_id)
+        row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="image not found")
+
+    image_path, content_type, image_data = row[0], row[1], row[2]
+    media_type = content_type or "image/png"
+
+    if image_data is not None:
+        return Response(content=bytes(image_data), media_type=media_type)
+
+    if image_path:
+        rel = str(image_path).lstrip("/")
+        file_path = SYSTEM_ROOT / rel
+        if file_path.exists():
+            with open(file_path, "rb") as f:
+                data = f.read()
+            return Response(content=data, media_type=media_type)
+
+    raise HTTPException(status_code=404, detail="image file not found")
+def _get_image_case_payload(case_id: int | None, top_k: int = 50) -> dict | None:
+    if not case_id:
+        return None
+
+    # 1) 圖片
+    img_sql = """
+    SELECT TOP 1
+        ic.ImageCaseId,
+        bi.image_path,
+        bi.content_type
+    FROM vision.ImageCase ic
+    JOIN dbo.Bone_Images bi
+        ON ic.BoneImageId = bi.image_id
+    WHERE ic.ImageCaseId = ?
+    """
+
+    # 2) detections
+    det_sql = f"""
+    SELECT TOP ({int(top_k)})
+        d.DetectionId,
+        d.ImageCaseId,
+        d.BoneId,
+        d.SmallBoneId,
+        d.Label41,
+        d.Confidence,
+        d.X1, d.Y1, d.X2, d.Y2,
+        d.PolyJson,
+        d.P1X, d.P1Y,
+        d.P2X, d.P2Y,
+        d.P3X, d.P3Y,
+        d.P4X, d.P4Y,
+        d.PolyIsNormalized,
+        d.Cx, d.Cy,
+        b.bone_zh,
+        b.bone_en
+    FROM vision.ImageDetection d
+    LEFT JOIN dbo.Bone_Info b
+        ON d.BoneId = b.bone_id
+    WHERE d.ImageCaseId = ?
+    ORDER BY d.Confidence DESC
+    """
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        cur.execute(img_sql, case_id)
+        img_row = cur.fetchone()
+        if not img_row:
+            return None
+
+        image_url = (getattr(img_row, "image_path", None) or "").strip()
+        filetype = (getattr(img_row, "content_type", None) or "").strip() or None
+
+        cur.execute(det_sql, case_id)
+        det_rows = cur.fetchall()
+
+    detections = []
+    for row in det_rows:
+        detections.append({
+            "detection_id": getattr(row, "DetectionId", None),
+            "image_case_id": getattr(row, "ImageCaseId", None),
+            "bone_id": getattr(row, "BoneId", None),
+            "small_bone_id": getattr(row, "SmallBoneId", None),
+            "bone_zh": getattr(row, "bone_zh", None),
+            "bone_en": getattr(row, "bone_en", None),
+            "label41": getattr(row, "Label41", None),
+            "confidence": float(getattr(row, "Confidence", 0.0) or 0.0),
+            "bbox": [
+                getattr(row, "X1", None),
+                getattr(row, "Y1", None),
+                getattr(row, "X2", None),
+                getattr(row, "Y2", None),
+            ],
+            "PolyJson": getattr(row, "PolyJson", None),
+            "P1X": getattr(row, "P1X", None),
+            "P1Y": getattr(row, "P1Y", None),
+            "P2X": getattr(row, "P2X", None),
+            "P2Y": getattr(row, "P2Y", None),
+            "P3X": getattr(row, "P3X", None),
+            "P3Y": getattr(row, "P3Y", None),
+            "P4X": getattr(row, "P4X", None),
+            "P4Y": getattr(row, "P4Y", None),
+            "PolyIsNormalized": getattr(row, "PolyIsNormalized", None),
+            "Cx": getattr(row, "Cx", None),
+            "Cy": getattr(row, "Cy", None),
+        })
+
+    return {
+        "image_case_id": case_id,
+        "url": image_url,
+        "filetype": filetype,
+        "detections": detections,
+    }

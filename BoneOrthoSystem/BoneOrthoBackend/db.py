@@ -243,7 +243,15 @@ def get_conversation_messages(conversation_id: str) -> List[Dict[str, Any]]:
     conv_id = session_to_conversation_uuid(str(conversation_id))
 
     sql = """
-    SELECT MessageId, ConversationId, Role, Content, AttachmentsJson, MetaJson, CreatedAt
+    SELECT
+        MessageId,
+        ConversationId,
+        Role,
+        Content,
+        AttachmentsJson,
+        MetaJson,
+        CreatedAt,
+        ImageCaseId
     FROM agent.ConversationMessage
     WHERE ConversationId = ?
     ORDER BY CreatedAt ASC, MessageId ASC;
@@ -265,7 +273,6 @@ def get_conversation_messages(conversation_id: str) -> List[Dict[str, Any]]:
             r["Meta"] = None
 
     return rows
-
 
 def update_conversation_title(conversation_id: str, title: str) -> None:
     conv_id = session_to_conversation_uuid(str(conversation_id))
@@ -304,6 +311,7 @@ def add_message(
     small_bone_id: Optional[int] = None,
     sources: Optional[Any] = None,
     attachments_json: Optional[str] = None,
+    image_case_id: Optional[int] = None,
     **kwargs,
 ) -> str:
     raw = str(conversation_id)
@@ -330,18 +338,19 @@ def add_message(
 
     sql = """
     INSERT INTO agent.ConversationMessage
-    (
-        MessageId,
-        ConversationId,
-        Role,
-        Content,
-        AttachmentsJson,
-        MetaJson,
-        CreatedAt
-    )
+(
+    MessageId,
+    ConversationId,
+    Role,
+    Content,
+    AttachmentsJson,
+    MetaJson,
+    CreatedAt,
+    ImageCaseId
+)
     VALUES
     (
-        ?, ?, ?, ?, ?, ?, SYSUTCDATETIME()
+        ?, ?, ?, ?, ?, ?, SYSUTCDATETIME(), ?
     );
     """
 
@@ -355,6 +364,7 @@ def add_message(
             content or "",
             attachments_json,
             meta_json,
+            image_case_id,
         )
         conn.commit()
 
