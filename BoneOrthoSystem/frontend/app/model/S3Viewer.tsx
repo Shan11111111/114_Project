@@ -672,10 +672,13 @@ export default function S3Viewer() {
   //抽屜式
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const SIDEBAR_WIDTH = 360;
+  const SIDEBAR_PEEK = 0; // 收合時完全藏起來
 
   // ✅ 新增：Solo / Isolate 模式（只顯示某顆）
   const [soloNormSet, setSoloNormSet] = useState<Set<string> | null>(null);
   const soloActive = soloNormSet != null;
+
+  const [showHint, setShowHint] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -688,6 +691,11 @@ export default function S3Viewer() {
         console.error('bone-list fetch failed:', e);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowHint(false), 3500);
+    return () => clearTimeout(timer);
   }, []);
 
   const focusOnMesh = useCallback((meshName: string) => {
@@ -999,25 +1007,26 @@ export default function S3Viewer() {
   }
 
   /** =========================
-   *  Styles（完全不動）
+   *  Styles
    *  ========================= */
   const sAside: React.CSSProperties = {
     position: 'absolute',
-    top: 0,
-    left: 0,
+    top: 14,
+    left: 14,
     zIndex: 30,
     width: SIDEBAR_WIDTH,
-    height: '100%',
+    height: 'calc(100% - 28px)',
     background: 'var(--panel-bg)',
     color: 'var(--panel-text)',
-    borderRight: '1px solid var(--panel-border)',
-    padding: 12,
+    border: '1px solid var(--panel-border)',
+    borderRadius: 18,
+    padding: 14,
     overflowY: 'auto',
     overflowX: 'hidden',
-    boxShadow: '8px 0 24px rgba(0,0,0,0.12)',
-    transform: sidebarOpen ? 'translateX(0)' : `translateX(calc(-100% + 56px))`,
-    transition: 'transform 0.28s ease',
-    backdropFilter: 'blur(10px)',
+    boxShadow: '0 16px 36px rgba(0,0,0,0.22)',
+    transform: sidebarOpen ? 'translateX(0)' : `translateX(calc(-100% - 18px))`,
+    transition: 'transform 0.26s ease',
+    backdropFilter: 'blur(12px)',
   };
 
   const sGroupBtn = (open: boolean): React.CSSProperties => ({
@@ -1037,12 +1046,12 @@ export default function S3Viewer() {
 
   const sCard = (active: boolean): React.CSSProperties => ({
     textAlign: 'left',
-    padding: 12,
-    borderRadius: 14,
-    background: 'var(--card-bg)',
+    padding: 14,
+    borderRadius: 16,
+    background: active ? 'var(--panel-btn-open-bg)' : 'var(--card-bg)',
     color: 'var(--foreground)',
-    border: active ? '2px solid var(--accent)' : '1px solid var(--panel-border)',
-    boxShadow: active ? '0 0 0 2px rgba(56,189,248,0.22)' : 'none',
+    border: active ? '1.5px solid var(--accent)' : '1px solid var(--panel-border)',
+    boxShadow: active ? '0 8px 22px rgba(56,189,248,0.16)' : 'none',
   });
 
   const sMini: React.CSSProperties = {
@@ -1076,14 +1085,31 @@ export default function S3Viewer() {
   };
 
   const sTopToggleBtn: React.CSSProperties = {
-    height: 34,
-    padding: '0 14px',
-    borderRadius: 12,
+    height: 32,
+    padding: '0 10px',
+    borderRadius: 10,
     border: '1px solid var(--panel-border)',
     background: 'var(--panel-btn-bg)',
     color: 'var(--panel-text)',
     cursor: 'pointer',
+    fontWeight: 700,
+    fontSize: 13,
+  };
+
+  const sIconBtn: React.CSSProperties = {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    border: '1px solid var(--panel-border)',
+    background: 'transparent',
+    color: 'var(--panel-text)',
+    cursor: 'pointer',
     fontWeight: 900,
+    fontSize: 16,
+    opacity: 0.7,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   };
 
   return (
@@ -1091,48 +1117,51 @@ export default function S3Viewer() {
       style={{
         position: 'relative',
         width: '100%',
-        height: 'calc(100vh - 64px)',
+        height: 'calc(100vh - 56px)',
         overflow: 'hidden',
         background: 'var(--viewer-bg)',
-      }}
-    >      {/* 左側清單 */}
+      }}    >
+
+      {/* 左側清單 */}
       <aside style={sAside}>
         <div
           style={{
+            position: 'sticky',
+            top: -14,
+            zIndex: 10,
+
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: 10,
-            marginBottom: 10,
+
+            margin: '-14px -14px 14px -14px',
+            padding: '14px 14px 12px 14px',
+
+            background: 'linear-gradient(to bottom, var(--panel-bg) 0%, var(--panel-bg) 70%, transparent 100%)',
+            borderBottom: '1px solid var(--panel-border)',
+            boxShadow: 'none',
+            backdropFilter: 'blur(6px)',
           }}
         >
-          <div style={{ fontWeight: 900, fontSize: 16, whiteSpace: 'nowrap' }}>
+          <div style={{ fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap' }}>
             骨頭清單
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              style={sTopToggleBtn}
-              onClick={toggleAllGroups}
-              title="切換：全部展開 / 全部收起"
-            >
+            <button style={sTopToggleBtn} onClick={toggleAllGroups}>
               {allOpen ? '一鍵收起' : '一鍵展開'}
             </button>
 
             <button
-              style={{
-                ...sTopToggleBtn,
-                minWidth: 52,
-                padding: '0 12px',
-              }}
-              onClick={() => setSidebarOpen((prev) => !prev)}
-              title={sidebarOpen ? '收合側欄' : '展開側欄'}
+              onClick={() => setSidebarOpen(false)}
+              title="收合骨頭清單"
+              style={sIconBtn}
             >
-              {sidebarOpen ? '←' : '→'}
+              ×
             </button>
           </div>
         </div>
-
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -1320,28 +1349,30 @@ export default function S3Viewer() {
             </div>
           );
         })}
+      </aside>
+      {!sidebarOpen && (
         <button
-          onClick={() => setSidebarOpen((prev) => !prev)}
-          title={sidebarOpen ? '收合骨頭清單' : '展開骨頭清單'}
+          onClick={() => setSidebarOpen(true)}
           style={{
             position: 'absolute',
-            top: '50%',
-            right: 8,
-            transform: 'translateY(-50%)',
-            width: 32,
-            height: 72,
-            borderRadius: 16,
+            top: 22,
+            left: 24,
+            zIndex: 35,
+            height: 40,
+            padding: '0 16px',
+            borderRadius: 14,
             border: '1px solid var(--panel-border)',
-            background: 'var(--panel-btn-bg)',
+            background: 'var(--panel-bg)',
             color: 'var(--panel-text)',
             cursor: 'pointer',
             fontWeight: 900,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-          }}
-        >
-          {sidebarOpen ? '〈' : '〉'}
+            fontSize: 15,
+            boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
+            backdropFilter: 'blur(10px)',
+          }}        >
+          ☰ 骨頭清單
         </button>
-      </aside>
+      )}
 
       {/* 右側 3D */}
       <main
@@ -1352,69 +1383,85 @@ export default function S3Viewer() {
           height: '100%',
           background: 'var(--viewer-bg)',
         }}
-      >        <div
+      ><div
         style={{
           position: 'absolute',
-          top: 20,
-          right: 20,
+          top: 18,
+          right: 18,
           zIndex: 20,
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, auto)',
-          gap: 10,
-          justifyContent: 'end',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 8,
         }}
       >
-          {viewButtons.map(([label, fn]) => (
-            <button
-              key={label}
-              onClick={fn}
-              title={`${label}視角`}
+          {/* 視角工具列 */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 62px)',
+              gap: 10,
+              padding: 0,
+              borderRadius: 0,
+              background: 'transparent',
+              border: 'none',
+              boxShadow: 'none',
+              backdropFilter: 'none',
+            }}
+          >
+            {viewButtons.map(([label, fn]) => (
+              <button
+                key={label}
+                onClick={fn}
+                title={`${label}視角`}
+                style={{
+                  height: 42,
+                  borderRadius: 10,
+                  background: 'var(--glass-bg)',
+                  border: '1px solid var(--panel-border)',
+                  color: 'var(--panel-text)',
+                  backdropFilter: 'blur(8px)',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  boxShadow: '0 6px 16px rgba(0,0,0,0.14)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--glass-hover)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--glass-bg)';
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* 操作提示 */}
+          {showHint && (
+            <div
               style={{
-                height: 42,
-                minWidth: label === '重置' ? 82 : 52,
-                padding: '0 16px',
-                borderRadius: 14,
+                marginTop: 2,
+                padding: '7px 10px',
+                borderRadius: 12,
+                background: 'var(--glass-bg)',
                 border: '1px solid var(--panel-border)',
-                background: 'var(--panel-btn-bg)',
                 color: 'var(--panel-text)',
-                cursor: 'pointer',
-                fontWeight: 700,
-                fontSize: 14,
-                boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
-                transition: 'all 0.2s ease',
-              }} onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--panel-btn-open-bg)';
-                e.currentTarget.style.borderColor = 'var(--panel-border)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'var(--panel-btn-bg)';
-                e.currentTarget.style.borderColor = 'var(--panel-border)';
+                fontSize: 11,
+                lineHeight: 1.4,
+                boxShadow: '0 6px 16px rgba(0,0,0,0.12)',
+                backdropFilter: 'blur(8px)',
+                pointerEvents: 'none',
+                opacity: 0.9,
               }}
             >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div
-          style={{
-            position: 'absolute',
-            left: 20,
-            bottom: 20,
-            zIndex: 20,
-            padding: '10px 12px',
-            borderRadius: 14,
-            background: 'var(--panel-btn-bg)',
-            color: 'var(--panel-text)',
-            fontSize: 12,
-            lineHeight: 1.6,
-            border: '1px solid var(--panel-border)',
-            pointerEvents: 'none',
-            boxShadow: '0 6px 10px rgba(56, 56, 62, 0.08)',
-          }}
-        >
-          左鍵旋轉　右鍵平移　滾輪縮放
-        </div>
+              <i className="fa-solid fa-computer-mouse" style={{ marginRight: 6, opacity: 0.7 }} />
+              拖曳旋轉 · 右鍵平移 · 滾輪縮放
+            </div>
+          )}
 
+        </div>
         <Canvas
           gl={{ alpha: true }}
           onCreated={({ gl }) => {

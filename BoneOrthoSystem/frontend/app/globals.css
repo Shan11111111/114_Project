@@ -903,6 +903,27 @@ html.dark .mobile-user-card {
   border-color: transparent;
 }
 
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-text: #1e293b;
+}
+
+.dark {
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.15);
+  --glass-text: #e2e8f0;
+}
+
+:root {
+  --glass-hover: rgba(255,255,255,0.9);
+}
+
+.dark {
+  --glass-hover: rgba(255,255,255,0.16);
+}
+
+
 @media (max-width: 1024px) {
   .site-navbar {
     height: 60px !important;

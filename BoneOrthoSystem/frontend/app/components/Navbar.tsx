@@ -72,8 +72,7 @@ export default function Navbar() {
   return (
     <>
       <nav
-        className="site-navbar fixed top-0 left-0 right-0 z-[9999] w-full h-16 border-b backdrop-blur-md flex items-center justify-between px-6"
-        style={{
+        className="site-navbar fixed top-0 left-0 right-0 z-[9999] w-full h-14 border-b backdrop-blur-md flex items-center justify-between px-6" style={{
           backgroundColor: "var(--navbar-bg)",
           borderColor: "var(--navbar-border)",
           color: "var(--navbar-text)",
@@ -81,21 +80,21 @@ export default function Navbar() {
       >
         <Link href="/" className="navbar-brand flex items-center gap-3">
           <div
-            className="navbar-logo w-9 h-9 rounded-full flex items-center justify-center font-bold shrink-0"
+            className="navbar-logo w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0"
             style={{
               backgroundColor: "var(--navbar-logo-bg)",
               color: "var(--navbar-logo-text)",
-              fontSize: "20px",
+              fontSize: "18px",
               lineHeight: "1",
             }}
           >
             G
           </div>
-          <span className="navbar-title text-lg font-semibold">GalaBone</span>
+          <span className="navbar-title text-base font-semibold">GalaBone</span>
         </Link>
 
         {/* 桌機版導覽 */}
-        <div className="hidden md:flex items-center gap-6 text-sm">
+        <div className="hidden md:flex items-center gap-5 text-[13px]">
           <Link href="/" className="hover-link">
             <b>首頁</b>
           </Link>
@@ -189,7 +188,7 @@ export default function Navbar() {
             <i className={`fa-solid ${mobileMenuOpen ? "fa-xmark" : "fa-bars-staggered"}`} />
             {!mobileMenuOpen && <span className="navbar-hamburger-text">選單</span>}
           </button>
-          
+
           {/* 桌機版帳號下拉 */}
           {user && open && (
             <div
