@@ -1,0 +1,174 @@
+/* 3d_mobile.css */
+
+@media (max-width: 768px) {
+  .s3-viewer-page {
+    height: calc(100dvh - 56px) !important;
+    overflow: hidden !important;
+  }
+
+  .s3-control-hint {
+    display: none !important;
+  }
+
+  .s3-bone-sidebar {
+    top: auto !important;
+    left: 10px !important;
+    right: 10px !important;
+    bottom: 10px !important;
+
+    width: auto !important;
+    height: 34dvh !important;
+    max-height: 310px !important;
+    min-height: 220px !important;
+
+    padding: 14px !important;
+    border-radius: 24px !important;
+
+    background: var(--panel-bg) !important;
+    color: var(--panel-text) !important;
+    border: 1px solid var(--panel-border) !important;
+    box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.22) !important;
+
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+
+    transform: translateY(0) !important;
+
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  .s3-bone-sidebar::before {
+    content: "";
+    display: block;
+    width: 44px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--panel-border);
+    opacity: 0.65;
+    margin: 0 auto 10px auto;
+  }
+
+  .s3-bone-sidebar.is-closed {
+    transform: translateY(calc(100% + 24px)) !important;
+  }
+
+  .s3-bone-sidebar > div:first-child {
+    position: sticky !important;
+    top: -14px !important;
+    z-index: 20 !important;
+
+    margin: -14px -14px 12px -14px !important;
+    padding: 14px 14px 12px 14px !important;
+
+    min-height: 54px !important;
+
+    background: var(--panel-bg) !important;
+    color: var(--panel-text) !important;
+    border-bottom: 1px solid var(--panel-border) !important;
+
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .s3-bone-sidebar > div:first-child div:first-child {
+    font-size: 15px !important;
+    font-weight: 900 !important;
+  }
+
+  .s3-bone-sidebar input {
+    height: 44px !important;
+    padding: 8px 12px !important;
+    margin-top: 0 !important;
+    margin-bottom: 10px !important;
+    border-radius: 16px !important;
+
+    background: var(--input-bg) !important;
+    color: var(--input-text) !important;
+    border: 1px solid var(--input-border) !important;
+  }
+
+  .s3-bone-sidebar input::placeholder {
+    color: var(--muted-foreground, rgba(148, 163, 184, 0.75)) !important;
+  }
+
+  .s3-bone-sidebar button {
+    box-shadow: none !important;
+  }
+
+  .s3-bone-sidebar > div:not(:first-child) > button {
+    min-height: 50px !important;
+    padding: 8px 12px !important;
+    border-radius: 16px !important;
+
+    background: var(--panel-btn-bg) !important;
+    color: var(--panel-text) !important;
+    border: 1px solid var(--panel-border) !important;
+  }
+
+  .s3-sidebar-open-btn {
+    top: auto !important;
+    left: 16px !important;
+    bottom: 18px !important;
+    transform: none !important;
+
+    height: 42px !important;
+    padding: 0 18px !important;
+    border-radius: 999px !important;
+    font-size: 14px !important;
+
+    background: var(--panel-bg) !important;
+    color: var(--panel-text) !important;
+    border: 1px solid var(--panel-border) !important;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18) !important;
+
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .s3-view-toolbar {
+    top: 14px !important;
+    right: 14px !important;
+  }
+
+  .s3-view-buttons {
+    grid-template-columns: repeat(2, 50px) !important;
+    gap: 7px !important;
+  }
+
+  .s3-view-buttons button {
+    height: 36px !important;
+    border-radius: 10px !important;
+    font-size: 12px !important;
+  }
+}
+
+/* 小手機 */
+@media (max-width: 480px) {
+  .s3-bone-sidebar {
+    left: 10px !important;
+    right: 10px !important;
+    bottom: 10px !important;
+
+    height: 34dvh !important;
+    max-height: 300px !important;
+    min-height: 215px !important;
+
+    border-radius: 22px !important;
+  }
+
+  .s3-sidebar-open-btn {
+    left: 16px !important;
+    bottom: 16px !important;
+  }
+
+  .s3-view-buttons {
+    grid-template-columns: repeat(2, 48px) !important;
+    gap: 7px !important;
+  }
+
+  .s3-view-buttons button {
+    height: 35px !important;
+    font-size: 12px !important;
+  }
+}

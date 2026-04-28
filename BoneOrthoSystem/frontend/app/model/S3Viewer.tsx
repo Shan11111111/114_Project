@@ -13,6 +13,8 @@ import {
 import * as THREE from 'three';
 import { EffectComposer, Outline } from '@react-three/postprocessing';
 
+import "./3d_mobile.css";
+
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
 
 /** =========================
@@ -679,6 +681,16 @@ export default function S3Viewer() {
   const soloActive = soloNormSet != null;
 
   const [showHint, setShowHint] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+
 
   useEffect(() => {
     (async () => {
@@ -770,11 +782,11 @@ export default function S3Viewer() {
   const setTopView = useCallback(() => setView([0, 6, 0.001]), [setView]);
   const viewButtons: [string, () => void][] = [
     ['重置', resetView],
+    ['上', setTopView],
     ['正', setFrontView],
     ['背', setBackView],
-    ['左', setLeftView],
     ['右', setRightView],
-    ['上', setTopView],
+    ['左', setLeftView],
   ];
 
   const findListItemByMeshName = useCallback(
@@ -888,7 +900,9 @@ export default function S3Viewer() {
 
       requestAnimationFrame(() => {
         const el = document.getElementById(`card-spine-${series}`);
-        el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        if (!isMobile) {
+          el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
       });
 
       requestAnimationFrame(() => focusOnNormList(seriesNorms[series]));
@@ -926,7 +940,9 @@ export default function S3Viewer() {
 
         requestAnimationFrame(() => {
           const el = document.getElementById(cardId);
-          el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          if (!isMobile) {
+            el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }
         });
       } else {
         setBoneInfo(null);
@@ -976,7 +992,9 @@ export default function S3Viewer() {
 
     requestAnimationFrame(() => {
       const el = document.getElementById(cardId);
-      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (!isMobile) {
+        el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
     });
 
     requestAnimationFrame(() => {
@@ -1114,6 +1132,7 @@ export default function S3Viewer() {
 
   return (
     <div
+      className="s3-viewer-page"
       style={{
         position: 'relative',
         width: '100%',
@@ -1123,7 +1142,7 @@ export default function S3Viewer() {
       }}    >
 
       {/* 左側清單 */}
-      <aside style={sAside}>
+      <aside className={`s3-bone-sidebar ${sidebarOpen ? 'is-open' : 'is-closed'}`} style={sAside}>
         <div
           style={{
             position: 'sticky',
@@ -1352,6 +1371,7 @@ export default function S3Viewer() {
       </aside>
       {!sidebarOpen && (
         <button
+          className="s3-sidebar-open-btn"
           onClick={() => setSidebarOpen(true)}
           style={{
             position: 'absolute',
@@ -1384,6 +1404,7 @@ export default function S3Viewer() {
           background: 'var(--viewer-bg)',
         }}
       ><div
+        className="s3-view-toolbar"
         style={{
           position: 'absolute',
           top: 18,
@@ -1397,6 +1418,7 @@ export default function S3Viewer() {
       >
           {/* 視角工具列 */}
           <div
+            className="s3-view-buttons"
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(3, 62px)',
@@ -1417,7 +1439,7 @@ export default function S3Viewer() {
                 style={{
                   height: 42,
                   borderRadius: 10,
-                  background: 'var(--glass-bg)',
+                  background: 'var(--panel-btn-bg)',
                   border: '1px solid var(--panel-border)',
                   color: 'var(--panel-text)',
                   backdropFilter: 'blur(8px)',
@@ -1427,12 +1449,13 @@ export default function S3Viewer() {
                   boxShadow: '0 6px 16px rgba(0,0,0,0.14)',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--glass-hover)';
+                  e.currentTarget.style.background = 'var(--panel-btn-open-bg)';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'var(--glass-bg)';
-                }}
-              >
+                  e.currentTarget.style.background = 'var(--panel-btn-bg)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}>
                 {label}
               </button>
             ))}
@@ -1441,6 +1464,7 @@ export default function S3Viewer() {
           {/* 操作提示 */}
           {showHint && (
             <div
+              className="s3-control-hint"
               style={{
                 marginTop: 2,
                 padding: '7px 10px',
@@ -1501,12 +1525,14 @@ export default function S3Viewer() {
           </EffectComposer>
 
           <Controls controlsRef={controlsRef} cameraRef={cameraRef} />
-          <GizmoHelper alignment="bottom-right" margin={[110, 110]}>
-            <GizmoViewport
-              axisColors={['#f87171', '#4ade80', '#60a5fa']}
-              labelColor="#e5e7eb"
-            />
-          </GizmoHelper>
+          {!isMobile && (
+            <GizmoHelper alignment="bottom-right" margin={[110, 110]}>
+              <GizmoViewport
+                axisColors={['#f87171', '#4ade80', '#60a5fa']}
+                labelColor="#e5e7eb"
+              />
+            </GizmoHelper>
+          )}
           <Environment preset="city" />
         </Canvas>
       </main>
