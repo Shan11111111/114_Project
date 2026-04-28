@@ -3,6 +3,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getUser } from "../lib/auth";
 
+import {
+  Eye,
+  Download,
+  Trash2,
+  Search,
+  RefreshCcw,
+} from "lucide-react";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
 
@@ -190,10 +198,11 @@ export default function MaterialsTable() {
   const notLoggedIn = !isCheckingLogin && !isLoggedIn;
 
   return (
-    <div className="card border border-slate-800 rounded-2xl h-full p-4">
+    <div className="w-full min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm
+                dark:border-slate-700 dark:bg-slate-900">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">教材清單</h2>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">教材清單</h2>
           <div className="mt-1 text-[11px] text-slate-500">
             你的身分是 {role}{" "}
             {isManager
@@ -205,15 +214,18 @@ export default function MaterialsTable() {
         <button
           onClick={() => fetchList()}
           disabled={loading || isCheckingLogin || !isLoggedIn}
-          className="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-700 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "載入中..." : "刷新"}
+          <span className="flex items-center gap-1">
+            <RefreshCcw className="w-4 h-4" />
+            {loading ? "載入中..." : "刷新"}
+          </span>
         </button>
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3 text-xs">
         <div>
-          <div className="text-slate-400 mb-1">
+          <div className="text-slate-500 mb-1">
             搜尋（檔案名稱 / 教材代碼{isManager ? " / 使用者系統代碼" : ""}）
           </div>
 
@@ -227,8 +239,9 @@ export default function MaterialsTable() {
                 }
               }}
               disabled={!isLoggedIn}
-              className="w-full rounded-xl border border-slate-700 bg-slate-900/30 px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              placeholder={
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 
+           placeholder:text-slate-400 disabled:opacity-50 
+           dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"              placeholder={
                 isLoggedIn
                   ? isManager
                     ? "例如:骨折 / 檔案名稱 / 上傳者的使用者系統代碼 "
@@ -241,9 +254,12 @@ export default function MaterialsTable() {
               type="button"
               onClick={() => fetchList()}
               disabled={!isLoggedIn || loading}
-              className="px-3 py-2 rounded-xl border border-slate-700 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              搜尋
+              className="px-3 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 
+           dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"            >
+              <span className="flex items-center gap-1">
+                <Search className="w-4 h-4" />
+                搜尋
+              </span>
             </button>
 
             <button
@@ -253,7 +269,7 @@ export default function MaterialsTable() {
                 fetchList("");
               }}
               disabled={!isLoggedIn || loading}
-              className="px-3 py-2 rounded-xl border border-slate-700 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               清除
             </button>
@@ -262,44 +278,54 @@ export default function MaterialsTable() {
       </div>
 
       {notLoggedIn && (
-        <div className="mt-3 rounded-xl border border-amber-900/50 bg-amber-950/30 p-3">
-          <div className="text-xs text-amber-200">
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <div className="text-xs text-amber-700">
             請先登入，未登入不可上傳或查看教材。
           </div>
         </div>
       )}
 
       {err && (
-        <div className="mt-3 rounded-xl border border-red-900/50 bg-red-950/30 p-3">
-          <div className="text-xs text-red-300 whitespace-pre-wrap">{err}</div>
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3">
+          <div className="text-xs text-red-600 whitespace-pre-wrap">{err}</div>
           {rawText && (
-            <pre className="mt-2 text-[11px] text-red-200 whitespace-pre-wrap">
+            <pre className="mt-2 text-[11px] text-red-500 whitespace-pre-wrap">
               {rawText}
             </pre>
           )}
         </div>
       )}
 
-      <div className="mt-4 overflow-auto border border-slate-800 rounded-xl">
-        <table className="w-full text-xs">
-          <thead className="bg-slate-900/40 text-slate-300">
+      <div className="mt-4 w-full min-w-0 max-w-full overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-xl">
+        <table className="min-w-[820px] w-full text-xs">
+          <thead className="bg-slate-50 text-slate-600 border-b border-slate-200
+                 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
             <tr>
-              {isManager && <th className="text-left p-3">使用者系統代碼</th>}
-              <th className="text-left p-3">檔案名稱</th>
-              <th className="text-left p-3">檔案格式</th>
-              <th className="text-left p-3">語言</th>
-              <th className="text-left p-3">內容分類</th>
-              <th className="text-left p-3">建立時間</th>
-              <th className="text-left p-3">教材代碼</th>
-              <th className="text-left p-3">查看(分頁)</th>
-              <th className="text-left p-3">下載</th>
-              {canDelete && <th className="text-left p-3">刪除</th>}
+              {isManager && (
+                <th className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap">
+                  使用者系統代碼
+                </th>
+              )}
+              <th className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap">檔案名稱</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap">檔案格式</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap">語言</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap">內容分類</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap">建立時間</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap">教材代碼</th>
+
+              <th className="sticky right-0 z-10 bg-slate-50 dark:bg-slate-800 px-4 py-3 text-center text-xs font-semibold whitespace-nowrap shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.35)]">
+                操作
+              </th>
             </tr>
           </thead>
+
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="p-3 text-slate-500" colSpan={isManager ? 10 : 9}>
+                <td
+                  className="px-4 py-3 text-slate-500"
+                  colSpan={isManager ? 8 : 7}
+                >
                   {isCheckingLogin
                     ? "檢查登入狀態中..."
                     : loading
@@ -311,65 +337,87 @@ export default function MaterialsTable() {
               </tr>
             ) : (
               pagedRows.map((r) => (
-                <tr key={r.MaterialId} className="border-t border-slate-800">
+                <tr
+                  key={r.MaterialId}
+                  className="border-t border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
                   {isManager && (
-                    <td className="p-3 text-slate-300 font-mono">{r.UserId}</td>
+                    <td className="px-4 py-2 text-slate-700 align-middle font-mono max-w-[150px] truncate">
+                      {r.UserId}
+                    </td>
                   )}
-                  <td className="p-3 text-slate-100">{r.Title}</td>
-                  <td className="p-3 text-slate-300">{r.Type}</td>
-                  <td className="p-3 text-slate-300">{r.Language}</td>
-                  <td className="p-3 text-slate-300">{r.Style}</td>
-                  <td className="p-3 text-slate-400">
+
+                  <td className="px-4 py-2 text-slate-800 align-middle max-w-[170px] truncate">
+                    {r.Title}
+                  </td>
+
+                  <td className="px-4 py-2 text-slate-700 align-middle whitespace-nowrap">
+                    {r.Type}
+                  </td>
+
+                  <td className="px-4 py-2 text-slate-700 align-middle whitespace-nowrap">
+                    {r.Language}
+                  </td>
+
+                  <td className="px-4 py-2 text-slate-700 align-middle whitespace-nowrap">
+                    {r.Style}
+                  </td>
+
+                  <td className="px-4 py-2 text-slate-700 align-middle whitespace-nowrap">
                     {String(r.CreatedAt || "").slice(0, 19).replace("T", " ")}
                   </td>
-                  <td className="p-3 text-slate-400 font-mono">
+
+                  <td className="px-4 py-2 text-slate-700 align-middle font-mono max-w-[170px] truncate">
                     {r.MaterialId}
                   </td>
 
-                  <td className="p-3">
-                    {canView && canPreviewType(r.Type) ? (
+                  <td className="sticky right-0 bg-white dark:bg-slate-900 px-4 py-2 align-middle shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.35)]">
+                    <div className="flex items-center justify-center gap-2 whitespace-nowrap">
+                      {canView && canPreviewType(r.Type) ? (
+                        <a
+                          href={
+                            `${materialsBaseUrl}/${encodeURIComponent(r.MaterialId)}/view` +
+                            `?user_id=${encodeURIComponent(userId)}` +
+                            `&role=${encodeURIComponent(role)}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500 bg-white text-emerald-600 hover:bg-emerald-50"
+                          title="查看"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </a>
+                      ) : (
+                        <span className="inline-flex h-8 w-8 items-center justify-center text-slate-300">
+                          -
+                        </span>
+                      )}
+
                       <a
                         href={
-                          `${materialsBaseUrl}/${encodeURIComponent(r.MaterialId)}/view` +
+                          `${materialsBaseUrl}/${encodeURIComponent(r.MaterialId)}/download` +
                           `?user_id=${encodeURIComponent(userId)}` +
                           `&role=${encodeURIComponent(role)}`
                         }
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex rounded-lg border border-emerald-700 px-3 py-1.5 text-emerald-300 hover:bg-emerald-950/40"
+                        onClick={() => onDownloadInfo(r.Type)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-500 bg-white text-sky-600 hover:bg-sky-50"
+                        title="下載"
                       >
-                        查看
+                        <Download className="h-4 w-4" />
                       </a>
-                    ) : (
-                      <span className="text-slate-500">不支援</span>
-                    )}
-                  </td>
 
-                  <td className="p-3">
-                    <a
-                      href={
-                        `${materialsBaseUrl}/${encodeURIComponent(r.MaterialId)}/download` +
-                        `?user_id=${encodeURIComponent(userId)}` +
-                        `&role=${encodeURIComponent(role)}`
-                      }
-                      onClick={() => onDownloadInfo(r.Type)}
-                      className="inline-flex rounded-lg border border-cyan-700 px-3 py-1.5 text-cyan-300 hover:bg-cyan-950/40"
-                    >
-                      下載
-                    </a>
+                      {canDelete && (
+                        <button
+                          onClick={() => onDelete(r.MaterialId)}
+                          disabled={deletingId === r.MaterialId}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-500 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          title={deletingId === r.MaterialId ? "刪除中..." : "刪除"}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
-
-                  {canDelete && (
-                    <td className="p-3">
-                      <button
-                        onClick={() => onDelete(r.MaterialId)}
-                        disabled={deletingId === r.MaterialId}
-                        className="inline-flex rounded-lg border border-red-700 px-3 py-1.5 text-red-300 hover:bg-red-950/40 disabled:opacity-50"
-                      >
-                        {deletingId === r.MaterialId ? "刪除中..." : "刪除"}
-                      </button>
-                    </td>
-                  )}
                 </tr>
               ))
             )}
@@ -379,7 +427,7 @@ export default function MaterialsTable() {
 
       {rows.length > 0 && (
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-slate-500">
             第 {currentPage} / {totalPages} 頁，共 {rows.length} 筆資料
           </div>
 
@@ -388,7 +436,7 @@ export default function MaterialsTable() {
               type="button"
               onClick={() => setCurrentPage(1)}
               disabled={currentPage === 1}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               第一頁
             </button>
@@ -397,20 +445,18 @@ export default function MaterialsTable() {
               type="button"
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               上一頁
             </button>
 
-            <span className="px-2 text-xs text-slate-300">
-              {currentPage}
-            </span>
+            <span className="px-2 text-xs text-slate-500">{currentPage}</span>
 
             <button
               type="button"
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               下一頁
             </button>
@@ -419,7 +465,7 @@ export default function MaterialsTable() {
               type="button"
               onClick={() => setCurrentPage(totalPages)}
               disabled={currentPage === totalPages}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               最後頁
             </button>

@@ -3,15 +3,17 @@ import MaterialsTable from "../../components/MaterialsTable";
 
 export default function MaterialsPage() {
   return (
-    <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 12 }}>
-        教材管理（Qdrant 資料庫管理）
-      </h1>
+    <main className="min-h-screen w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950">
+      <div className="mx-auto w-full max-w-[960px] min-w-0 px-4 py-8 sm:px-6">
+        <h1 className="mb-6 text-2xl font-bold text-slate-900">
+          教材管理（ Qdrant 資料庫管理 ）
+        </h1>
 
-      <div style={{ display: "grid", gap: 16 }}>
-        <MaterialsUploader />
-        <MaterialsTable />
+        <div className="grid w-full min-w-0 gap-6">
+          <MaterialsUploader />
+          <MaterialsTable />
+        </div>
       </div>
-    </div>
+    </main>
   );
 }

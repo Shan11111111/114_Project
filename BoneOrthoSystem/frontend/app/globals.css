@@ -992,3 +992,47 @@ html.dark .mobile-user-card {
     height: 38px !important;
   }
 }
+
+
+
+/* ============================
+   其他全局樣式(教材管理)
+
+============================ */
+html.dark .materials-page,
+body.dark .materials-page,
+[data-theme="dark"] .materials-page {
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+html.dark .materials-card,
+body.dark .materials-card,
+[data-theme="dark"] .materials-card {
+  background: #111827;
+  border-color: #334155;
+  color: #e5e7eb;
+}
+
+html.dark .materials-card h1,
+html.dark .materials-card h2,
+body.dark .materials-card h1,
+body.dark .materials-card h2,
+[data-theme="dark"] .materials-card h1,
+[data-theme="dark"] .materials-card h2 {
+  color: #f8fafc;
+}
+
+html.dark .materials-muted,
+body.dark .materials-muted,
+[data-theme="dark"] .materials-muted {
+  color: #94a3b8;
+}
+
+html.dark .materials-input,
+body.dark .materials-input,
+[data-theme="dark"] .materials-input {
+  background: #020617;
+  border-color: #475569;
+  color: #e5e7eb;
+}
