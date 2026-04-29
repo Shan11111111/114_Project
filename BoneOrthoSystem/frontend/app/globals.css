@@ -998,7 +998,7 @@ html.dark .mobile-user-card {
 /* ============================
    其他全局樣式(教材管理)
 
-============================ */
+=========================== */
 html.dark .materials-page,
 body.dark .materials-page,
 [data-theme="dark"] .materials-page {
@@ -1035,4 +1035,42 @@ body.dark .materials-input,
   background: #020617;
   border-color: #475569;
   color: #e5e7eb;
+}
+
+/* Materials page dark mode fix */
+.dark .materials-table-card {
+  background: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  color: #e5e7eb !important;
+}
+
+.dark .materials-table-card table,
+.dark .materials-table-card tbody,
+.dark .materials-table-card tr,
+.dark .materials-table-card td {
+  background: #020617 !important;
+  color: #cbd5e1 !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+.dark .materials-table-card thead,
+.dark .materials-table-card th {
+  background: #1e293b !important;
+  color: #cbd5e1 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+.dark .materials-table-card input {
+  background: #020617 !important;
+  color: #f1f5f9 !important;
+  border-color: rgba(148, 163, 184, 0.35) !important;
+}
+
+.dark .materials-table-card button,
+.dark .materials-table-card a {
+  background: #0f172a !important;
+}
+
+.dark .materials-table-card tr:hover td {
+  background: #1e293b !important;
 }

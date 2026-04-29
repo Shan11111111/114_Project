@@ -126,9 +126,10 @@ export default function MaterialsUploader() {
   const notLoggedIn = !isCheckingLogin && !isLoggedIn;
 
   return (
-    <div className="materials-card w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">      <h2 className="text-sm font-semibold mb-3">
-      上傳教材並建立索引
-    </h2>
+    <div className="materials-card w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <h2 className="text-sm font-semibold mb-3 text-slate-900 dark:text-slate-100">
+        上傳教材並建立索引
+      </h2>
 
       <label className="block">
         <span className="text-xs text-slate-400">選擇檔案（pdf/txt/docx/pptx/md/）</span>
@@ -147,7 +148,8 @@ export default function MaterialsUploader() {
         />
       </label>
 
-      <div className="mt-3 rounded-xl border border-slate-300 bg-slate-100 p-3 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">        <div>檔名：{file?.name || "尚未選擇檔案"}</div>
+      <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+        <div>檔名：{file?.name || "尚未選擇檔案"}</div>
         <div className="break-all">
           登入者：{isCheckingLogin ? "檢查登入中..." : userId || "請先登入"}
         </div>
@@ -178,8 +180,8 @@ export default function MaterialsUploader() {
         </p>
       )}
 
-      <div className="mt-4 border border-slate-800 rounded-xl p-3 text-xs">
-        <div className="text-slate-400 mb-2">請確認下列欄位中是否顯示上傳成功</div>
+      <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-xs">
+        <div className="mb-2 text-slate-400">請確認下列欄位中是否顯示上傳成功</div>
         <pre className="whitespace-pre-wrap text-[11px] text-green-400">
           {raw ? "上傳成功!!!\n" + JSON.stringify(raw, null, 2) : "// 尚無上傳檔案成功的回應資料"}
         </pre>
