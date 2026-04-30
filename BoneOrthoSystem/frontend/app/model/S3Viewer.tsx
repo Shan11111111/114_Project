@@ -2,7 +2,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+// import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from "next/navigation";
 import { Canvas, useThree } from '@react-three/fiber';
 import {
   Environment,
@@ -13,6 +14,7 @@ import {
 } from '@react-three/drei';
 import * as THREE from 'three';
 import { EffectComposer, Outline } from '@react-three/postprocessing';
+
 
 import "./3d_mobile.css";
 
@@ -652,6 +654,8 @@ function flattenBoneListPayload(payload: any): BoneListItem[] {
 
 export default function S3Viewer() {
 
+  const router = useRouter();
+
   const searchParams = useSearchParams();
   const targetBone = searchParams.get("bone") || "";
   const targetBoneId = searchParams.get("boneId");
@@ -792,6 +796,108 @@ export default function S3Viewer() {
     ['右', setRightView],
     ['左', setLeftView],
   ];
+
+  const IMAGE_GALLERY_BONES_16 = new Set([
+    "頸椎",
+    "胸椎",
+    "腰椎",
+    "鎖骨",
+    "肩胛骨",
+    "肱骨",
+    "尺骨",
+    "橈骨",
+    "腕骨",
+    "掌骨",
+    "指骨",
+    "肋骨",
+    "胸骨",
+    "股骨",
+    "脛骨",
+    "腓骨",
+  ]);
+
+  function cleanBoneName(v?: string) {
+    return String(v || "")
+      .replace(/\s*\(\d+\)\s*$/, "")
+      .trim();
+  }
+
+
+
+  function getCardPayload(card: Card) {
+    const boneZh = cleanBoneName(card.displayZh);
+    const boneEn = cleanBoneName(card.displayEn);
+
+    let meshName = "";
+
+    if ("kind" in card && card.kind === "series") {
+      // SeriesCard 沒 mesh → 通常不需要
+      meshName = "";
+    } else {
+      // LRCard
+      meshName =
+        card.C?.mesh_name ||
+        card.L?.mesh_name ||
+        card.R?.mesh_name ||
+        "";
+    }
+
+    const boneName = boneZh || boneEn || meshName;
+
+    const imageGalleryBone = IMAGE_GALLERY_BONES_16.has(boneZh)
+      ? boneZh
+      : "";
+
+    return { boneName, boneZh, boneEn, meshName, imageGalleryBone };
+  }
+
+  function renderLearningButtons(card: Card) {
+    const { boneName, boneZh, boneEn, meshName, imageGalleryBone } = getCardPayload(card);
+    if (!boneName) return null;
+
+    const llmQuery = new URLSearchParams({
+      bone: boneName,
+      bone_zh: boneZh,
+      bone_en: boneEn,
+      mesh: meshName,
+    });
+
+    return (
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            router.push(`/llm?${llmQuery.toString()}`);
+          }}
+          className="rounded-lg px-3 py-1 text-xs font-semibold"
+          style={{
+            backgroundColor: "rgba(56,189,248,0.14)",
+            color: "#0369a1",
+          }}
+        >
+          🤖 問 AI
+        </button>
+
+        {imageGalleryBone && (
+          <button
+            type="button"
+            onClick={() => {
+              router.push(
+                `/bonevision?openGallery=1&bone=${encodeURIComponent(imageGalleryBone)}`
+              );
+            }}
+            className="rounded-lg px-3 py-1 text-xs font-semibold"
+            style={{
+              backgroundColor: "rgba(34,197,94,0.14)",
+              color: "#15803d",
+            }}
+          >
+            🩻 看影像
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const findListItemByMeshName = useCallback(
     (meshName: string) => {
@@ -1320,7 +1426,11 @@ export default function S3Viewer() {
                               >
                                 選取
                               </button>
+
+
                             ) : null}
+
+
                           </div>
                         ) : (
                           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
@@ -1342,6 +1452,8 @@ export default function S3Viewer() {
                             })}
                           </div>
                         )}
+
+                        {renderLearningButtons(card)}
 
                         {card.kind === 'lr' ? (
                           <div style={sMini}>

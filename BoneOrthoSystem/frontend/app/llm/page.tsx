@@ -1526,6 +1526,18 @@ const HistoryOverlay = memo(function HistoryOverlay({
 
 function LLMClient() {
   const searchParams = useSearchParams();
+
+  const bonePrefillDoneRef = useRef("");
+
+  useEffect(() => {
+    const bone = searchParams.get("bone");
+    if (!bone) return;
+    if (bonePrefillDoneRef.current === bone) return;
+
+    bonePrefillDoneRef.current = bone;
+    setDraftText(`請介紹${bone}，並說明它的位置、功能與常見相關問題。`);
+  }, [searchParams]);
+
   const router = useRouter();
   const [isNavigating, setIsNavigating] = useState(false);
   const [navigatingText, setNavigatingText] = useState("");
@@ -4480,7 +4492,18 @@ function LLMClient() {
       {isNavigating && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 backdrop-blur-sm">
           <div className="rounded-3xl border px-8 py-7 text-center shadow-2xl bg-white/90">
-            <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-sky-300 border-t-transparent animate-spin" />
+            {/* <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-sky-300 border-t-transparent animate-spin" /> */}
+            <div className="mx-auto mb-4 flex h-16 items-end justify-center gap-1">
+              {["🦴", "🦴", "🦴"].map((b, i) => (
+                <span
+                  key={i}
+                  className="text-3xl animate-bounce"
+                  style={{ animationDelay: `${i * 120}ms` }}
+                >
+                  {b}
+                </span>
+              ))}
+            </div>
             <div className="text-sm font-semibold text-slate-800">
               正在開啟學習場景
             </div>
@@ -4635,7 +4658,7 @@ function LLMClient() {
                             {ragMode === "soap_only" &&
                               "查詢已授權的輔大醫院之去識別化soap記錄"}
                             {ragMode === "auto_fusion" &&
-                              "自動融合 RAG：依問題自動整合教材、SOAP 與 PubMed"}
+                              "GalaBone RAG"}
 
 
                           </span>
@@ -4680,7 +4703,7 @@ function LLMClient() {
                               // },
                               {
                                 value: "auto_fusion",
-                                label: "自動融合 RAG（教材 + SOAP + PubMed）",
+                                label: "GalaBone RAG",
                               },
                             ].map((opt) => {
                               const active = ragMode === opt.value;
@@ -4980,7 +5003,7 @@ function LLMClient() {
                           {ragMode === "pubmed_only" && "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
                           {ragMode === "soap_only" && "查詢已授權的輔大醫院之去識別化soap記錄"}
                           {ragMode === "auto_fusion" &&
-                            "自動融合 RAG：依問題自動整合衛教智慧庫、SOAP 與 PubMed"}
+                            "GalaBone RAG"}
                         </span>
 
                         <i
@@ -5003,7 +5026,7 @@ function LLMClient() {
                             { value: "soap_only", label: "查詢已授權的輔大醫院之去識別化soap記錄" },
                             {
                               value: "auto_fusion",
-                              label: "自動融合 RAG：衛教智慧庫 + SOAP + PubMed",
+                              label: "GalaBone RAG",
                             },
                           ].map((opt) => (
                             <button
