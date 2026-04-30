@@ -3532,10 +3532,17 @@ function LLMClient() {
         : "",
     ].filter(Boolean);
 
-    const cleanSnippet = (r.snippet || "")
+    const cleanRawSnippet = (r.snippet || "")
+      .replace(/\[SOAP.*?\]/gi, "")
+      .replace(/\( ?已去識別化 ?\)/g, "")
+      .replace(/Record ID:.*?Subjective:/gi, "Subjective:")
+      .replace(/Record ID:.*?Visit Date:.*?(Subjective:|Objective:|Assessment:|Plan:)/gi, "$1")
       .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 180);
+      .trim();
+
+    const cleanSnippet = isSoap
+      ? ""
+      : cleanRawSnippet.slice(0, 180);
 
     return (
       <div className="mt-2">
@@ -3631,6 +3638,25 @@ function LLMClient() {
     const bestByKey = new Map<string, ChatResource>();
 
     for (const r of resources) {
+      const sourceType = String(r.source_type || "").toLowerCase();
+      const isSoap = sourceType.includes("soap");
+
+      if (isSoap) {
+        const key = "soap:輔大醫院授權之去識別化醫囑紀錄表";
+        if (!bestByKey.has(key)) {
+          bestByKey.set(key, {
+            ...r,
+            title: "輔大醫院授權之去識別化醫囑紀錄表",
+            display_title: "輔大醫院授權之去識別化醫囑紀錄表",
+            snippet: "",
+            url: undefined,
+            download_url: undefined,
+            external_url: undefined,
+          });
+        }
+        continue;
+      }
+      
       const normTitle = (r.display_title || r.title || "")
         .trim()
         .toLowerCase();
