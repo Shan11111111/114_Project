@@ -1527,6 +1527,13 @@ const HistoryOverlay = memo(function HistoryOverlay({
 function LLMClient() {
   const searchParams = useSearchParams();
 
+  const urlBone = searchParams.get("bone") || "";
+  const urlBoneZh = searchParams.get("bone_zh") || "";
+  const urlBoneEn = searchParams.get("bone_en") || "";
+  const urlMesh = searchParams.get("mesh") || "";
+
+  const [s3Bones, setS3Bones] = useState<any[]>([]);
+
   const bonePrefillDoneRef = useRef("");
 
   useEffect(() => {
@@ -1541,6 +1548,25 @@ function LLMClient() {
   const router = useRouter();
   const [isNavigating, setIsNavigating] = useState(false);
   const [navigatingText, setNavigatingText] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`${API_BASE}/s3/bone-list`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        setS3Bones(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        console.error("載入 S3 bone-list 失敗：", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
 
   //   改動 1：由 boolean 改成記錄最後 boot 的 caseId（避免重複 boot）
   const bootOnceRef = useRef<string>("");
@@ -3646,6 +3672,104 @@ function LLMClient() {
     );
   }
 
+  function detectS1BoneTarget(text: string) {
+    const targets = [
+      { zh: "頸椎", en: "Cervical Vertebrae", region: "脊椎" },
+      { zh: "胸椎", en: "Thoracic Vertebrae", region: "脊椎" },
+      { zh: "腰椎", en: "Lumbar Vertebrae", region: "脊椎" },
+      { zh: "鎖骨", en: "Clavicles", region: "上肢骨" },
+      { zh: "肩胛骨", en: "Scapula", region: "上肢骨" },
+      { zh: "肱骨", en: "Humerus", region: "上肢骨" },
+      { zh: "尺骨", en: "Ulna", region: "上肢骨" },
+      { zh: "橈骨", en: "Radius", region: "上肢骨" },
+      { zh: "腕骨", en: "Carpal Bones", region: "上肢骨" },
+      { zh: "掌骨", en: "Metacarpal Bones", region: "上肢骨" },
+      { zh: "指骨", en: "Phalanges", region: "上肢骨" },
+      { zh: "肋骨", en: "Ribs", region: "胸廓" },
+      { zh: "胸骨", en: "Sternum", region: "胸廓" },
+      { zh: "股骨", en: "Femur", region: "下肢骨" },
+      { zh: "脛骨", en: "Tibia", region: "下肢骨" },
+      { zh: "腓骨", en: "Fibula", region: "下肢骨" },
+    ];
+
+    return targets.find(
+      (b) =>
+        text.includes(b.zh) ||
+        text.toLowerCase().includes(b.en.toLowerCase())
+    );
+  }
+
+  function detectS3BoneTarget(text: string) {
+    const normalize = (v: any) =>
+      String(v || "")
+        .replace(/\s+/g, "")
+        .replace(/[()（）]/g, "")
+        .toLowerCase();
+
+    const normalizedText = normalize(text);
+
+    const hit = s3Bones.find((b: any) => {
+      const zh = normalize(
+        b.small_bone_zh ||
+        b.bone_zh ||
+        b.displayZh ||
+        b.zh ||
+        b.name_zh
+      );
+
+      const en = normalize(
+        b.small_bone_en ||
+        b.bone_en ||
+        b.displayEn ||
+        b.en ||
+        b.name_en
+      );
+
+      const mesh = normalize(
+        b.mesh_name ||
+        b.MeshName ||
+        b.mesh ||
+        b.meshName
+      );
+
+      return (
+        (zh && normalizedText.includes(zh)) ||
+        (en && normalizedText.includes(en)) ||
+        (mesh && normalizedText.includes(mesh))
+      );
+    });
+
+    if (!hit) return null;
+
+    return {
+      zh:
+        hit.small_bone_zh ||
+        hit.bone_zh ||
+        hit.displayZh ||
+        hit.zh ||
+        hit.name_zh ||
+        "",
+      en:
+        hit.small_bone_en ||
+        hit.bone_en ||
+        hit.displayEn ||
+        hit.en ||
+        hit.name_en ||
+        "",
+      mesh:
+        hit.mesh_name ||
+        hit.MeshName ||
+        hit.mesh ||
+        hit.meshName ||
+        "",
+      region:
+        hit.region ||
+        hit.bone_region ||
+        hit.regionKey ||
+        "",
+    };
+  }
+
   function detectBoneTarget(text: string) {
     const targets = [
       { zh: "頸椎", en: "Cervical Vertebrae", region: "脊椎" },
@@ -3676,10 +3800,31 @@ function LLMClient() {
   function getGuideActions(text: string) {
     const actions: { label: string; path: string; icon: string; note?: string }[] = [];
 
-    const target = detectBoneTarget(text);
+    const urlBoneName = urlBoneZh || urlBone || "";
+    const urlMeshName = urlMesh || "";
+
+    const s1Target = detectS1BoneTarget(text);
+    const s3Target = detectS3BoneTarget(text);
+
+    if (urlBoneName || urlMeshName) {
+      actions.push({
+        label: `前往 3D 模型觀察：${urlBoneName || urlMeshName}`,
+        note: urlMeshName ? `mesh：${urlMeshName}` : undefined,
+        path: `/model?${new URLSearchParams({
+          bone: urlBoneName,
+          mesh: urlMeshName,
+        }).toString()}`,
+        icon: "fa-solid fa-cube",
+      });
+    }
+
+
 
     const hasBoneIntent =
-      !!target ||
+      !!urlBoneName ||
+      !!urlMeshName ||
+      !!s1Target ||
+      !!s3Target ||
       text.includes("骨頭") ||
       text.includes("骨骼") ||
       text.includes("頭骨") ||
@@ -3688,29 +3833,36 @@ function LLMClient() {
       text.includes("骨折") ||
       text.includes("解剖");
 
-    if (!hasBoneIntent) return [];
+    if (!hasBoneIntent && !urlBoneName && !urlMeshName) return [];
 
-    if (target) {
-      actions.push({
-        label: `觀察 3D 模型：${target.zh}`,
-        note: `部位：${target.region}`,
-        path: `/model?bone=${encodeURIComponent(target.zh)}`,
-        icon: "fa-solid fa-cube",
-      });
+    if (!urlBoneName && !urlMeshName) {
+      if (s3Target) {
+        actions.push({
+          label: `觀察 3D 模型：${s3Target.zh}`,
+          note: s3Target.mesh ? `mesh：${s3Target.mesh}` : undefined,
+          path: `/model?${new URLSearchParams({
+            bone: s3Target.zh,
+            mesh: s3Target.mesh || "",
+          }).toString()}`,
+          icon: "fa-solid fa-cube",
+        });
+      } else {
+        actions.push({
+          label: "前往 3D 骨骼模型觀察",
+          path: "/model",
+          icon: "fa-solid fa-cube",
+        });
+      }
+    }
 
+    if (s1Target) {
       actions.push({
-        label: `開啟${target.zh}範例影像庫`,
-        note: `自動篩選：${target.zh}`,
-        path: `/bonevision?openGallery=1&bone=${encodeURIComponent(target.zh)}`,
+        label: `開啟${s1Target.zh}範例影像庫`,
+        note: `自動篩選：${s1Target.zh}`,
+        path: `/bonevision?openGallery=1&bone=${encodeURIComponent(s1Target.zh)}`,
         icon: "fa-regular fa-images",
       });
     } else {
-      actions.push({
-        label: "前往 3D 骨骼模型觀察",
-        path: "/model",
-        icon: "fa-solid fa-cube",
-      });
-
       actions.push({
         label: "開啟圖片資料庫選範例學習",
         path: "/bonevision?openGallery=1",

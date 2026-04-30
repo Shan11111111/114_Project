@@ -822,25 +822,19 @@ export default function S3Viewer() {
       .trim();
   }
 
+  function getAnyBoneItem(card: Card): BoneListItem | null {
+    if ("kind" in card && card.kind === "series") return null;
+
+    return card.C || card.L || card.R || null;
+  }
 
 
   function getCardPayload(card: Card) {
     const boneZh = cleanBoneName(card.displayZh);
     const boneEn = cleanBoneName(card.displayEn);
 
-    let meshName = "";
-
-    if ("kind" in card && card.kind === "series") {
-      // SeriesCard 沒 mesh → 通常不需要
-      meshName = "";
-    } else {
-      // LRCard
-      meshName =
-        card.C?.mesh_name ||
-        card.L?.mesh_name ||
-        card.R?.mesh_name ||
-        "";
-    }
+    const item = getAnyBoneItem(card);
+    const meshName = item?.mesh_name || "";
 
     const boneName = boneZh || boneEn || meshName;
 
