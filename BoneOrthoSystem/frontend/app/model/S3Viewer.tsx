@@ -869,7 +869,7 @@ export default function S3Viewer() {
             color: "#0369a1",
           }}
         >
-          🤖 問 AI
+          🤖 問 GalaBone RAG
         </button>
 
         {imageGalleryBone && (

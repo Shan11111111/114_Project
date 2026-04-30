@@ -3680,7 +3680,7 @@ function LLMClient() {
     );
   }
 
-  function detectS1BoneTarget(text: string) {
+  function detectS1BoneTargets(text: string) {
     const targets = [
       { zh: "頸椎", en: "Cervical Vertebrae", region: "脊椎" },
       { zh: "胸椎", en: "Thoracic Vertebrae", region: "脊椎" },
@@ -3700,10 +3700,12 @@ function LLMClient() {
       { zh: "腓骨", en: "Fibula", region: "下肢骨" },
     ];
 
-    return targets.find(
+    const lower = text.toLowerCase();
+
+    return targets.filter(
       (b) =>
         text.includes(b.zh) ||
-        text.toLowerCase().includes(b.en.toLowerCase())
+        lower.includes(b.en.toLowerCase())
     );
   }
 
@@ -3862,7 +3864,7 @@ function LLMClient() {
     const urlBoneName = urlBoneZh || urlBone || "";
     const urlMeshName = urlMesh || "";
 
-    const s1Target = detectS1BoneTarget(text);
+    const s1Targets = detectS1BoneTargets(text);
     const s3Targets = detectS3BoneTargets(text);
 
     if (urlBoneName || urlMeshName) {
@@ -3882,7 +3884,7 @@ function LLMClient() {
     const hasBoneIntent =
       !!urlBoneName ||
       !!urlMeshName ||
-      !!s1Target ||
+      s1Targets.length > 0 ||
       s3Targets.length > 0 ||
       text.includes("骨頭") ||
       text.includes("骨骼") ||
@@ -3916,12 +3918,14 @@ function LLMClient() {
       }
     }
 
-    if (s1Target) {
-      actions.push({
-        label: `開啟${s1Target.zh}範例影像庫`,
-        note: `自動篩選：${s1Target.zh}`,
-        path: `/bonevision?openGallery=1&bone=${encodeURIComponent(s1Target.zh)}`,
-        icon: "fa-regular fa-images",
+    if (s1Targets.length > 0) {
+      s1Targets.slice(0, 4).forEach((target) => {
+        actions.push({
+          label: `開啟${target.zh}範例影像庫`,
+          note: `自動篩選：${target.zh}`,
+          path: `/bonevision?openGallery=1&bone=${encodeURIComponent(target.zh)}`,
+          icon: "fa-regular fa-images",
+        });
       });
     } else {
       actions.push({
