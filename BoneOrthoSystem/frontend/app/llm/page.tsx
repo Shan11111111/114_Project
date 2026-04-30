@@ -1535,6 +1535,7 @@ function LLMClient() {
   const [s3Bones, setS3Bones] = useState<any[]>([]);
 
   const bonePrefillDoneRef = useRef("");
+  const router = useRouter();
 
   useEffect(() => {
     const bone = searchParams.get("bone");
@@ -1543,9 +1544,10 @@ function LLMClient() {
 
     bonePrefillDoneRef.current = bone;
     setDraftText(`請介紹${bone}，並說明它的位置、功能與常見相關問題。`);
+    router.replace("/llm");
   }, [searchParams]);
 
-  const router = useRouter();
+
   const [isNavigating, setIsNavigating] = useState(false);
   const [navigatingText, setNavigatingText] = useState("");
 
@@ -1556,7 +1558,13 @@ function LLMClient() {
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        setS3Bones(Array.isArray(data) ? data : []);
+
+        console.log("S3 bone-list raw =", data);
+
+        const flat = flattenS3Bones(data);
+        console.log("S3 bone-list flat =", flat);
+
+        setS3Bones(flat);
       })
       .catch((err) => {
         console.error("載入 S3 bone-list 失敗：", err);
@@ -3699,28 +3707,74 @@ function LLMClient() {
     );
   }
 
-  function detectS3BoneTarget(text: string) {
+  function flattenS3Bones(data: any): any[] {
+    const out: any[] = [];
+
+    function walk(node: any) {
+      if (!node) return;
+
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+
+      if (typeof node !== "object") return;
+
+      const maybeBone =
+        node.small_bone_zh ||
+        node.bone_zh ||
+        node.displayZh ||
+        node.display_zh ||
+        node.zh ||
+        node.name_zh ||
+        node.name ||
+        node.label ||
+        node.mesh_name ||
+        node.MeshName ||
+        node.mesh ||
+        node.meshName;
+
+      if (maybeBone) {
+        out.push(node);
+      }
+
+      for (const key of ["items", "children", "bones", "data", "regions", "list"]) {
+        if (node[key]) walk(node[key]);
+      }
+    }
+
+    walk(data);
+
+    return out;
+  }
+
+  function detectS3BoneTargets(text: string) {
     const normalize = (v: any) =>
       String(v || "")
+        .replace(/\s*[\(（]\d+[\)）]\s*/g, "") // 先移除 (2)、（2）
         .replace(/\s+/g, "")
         .replace(/[()（）]/g, "")
         .toLowerCase();
 
     const normalizedText = normalize(text);
 
-    const hit = s3Bones.find((b: any) => {
+    const hits = s3Bones.filter((b: any) => {
       const zh = normalize(
         b.small_bone_zh ||
         b.bone_zh ||
         b.displayZh ||
+        b.display_zh ||
         b.zh ||
-        b.name_zh
+        b.name_zh ||
+        b.name ||
+        b.label
       );
 
       const en = normalize(
         b.small_bone_en ||
         b.bone_en ||
         b.displayEn ||
+        b.display_en ||
         b.en ||
         b.name_en
       );
@@ -3729,7 +3783,13 @@ function LLMClient() {
         b.mesh_name ||
         b.MeshName ||
         b.mesh ||
-        b.meshName
+        b.meshName ||
+        b.L?.mesh_name ||
+        b.R?.mesh_name ||
+        b.C?.mesh_name ||
+        b.L?.mesh ||
+        b.R?.mesh ||
+        b.C?.mesh
       );
 
       return (
@@ -3739,63 +3799,62 @@ function LLMClient() {
       );
     });
 
-    if (!hit) return null;
+    const mapped = hits
+      .map((hit: any) => ({
+        zh: String(
+          hit.small_bone_zh ||
+          hit.bone_zh ||
+          hit.displayZh ||
+          hit.display_zh ||
+          hit.zh ||
+          hit.name_zh ||
+          hit.name ||
+          hit.label ||
+          ""
+        )
+          .replace(/\s*[\(（]\d+[\)）]\s*/g, "")
+          .trim(),
 
-    return {
-      zh:
-        hit.small_bone_zh ||
-        hit.bone_zh ||
-        hit.displayZh ||
-        hit.zh ||
-        hit.name_zh ||
-        "",
-      en:
-        hit.small_bone_en ||
-        hit.bone_en ||
-        hit.displayEn ||
-        hit.en ||
-        hit.name_en ||
-        "",
-      mesh:
-        hit.mesh_name ||
-        hit.MeshName ||
-        hit.mesh ||
-        hit.meshName ||
-        "",
-      region:
-        hit.region ||
-        hit.bone_region ||
-        hit.regionKey ||
-        "",
-    };
-  }
+        en:
+          hit.small_bone_en ||
+          hit.bone_en ||
+          hit.displayEn ||
+          hit.display_en ||
+          hit.en ||
+          hit.name_en ||
+          "",
 
-  function detectBoneTarget(text: string) {
-    const targets = [
-      { zh: "頸椎", en: "Cervical Vertebrae", region: "脊椎" },
-      { zh: "胸椎", en: "Thoracic Vertebrae", region: "脊椎" },
-      { zh: "腰椎", en: "Lumbar Vertebrae", region: "脊椎" },
-      { zh: "鎖骨", en: "Clavicles", region: "上肢骨" },
-      { zh: "肩胛骨", en: "Scapula", region: "上肢骨" },
-      { zh: "肱骨", en: "Humerus", region: "上肢骨" },
-      { zh: "尺骨", en: "Ulna", region: "上肢骨" },
-      { zh: "橈骨", en: "Radius", region: "上肢骨" },
-      { zh: "腕骨", en: "Carpal Bones", region: "上肢骨" },
-      { zh: "掌骨", en: "Metacarpal Bones", region: "上肢骨" },
-      { zh: "指骨", en: "Phalanges", region: "上肢骨" },
-      { zh: "肋骨", en: "Ribs", region: "胸廓" },
-      { zh: "胸骨", en: "Sternum", region: "胸廓" },
-      { zh: "股骨", en: "Femur", region: "下肢骨" },
-      { zh: "脛骨", en: "Tibia", region: "下肢骨" },
-      { zh: "腓骨", en: "Fibula", region: "下肢骨" },
-    ];
+        mesh:
+          hit.mesh_name ||
+          hit.MeshName ||
+          hit.mesh ||
+          hit.meshName ||
+          hit.L?.mesh_name ||
+          hit.R?.mesh_name ||
+          hit.C?.mesh_name ||
+          "",
 
-    return targets.find(
-      (b) =>
-        text.includes(b.zh) ||
-        text.toLowerCase().includes(b.en.toLowerCase())
+        region:
+          hit.region ||
+          hit.bone_region ||
+          hit.regionKey ||
+          "",
+      }))
+      .filter((x: any) => x.zh || x.mesh);
+
+    const deduped = Array.from(
+      new Map(
+        mapped.map((x: any) => [
+          x.zh || String(x.mesh).replace(/\.[LR]$/i, ""),
+          x,
+        ])
+      ).values()
     );
+
+    return deduped.slice(0, 6);
   }
+
+
 
   function getGuideActions(text: string) {
     const actions: { label: string; path: string; icon: string; note?: string }[] = [];
@@ -3804,7 +3863,7 @@ function LLMClient() {
     const urlMeshName = urlMesh || "";
 
     const s1Target = detectS1BoneTarget(text);
-    const s3Target = detectS3BoneTarget(text);
+    const s3Targets = detectS3BoneTargets(text);
 
     if (urlBoneName || urlMeshName) {
       actions.push({
@@ -3824,7 +3883,7 @@ function LLMClient() {
       !!urlBoneName ||
       !!urlMeshName ||
       !!s1Target ||
-      !!s3Target ||
+      s3Targets.length > 0 ||
       text.includes("骨頭") ||
       text.includes("骨骼") ||
       text.includes("頭骨") ||
@@ -3836,15 +3895,17 @@ function LLMClient() {
     if (!hasBoneIntent && !urlBoneName && !urlMeshName) return [];
 
     if (!urlBoneName && !urlMeshName) {
-      if (s3Target) {
-        actions.push({
-          label: `觀察 3D 模型：${s3Target.zh}`,
-          note: s3Target.mesh ? `mesh：${s3Target.mesh}` : undefined,
-          path: `/model?${new URLSearchParams({
-            bone: s3Target.zh,
-            mesh: s3Target.mesh || "",
-          }).toString()}`,
-          icon: "fa-solid fa-cube",
+      if (s3Targets.length > 0) {
+        s3Targets.forEach((target) => {
+          actions.push({
+            label: `觀察 3D 模型：${target.zh}`,
+            note: target.mesh ? `mesh：${target.mesh}` : undefined,
+            path: `/model?${new URLSearchParams({
+              bone: target.zh,
+              mesh: target.mesh || "",
+            }).toString()}`,
+            icon: "fa-solid fa-cube",
+          });
         });
       } else {
         actions.push({
@@ -3876,7 +3937,7 @@ function LLMClient() {
       icon: "fa-solid fa-x-ray",
     });
 
-    return actions.slice(0, 3);
+    return actions.slice(0, 8);
   }
 
   function renderAssistantContent(content: string) {
