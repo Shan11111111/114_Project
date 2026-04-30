@@ -1,3 +1,4 @@
+//frontend/app/bonevision/page.tsx
 "use client";
 
 import React, {
@@ -151,6 +152,7 @@ function BoneVisionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [detections, setDetections] = useState<DetectionBox[]>([]);
@@ -193,8 +195,8 @@ function BoneVisionPageInner() {
   const clampZoom = (z: number) => Math.min(2, Math.max(0.5, z));
 
   const cleanBoneZh = (value?: string | null) => {
-  if (!value) return "";
-  return value.replace(/\s*[\(（]\d+[\)）]\s*$/, "").trim();
+    if (!value) return "";
+    return value.replace(/\s*[\(（]\d+[\)）]\s*$/, "").trim();
   };
 
   const cleanText = (value?: string | null) => {
@@ -591,7 +593,20 @@ function BoneVisionPageInner() {
     loadHistoryDetail(caseId, true);
   }, [searchParams]);
 
+  useEffect(() => {
+    const openGallery = searchParams.get("openGallery");
+    const bone = searchParams.get("bone");
 
+    if (openGallery !== "1") return;
+
+    setIsGalleryOpen(true);
+
+    if (bone) {
+      setGalleryFilter(bone);
+    } else {
+      setGalleryFilter("全部");
+    }
+  }, [searchParams]);
 
   const detectWithFile = async (targetFile: File) => {
     const fd = new FormData();
@@ -736,9 +751,9 @@ function BoneVisionPageInner() {
   ];
 
   const filteredSamples =
-  galleryFilter === "全部"
-    ? samples
-    : samples.filter(
+    galleryFilter === "全部"
+      ? samples
+      : samples.filter(
         (img) =>
           (img.bone_zh ? cleanBoneZh(img.bone_zh) : "未分類") === galleryFilter
       );

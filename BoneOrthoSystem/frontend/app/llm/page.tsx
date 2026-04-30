@@ -3632,8 +3632,93 @@ function LLMClient() {
     );
   }
 
+  function detectBoneTarget(text: string) {
+    const targets = [
+      { zh: "頸椎", en: "Cervical Vertebrae", region: "脊椎" },
+      { zh: "胸椎", en: "Thoracic Vertebrae", region: "脊椎" },
+      { zh: "腰椎", en: "Lumbar Vertebrae", region: "脊椎" },
+      { zh: "鎖骨", en: "Clavicles", region: "上肢骨" },
+      { zh: "肩胛骨", en: "Scapula", region: "上肢骨" },
+      { zh: "肱骨", en: "Humerus", region: "上肢骨" },
+      { zh: "尺骨", en: "Ulna", region: "上肢骨" },
+      { zh: "橈骨", en: "Radius", region: "上肢骨" },
+      { zh: "腕骨", en: "Carpal Bones", region: "上肢骨" },
+      { zh: "掌骨", en: "Metacarpal Bones", region: "上肢骨" },
+      { zh: "指骨", en: "Phalanges", region: "上肢骨" },
+      { zh: "肋骨", en: "Ribs", region: "胸廓" },
+      { zh: "胸骨", en: "Sternum", region: "胸廓" },
+      { zh: "股骨", en: "Femur", region: "下肢骨" },
+      { zh: "脛骨", en: "Tibia", region: "下肢骨" },
+      { zh: "腓骨", en: "Fibula", region: "下肢骨" },
+    ];
+
+    return targets.find(
+      (b) =>
+        text.includes(b.zh) ||
+        text.toLowerCase().includes(b.en.toLowerCase())
+    );
+  }
+
+  function getGuideActions(text: string) {
+    const actions: { label: string; path: string; icon: string; note?: string }[] = [];
+
+    const target = detectBoneTarget(text);
+
+    const hasBoneIntent =
+      !!target ||
+      text.includes("骨頭") ||
+      text.includes("骨骼") ||
+      text.includes("頭骨") ||
+      text.includes("顱骨") ||
+      text.includes("脊椎") ||
+      text.includes("骨折") ||
+      text.includes("解剖");
+
+    if (!hasBoneIntent) return [];
+
+    if (target) {
+      actions.push({
+        label: `觀察 3D 模型：${target.zh}`,
+        note: `部位：${target.region}`,
+        path: `/model?bone=${encodeURIComponent(target.zh)}`,
+        icon: "fa-solid fa-cube",
+      });
+
+      actions.push({
+        label: `開啟${target.zh}範例影像庫`,
+        note: `自動篩選：${target.zh}`,
+        path: `/bonevision?openGallery=1&bone=${encodeURIComponent(target.zh)}`,
+        icon: "fa-regular fa-images",
+      });
+    } else {
+      actions.push({
+        label: "前往 3D 骨骼模型觀察",
+        path: "/model",
+        icon: "fa-solid fa-cube",
+      });
+
+      actions.push({
+        label: "開啟圖片資料庫選範例學習",
+        path: "/bonevision?openGallery=1",
+        icon: "fa-regular fa-images",
+      });
+    }
+
+    actions.push({
+      label: "前往骨骼辨識頁面",
+      path: "/bonevision",
+      icon: "fa-solid fa-x-ray",
+    });
+
+    return actions.slice(0, 3);
+  }
+
   function renderAssistantContent(content: string) {
     const text = String(content || "");
+    const lastUserText =
+      [...latestMessagesRef.current].reverse().find((m) => m.role === "user")?.content || "";
+
+    const guideActions = getGuideActions(`${lastUserText}\n${text}`);
 
     const match =
       text.match(/4\)\s*(?:\*\*)?\s*(延伸學習問題)?/) ||
@@ -3647,7 +3732,47 @@ function LLMClient() {
         : -1;
 
     if (idx < 0) {
-      return <>{text}</>;
+      return (
+        <>
+          <div className="whitespace-pre-wrap break-words">{text}</div>
+
+          {guideActions.length > 0 && (
+            <div className="mt-3">
+              <div className="text-[12px] font-semibold opacity-70 mb-2">
+                相關功能
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {guideActions.map((a) => (
+                  <button
+                    key={a.path}
+                    type="button"
+                    onClick={() => {
+                      const ok = confirm(`要前往「${a.label}」嗎？`);
+                      if (ok) router.push(a.path);
+                    }}
+                    className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80"
+                    style={{
+                      borderColor: "rgba(56,189,248,0.35)",
+                      backgroundColor: "rgba(56,189,248,0.10)",
+                    }}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <i className={`${a.icon} text-[10px] opacity-70`} />
+                      <span>
+                        {a.label}
+                        {a.note && (
+                          <span className="ml-1 opacity-60">（{a.note}）</span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      );
     }
 
     const mainText = text.slice(0, idx).trimEnd();
@@ -3665,6 +3790,42 @@ function LLMClient() {
     return (
       <>
         <div className="whitespace-pre-wrap break-words">{mainText}</div>
+
+        {guideActions.length > 0 && (
+          <div className="mt-3">
+            <div className="text-[12px] font-semibold opacity-70 mb-2">
+              相關功能
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {guideActions.map((a) => (
+                <button
+                  key={a.path}
+                  type="button"
+                  onClick={() => {
+                    const ok = confirm(`要前往「${a.label}」嗎？`);
+                    if (ok) router.push(a.path);
+                  }}
+                  className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80"
+                  style={{
+                    borderColor: "rgba(56,189,248,0.35)",
+                    backgroundColor: "rgba(56,189,248,0.10)",
+                  }}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <i className={`${a.icon} text-[10px] opacity-70`} />
+                    <span>
+                      {a.label}
+                      {a.note && (
+                        <span className="ml-1 opacity-60">（{a.note}）</span>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {questions.length > 0 && (
           <div className="mt-3">
