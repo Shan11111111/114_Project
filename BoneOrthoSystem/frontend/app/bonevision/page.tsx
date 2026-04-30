@@ -167,6 +167,7 @@ function BoneVisionPageInner() {
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [galleryFilter, setGalleryFilter] = useState<SampleCategory>("全部");
+  const [galleryKeyword, setGalleryKeyword] = useState("");
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [samples, setSamples] = useState<SampleImage[]>([]);
 
@@ -203,6 +204,130 @@ function BoneVisionPageInner() {
     if (!value) return "";
     return value.replace(/\s*[\(（][^\)）]*[\)）]\s*$/, "").trim();
   };
+
+
+  const normalizeKeyword = (value?: string | number | null) => {
+    if (value === null || value === undefined) return "";
+    return String(value)
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[()（）【】\[\]{}]/g, "")
+      .trim();
+  };
+
+  const getSampleCategoryName = (img: SampleImage) => {
+    return img.bone_zh ? cleanBoneZh(img.bone_zh) : "未分類";
+  };
+
+  const SAMPLE_SEARCH_STOP_WORDS = [
+    "我要",
+    "我想",
+    "想看",
+    "幫我",
+    "請",
+    "出",
+    "顯示",
+    "查詢",
+    "搜尋",
+    "找",
+    "相關",
+    "骨頭",
+    "骨骼",
+    "影像",
+    "圖片",
+    "照片",
+    "範例",
+    "的",
+    "一下",
+  ];
+
+  const SAMPLE_SEARCH_KEYWORDS = [
+    "顱骨",
+    "胸椎",
+    "腰椎",
+    "鎖骨",
+    "肩胛骨",
+    "肱骨",
+    "尺骨",
+    "橈骨",
+    "腕骨",
+    "掌骨",
+    "指骨",
+    "肋骨",
+    "胸骨",
+    "股骨",
+    "脛骨",
+    "腓骨",
+    "上肢",
+    "下肢",
+    "手",
+    "腳",
+    "skull",
+    "humerus",
+    "humeri",
+    "ulna",
+    "radius",
+    "femur",
+    "tibia",
+    "fibula",
+    "clavicle",
+    "scapula",
+    "sternum",
+    "rib",
+    "ribs",
+  ];
+
+  const extractGallerySearchTerms = (keyword: string) => {
+    let q = normalizeKeyword(keyword);
+    if (!q) return [];
+
+    SAMPLE_SEARCH_STOP_WORDS.forEach((word) => {
+      q = q.replaceAll(normalizeKeyword(word), "");
+    });
+
+    const matchedTerms = SAMPLE_SEARCH_KEYWORDS
+      .map(normalizeKeyword)
+      .filter((term) => term.length >= 2 && q.includes(term));
+
+    if (matchedTerms.length > 0) {
+      return matchedTerms;
+    }
+
+    return q.length >= 2 ? [q] : [];
+  };
+
+  const isSampleMatchedByKeyword = (img: SampleImage, keyword: string) => {
+    const q = normalizeKeyword(keyword);
+    if (!q) return true;
+
+    const nameFields = [
+      cleanBoneZh(img.bone_zh),
+      cleanText(img.bone_en),
+      img.name,
+      img.filename,
+      img.category,
+    ]
+      .map(normalizeKeyword)
+      .join(" ");
+
+    const regionFields = [cleanText(img.bone_region)]
+      .map(normalizeKeyword)
+      .join(" ");
+
+    // 1. 先比對骨頭名稱、英文名稱、檔名、分類
+    if (nameFields.includes(q)) return true;
+
+    // 2. 只有使用者明確搜部位時，才比對部位
+    const regionKeywords = ["上肢", "下肢", "頭部", "胸部", "軀幹", "手", "足", "腳"];
+    const isRegionSearch = regionKeywords.some((word) =>
+      normalizeKeyword(word).includes(q) || q.includes(normalizeKeyword(word))
+    );
+
+    if (isRegionSearch && regionFields.includes(q)) return true;
+
+    return false;
+  };
+
   const getDisplayBoneName = (box: DetectionBox) => {
     const zh = cleanBoneZh(box.bone_info?.bone_zh);
     if (zh && zh !== "未分類") {
@@ -750,13 +875,17 @@ function BoneVisionPageInner() {
     ),
   ];
 
-  const filteredSamples =
-    galleryFilter === "全部"
-      ? samples
-      : samples.filter(
-        (img) =>
-          (img.bone_zh ? cleanBoneZh(img.bone_zh) : "未分類") === galleryFilter
-      );
+  const filteredSamples = samples.filter((img) => {
+    const category = getSampleCategoryName(img);
+
+    const matchedCategory =
+      galleryFilter === "全部" || category === galleryFilter;
+
+    const matchedKeyword = isSampleMatchedByKeyword(img, galleryKeyword);
+
+    return matchedCategory && matchedKeyword;
+  });
+
 
   const filteredHistoryList = historyList.filter((item) => {
     const keyword = historyKeyword.trim().toLowerCase();
@@ -1184,6 +1313,42 @@ function BoneVisionPageInner() {
             </div>
 
             <div className={`px-7 py-4 border-b ${modalBorderClass}`}>
+              <div className="mb-4">
+                <div
+                  className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${isDarkMode
+                    ? "border-slate-700 bg-slate-900 text-slate-100"
+                    : "border-slate-300 bg-white text-slate-900"
+                    }`}
+                >
+                  <span className="text-sm opacity-70">搜尋</span>
+
+                  <input
+                    value={galleryKeyword}
+                    onChange={(e) => setGalleryKeyword(e.target.value)}
+                    placeholder="輸入骨骼名稱、英文名稱或部位，例如：尺骨、ulna、上肢"
+                    className={`flex-1 bg-transparent text-sm outline-none ${isDarkMode ? "placeholder:text-slate-500" : "placeholder:text-slate-400"
+                      }`}
+                  />
+
+                  {galleryKeyword.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => setGalleryKeyword("")}
+                      className={`text-xs rounded-full px-3 py-1 border transition-colors ${isDarkMode
+                        ? "border-slate-700 text-slate-300 hover:bg-slate-800"
+                        : "border-slate-300 text-slate-600 hover:bg-slate-100"
+                        }`}
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+
+                <p className={`mt-2 text-xs ${modalTextSubClass}`}>
+                  可搜尋目前範例影像庫中的骨骼中文名稱、英文名稱或部位。
+                </p>
+              </div>
+
               {/* 小螢幕：下拉選單 */}
               <div className="block sm:hidden">
                 <select
@@ -1225,7 +1390,9 @@ function BoneVisionPageInner() {
             >
               {filteredSamples.length === 0 ? (
                 <div className={`text-sm text-center py-12 ${modalTextSubClass}`}>
-                  目前這個分類尚無範例影像
+                  {galleryKeyword.trim()
+                    ? `查無「${galleryKeyword}」符合的範例影像，請改用骨骼名稱、英文名稱或分類按鈕搜尋。`
+                    : "目前這個分類尚無範例影像"}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
