@@ -3632,6 +3632,74 @@ function LLMClient() {
     );
   }
 
+  function renderAssistantContent(content: string) {
+    const text = String(content || "");
+
+    const match =
+      text.match(/4\)\s*(?:\*\*)?\s*(延伸學習問題)?/) ||
+      text.match(/(?:^|\n)(-\s*.+？(?:\n-\s*.+？){1,3})\s*$/);
+
+    const idx =
+      match?.index != null
+        ? text.lastIndexOf("\n", match.index) >= 0
+          ? text.lastIndexOf("\n", match.index) + 1
+          : match.index
+        : -1;
+
+    if (idx < 0) {
+      return <>{text}</>;
+    }
+
+    const mainText = text.slice(0, idx).trimEnd();
+    const followText = text.slice(idx);
+
+    const questions = followText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /^-/.test(line) || /^4\)\s*-/.test(line))
+      .map((line) => line.replace(/^4\)\s*/, "").replace(/^-+\s*/, "").trim())
+
+      .filter(Boolean)
+      .slice(0, 3);
+
+    return (
+      <>
+        <div className="whitespace-pre-wrap break-words">{mainText}</div>
+
+        {questions.length > 0 && (
+          <div className="mt-3">
+            <div className="text-[12px] font-semibold opacity-70 mb-2">
+              4) 延伸學習問題
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {questions.map((q, i) => (
+                <button
+                  key={`${q}-${i}`}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => reallySendMessage(undefined, q, "block")}
+                  className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80 disabled:opacity-50"
+                  style={{
+                    borderColor: "rgba(148,163,184,0.35)",
+                    backgroundColor: "rgba(148,163,184,0.10)",
+                  }}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <i className="fa-solid fa-arrow-pointer text-[10px] opacity-70" />
+                    <span>{q}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+
+
   function renderResources(resources?: ChatResource[]) {
     if (!resources || resources.length === 0) return null;
 
@@ -3656,7 +3724,7 @@ function LLMClient() {
         }
         continue;
       }
-      
+
       const normTitle = (r.display_title || r.title || "")
         .trim()
         .toLowerCase();
@@ -4863,7 +4931,11 @@ function LLMClient() {
                                 wordBreak: "break-word",
                               }}
                             >
-                              {msg.content}
+                              {isUser ? (
+                                msg.content
+                              ) : (
+                                renderAssistantContent(msg.content)
+                              )}
                               {!isUser && renderResources(msg.resources)}
                             </div>
                             {renderMessageFiles(msg.files)}
