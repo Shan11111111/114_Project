@@ -655,6 +655,8 @@ function flattenBoneListPayload(payload: any): BoneListItem[] {
 export default function S3Viewer() {
 
   const router = useRouter();
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [navigatingText, setNavigatingText] = useState("");
 
   const searchParams = useSearchParams();
   const targetBone = searchParams.get("bone") || "";
@@ -845,6 +847,15 @@ export default function S3Viewer() {
     return { boneName, boneZh, boneEn, meshName, imageGalleryBone };
   }
 
+  function navigateWithBoneLoading(path: string, label: string) {
+    setIsNavigating(true);
+    setNavigatingText(label);
+
+    setTimeout(() => {
+      router.push(path);
+    }, 900);
+  }
+
   function renderLearningButtons(card: Card) {
     const { boneName, boneZh, boneEn, meshName, imageGalleryBone } = getCardPayload(card);
     if (!boneName) return null;
@@ -858,10 +869,15 @@ export default function S3Viewer() {
 
     return (
       <div className="mt-2 flex flex-wrap gap-2">
+
+
         <button
           type="button"
           onClick={() => {
-            router.push(`/llm?${llmQuery.toString()}`);
+            navigateWithBoneLoading(
+              `/llm?${llmQuery.toString()}`,
+              `正在開啟 GalaBone RAG：${boneName}`
+            );
           }}
           className="rounded-lg px-3 py-1 text-xs font-semibold"
           style={{
@@ -876,8 +892,9 @@ export default function S3Viewer() {
           <button
             type="button"
             onClick={() => {
-              router.push(
-                `/bonevision?openGallery=1&bone=${encodeURIComponent(imageGalleryBone)}`
+              navigateWithBoneLoading(
+                `/bonevision?openGallery=1&bone=${encodeURIComponent(imageGalleryBone)}`,
+                `正在開啟影像學習庫：${imageGalleryBone}`
               );
             }}
             className="rounded-lg px-3 py-1 text-xs font-semibold"
@@ -1267,6 +1284,9 @@ export default function S3Viewer() {
   return (
     <div
       className="s3-viewer-page"
+
+
+
       style={{
         position: 'relative',
         width: '100%',
@@ -1274,6 +1294,35 @@ export default function S3Viewer() {
         overflow: 'hidden',
         background: 'var(--viewer-bg)',
       }}    >
+
+      {isNavigating && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 backdrop-blur-sm">
+          <div className="rounded-3xl border px-8 py-7 text-center shadow-2xl bg-white/90">
+            <div className="mx-auto mb-4 flex h-16 items-end justify-center gap-1">
+              {["🦴", "🦴", "🦴"].map((b, i) => (
+                <span
+                  key={i}
+                  className="text-3xl animate-bounce"
+                  style={{ animationDelay: `${i * 120}ms` }}
+                >
+                  {b}
+                </span>
+              ))}
+            </div>
+
+            <div className="text-sm font-semibold text-slate-800">
+              正在開啟學習場景
+            </div>
+
+            <div className="mt-1 text-xs text-slate-500">
+              {navigatingText}
+            </div>
+          </div>
+        </div>
+      )}
+
+
+
 
       {/* 左側清單 */}
       <aside className={`s3-bone-sidebar ${sidebarOpen ? 'is-open' : 'is-closed'}`} style={sAside}>
@@ -1318,7 +1367,7 @@ export default function S3Viewer() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋：C1 / Rib10 / Metatarsal / Middle…"
+          placeholder="搜尋：尺骨、胸椎…"
           style={{
             width: '100%',
             padding: '10px 12px',
@@ -1338,6 +1387,7 @@ export default function S3Viewer() {
 
           return (
             <div key={rk} style={{ marginBottom: 10 }}>
+
               <button onClick={() => toggleGroup(rk)} style={sGroupBtn(isOpen)}>
                 <span>{REGION_LABEL[rk]}</span>
                 <span style={{ opacity: 0.75, fontSize: 12 }}>{cards.length}</span>
