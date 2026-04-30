@@ -1,4 +1,5 @@
 # 這個 main.py 是 S2 Legacy Agent 的核心後端服務，提供聊天、檔案上傳、對話管理等 API。
+#s2_agent/legacy_agent/backend/app/main.py
 
 from __future__ import annotations
 
@@ -23,8 +24,9 @@ from pydantic import BaseModel
 from .models import ChatRequest, ChatResponse, ChatMessage, Action, ChatResource
 from .state.sessions import get_session, append_messages
 
-from .tools.pubmed_tool import answer_with_pubmed
-from .tools.soap_csv_service import answer_with_soap_csv
+from .tools.pubmed_tool import answer_with_pubmed, retrieve_pubmed_sources
+from .tools.soap_csv_service import answer_with_soap_csv, retrieve_soap_sources
+from .tools.rag_fusion_tool import prepare_auto_fusion_answer
 
 # 重要：RAG 匯入（防爆）
 from .tools.rag_tool import answer_with_rag, _build_dialog_state, prepare_answer_with_doc_rag, _call_llm_stream
@@ -536,7 +538,36 @@ def agent_chat_stream(req: ChatRequest):
                         "type": "token",
                         "data": chunk,
                     }, ensure_ascii=False) + "\n"
+            
+            #==========================
+            #rag_mode 融合串流分支（同時使用 PubMed、SOAP、Doc RAG 等多種工具，並整合來源）
+            #==========================
+            
+            elif rag_mode == "auto_fusion":
+                system, prompt, raw_resources = prepare_auto_fusion_answer(
+                    clean_q,
+                    session=session,
+                    dialog_state=dialog_state,
+                    pubmed_max_results=pubmed_max_results,
+                    soap_max_results=2,
+                    vector_top_k=3,
+                )
 
+                resources = _build_resources(raw_resources)
+
+                yield json.dumps({
+                    "type": "sources",
+                    "data": [r.model_dump() for r in resources],
+                }, ensure_ascii=False) + "\n"
+
+                for token in _call_llm_stream(system, prompt):
+                    full_answer_parts.append(token)
+                    yield json.dumps({
+                        "type": "token",
+                        "data": token,
+                    }, ensure_ascii=False) + "\n"
+                
+            
             # =========================
             # 預設：doc_rag 串流分支
             # =========================
@@ -866,6 +897,51 @@ def agent_chat(req: ChatRequest):
                 resources=resources,
             )
 
+        # =========================
+        # Auto Fusion RAG 分支
+        # =========================
+        if rag_mode == "auto_fusion":
+            system, prompt, raw_sources = prepare_auto_fusion_answer(
+                clean_q,
+                session=session,
+                dialog_state=_build_dialog_state(clean_q, session),
+                pubmed_max_results=pubmed_max_results,
+                soap_max_results=2,
+                vector_top_k=3,
+            )
+
+            from .tools.rag_tool import _call_llm
+
+            ans_text = _call_llm(system, prompt)
+            ans_text_out = (ans_text or "").strip()
+
+            reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
+            append_messages(session, [reply])
+
+            add_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=ans_text_out,
+                attachments_json=None,
+                sources=raw_sources,
+                user_id=user_id,
+                source="s2x",
+            )
+
+            set_conversation_title_if_empty(conversation_id, _title_seed(clean_q, 80))
+
+            resources = _build_resources(raw_sources)
+
+            return ChatResponse(
+                messages=session["messages"],
+                actions=actions,
+                session_id=session_id,
+                conversation_id=conversation_id,
+                answer=ans_text_out,
+                resources=resources,
+            )
+        
+        
         # =========================
         # SOAP CSV only 分支
         # =========================

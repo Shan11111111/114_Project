@@ -997,80 +997,134 @@ html.dark .mobile-user-card {
 
 /* ============================
    其他全局樣式(教材管理)
-
 =========================== */
-html.dark .materials-page,
-body.dark .materials-page,
-[data-theme="dark"] .materials-page {
-  background: #0f172a;
-  color: #e5e7eb;
-}
 
-html.dark .materials-card,
-body.dark .materials-card,
-[data-theme="dark"] .materials-card {
-  background: #111827;
-  border-color: #334155;
-  color: #e5e7eb;
-}
+/* ============================
+   Materials Page Dark Theme
+============================ */
 
-html.dark .materials-card h1,
-html.dark .materials-card h2,
-body.dark .materials-card h1,
-body.dark .materials-card h2,
-[data-theme="dark"] .materials-card h1,
-[data-theme="dark"] .materials-card h2 {
-  color: #f8fafc;
-}
-
-html.dark .materials-muted,
-body.dark .materials-muted,
-[data-theme="dark"] .materials-muted {
-  color: #94a3b8;
-}
-
-html.dark .materials-input,
-body.dark .materials-input,
-[data-theme="dark"] .materials-input {
-  background: #020617;
-  border-color: #475569;
-  color: #e5e7eb;
-}
-
-/* Materials page dark mode fix */
-.dark .materials-table-card {
-  background: #0f172a !important;
-  border-color: rgba(148, 163, 184, 0.25) !important;
+html.dark .materials-page {
+  background: #020617 !important;
   color: #e5e7eb !important;
 }
 
-.dark .materials-table-card table,
-.dark .materials-table-card tbody,
-.dark .materials-table-card tr,
-.dark .materials-table-card td {
-  background: #020617 !important;
-  color: #cbd5e1 !important;
-  border-color: rgba(148, 163, 184, 0.18) !important;
+html.dark .materials-table-card {
+  background: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  color: #e5e7eb !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35) !important;
 }
 
-.dark .materials-table-card thead,
-.dark .materials-table-card th {
-  background: #1e293b !important;
-  color: #cbd5e1 !important;
-  border-color: rgba(148, 163, 184, 0.2) !important;
+/* 搜尋區文字 */
+html.dark .materials-table-card h2 {
+  color: #f8fafc !important;
 }
 
-.dark .materials-table-card input {
+html.dark .materials-table-card .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+/* 搜尋框 */
+html.dark .materials-table-card input {
   background: #020617 !important;
-  color: #f1f5f9 !important;
+  color: #f8fafc !important;
   border-color: rgba(148, 163, 184, 0.35) !important;
 }
 
-.dark .materials-table-card button,
-.dark .materials-table-card a {
+html.dark .materials-table-card input::placeholder {
+  color: #64748b !important;
+}
+
+/* 表格外框 */
+html.dark .materials-table-card table {
+  background: #020617 !important;
+}
+
+/* 表頭 */
+html.dark .materials-table-card thead,
+html.dark .materials-table-card th {
+  background: #111827 !important;
+  color: #94a3b8 !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+/* 表格內容 */
+html.dark .materials-table-card tbody,
+html.dark .materials-table-card tr,
+html.dark .materials-table-card td {
+  background: #020617 !important;
+  color: #cbd5e1 !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+/* 表格 hover */
+html.dark .materials-table-card tbody tr:hover td {
   background: #0f172a !important;
 }
 
-.dark .materials-table-card tr:hover td {
+/* 右側 sticky 操作欄 */
+html.dark .materials-table-card td.sticky,
+html.dark .materials-table-card th.sticky {
+  background: #020617 !important;
+}
+
+/* icon 按鈕不要白底 */
+html.dark .materials-table-card a,
+html.dark .materials-table-card button {
+  background: transparent !important;
+}
+
+/* 查看 / 下載 / 刪除 icon 按鈕保留邊框色 */
+html.dark .materials-table-card a.inline-flex,
+html.dark .materials-table-card button.inline-flex {
+  background: #0f172a !important;
+}
+
+/* 分頁區 */
+html.dark .materials-table-card .pagination-btn {
+  background: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.35) !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .materials-table-card .pagination-btn:hover:not(:disabled) {
   background: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+html.dark .materials-table-card .pagination-btn:disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+}
+
+/* 上半部：MaterialsUploader dark fix */
+html.dark .materials-card {
+  background: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  color: #e5e7eb !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35) !important;
+}
+
+html.dark .materials-card h1,
+html.dark .materials-card h2 {
+  color: #f8fafc !important;
+}
+
+html.dark .materials-card span,
+html.dark .materials-card div {
+  color: #94a3b8 !important;
+}
+
+html.dark .materials-card .rounded-xl {
+  background: #020617 !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+html.dark .materials-card pre {
+  color: #22c55e !important;
+}
+
+html.dark .materials-card button {
+  background: #0891b2 !important;
+  color: #020617 !important;
 }

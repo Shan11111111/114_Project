@@ -1,3 +1,5 @@
+#s2_agent/legacy_agent/backend/app/tools/pubmed_tool.py
+# pubmed_tool.py - A helper module for searching PubMed articles based on user questions.
 from __future__ import annotations
 
 import os
@@ -23,6 +25,24 @@ else:
 PUBMED_ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
+def retrieve_pubmed_sources(question: str, max_results: int = 5) -> list[dict]:
+    pubmed_query = _rewrite_to_pubmed_query(question)
+    pmids = _search_pubmed_ids(pubmed_query, retmax=max_results)
+    articles = _fetch_pubmed_summaries(pmids)
+
+    return [
+        {
+            "source_type": "pubmed",
+            "title": a.get("title"),
+            "content": a.get("abstract"),
+            "score": 0.85,
+            "url": a.get("url"),
+            "pmid": a.get("pmid"),
+            "journal": a.get("journal"),
+            "year": a.get("year"),
+        }
+        for a in articles
+    ]
 
 def _clean_text(text: str) -> str:
     t = html.unescape(text or "")

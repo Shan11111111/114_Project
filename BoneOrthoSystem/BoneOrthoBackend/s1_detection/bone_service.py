@@ -18,6 +18,7 @@ MODEL_TO_DB_BONE_EN: Dict[str, str] = {
     "Tibia": "Tibiae",
     "Fibula": "Fibulae",
     "Scapula": "Scapulae",
+    "Clavicle": "Clavicles"
     # 有需要可以在這裡繼續補
 }
 
@@ -30,7 +31,7 @@ def get_bone_info(model_name: str) -> Optional[Dict[str, Any]]:
     自動轉換為 DB 格式 'Cervical vertebrae' 再去查 Bone_Info
     """
 
-    # 1️⃣ 優先用手動 mapping
+    # 優先用手動 mapping
     db_bone_en = MODEL_TO_DB_BONE_EN.get(model_name)
 
     # 2️⃣ 沒在 mapping 裡 → 自動把 "_" 換成空白

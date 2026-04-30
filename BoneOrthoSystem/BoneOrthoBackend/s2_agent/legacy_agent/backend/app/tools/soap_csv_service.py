@@ -1,3 +1,4 @@
+#s2_agent/legacy_agent/backend/app/tools/soap_csv_service.py
 from __future__ import annotations
 
 import os
@@ -30,6 +31,23 @@ SOAP_PLAN_COL = os.getenv("SOAP_PLAN_COL", "PLANCONTENT")
 SOAP_DATE_COL = os.getenv("SOAP_DATE_COL", "就診日期")
 SOAP_ID_COL = os.getenv("SOAP_ID_COL", "RRN")
 
+def retrieve_soap_sources(question: str, max_results: int = 5) -> list[dict]:
+    soap_query = _rewrite_to_soap_query(question)
+    rows = _search_soap_rows(soap_query, top_k=max_results)
+
+    out = []
+    for i, row in enumerate(rows, start=1):
+        content = _build_soap_context([row])
+        out.append({
+            "source_type": "soap",
+            "title": f"SOAP Record {i}",
+            "content": content,
+            "score": 0.8,
+            "url": None,
+            "visit_date": row.get(SOAP_DATE_COL),
+        })
+
+    return out
 
 def _clean_text(text: str) -> str:
     t = html.unescape(text or "")
@@ -213,7 +231,7 @@ def answer_with_soap_csv(
         "只能根據提供的 SOAP CSV 內容回答。"
         "不要捏造未出現的病史、檢查結果或治療。"
         "如果證據有限，要明確說明。"
-        "請用繁體中文，先給結論，再給重點整理，最後列出來源。"
+        "請用繁體中文，先給結論，再給重點整理，最後不要列出來源。"
         "如果使用者問的是目前療法，請優先整理 Assessment 與 Plan。"
     )
 
@@ -221,7 +239,7 @@ def answer_with_soap_csv(
         f"使用者問題：\n{q}\n\n"
         f"SOAP 檢索查詢式：\n{soap_query}\n\n"
         f"以下是 SOAP CSV 檢索結果：\n{context}\n\n"
-        "請根據以上內容回答，並在文末列出參考來源（Record ID + Visit Date）。"
+        "請根據以上內容回答，並在文末不要列出參考來源。"
     )
 
     resp = _client.chat.completions.create(

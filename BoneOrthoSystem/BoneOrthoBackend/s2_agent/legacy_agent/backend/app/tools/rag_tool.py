@@ -1,4 +1,5 @@
 # rag_tool.py - Retrieval-Augmented Generation (RAG) helper functions for the BoneOrthoAgent.
+#s2_agent/legacy_agent/backend/app/tools/rag_tool.py
 from __future__ import annotations
 
 import os

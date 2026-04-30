@@ -47,6 +47,7 @@ class ChatRequest(BaseModel):
         "file_only",
         "pubmed_only",
         "soap_only",
+        "auto_fusion",
     ] = "file_then_vector"
 
     # PubMed 一次最多抓幾篇

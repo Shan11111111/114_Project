@@ -1,3 +1,4 @@
+// frontend/app/llm/page.tsx
 "use client";
 import "./llm-page.css";
 
@@ -83,7 +84,7 @@ type HistoryMessage = {
   resources?: ChatResource[];
 };
 
-type RagMode = "file_then_vector" | "vector_only" | "file_only" | "pubmed_only" | "soap_only";
+type RagMode = "file_then_vector" | "vector_only" | "file_only" | "pubmed_only" | "soap_only" | "auto_fusion";
 /**  S1 bootstrap detections（支援 bbox / poly / PolyJson / P1~P4） */
 type Detection = {
   bone_id?: number | null;
@@ -1548,7 +1549,7 @@ function LLMClient() {
   const [activeView, setActiveView] = useState<ViewKey>("llm");
 
   //  RAG 模式（沿用 pasted.txt：不建立索引）
-  const [ragMode, setRagMode] = useState<RagMode>("file_then_vector");
+  const [ragMode, setRagMode] = useState<RagMode>("auto_fusion");
 
   //  History overlay
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -3013,6 +3014,8 @@ function LLMClient() {
       const wantVector =
         ragMode === "file_then_vector" || ragMode === "vector_only";
 
+
+
       let fileContextText = "";
       let summaryForUI = "";
 
@@ -3436,6 +3439,16 @@ function LLMClient() {
   }
 
   function ResourceCarousel({ resources }: { resources: ChatResource[] }) {
+
+    const formatPageLabel = (page?: string) => {
+      const raw = String(page || "").trim();
+      if (!raw) return "";
+
+      if (/^p\.?\s*\d+/i.test(raw)) return raw.replace(/^p\.?\s*/i, "p.");
+      if (/^\d+$/.test(raw)) return `p.${raw}`;
+
+      return raw;
+    };
     const [index, setIndex] = useState(0);
 
     const safeResources = Array.isArray(resources) ? resources : [];
@@ -3458,24 +3471,62 @@ function LLMClient() {
     if (!total) return null;
 
     const r = safeResources[index];
-    const displayTitle =
-      (r.display_title || r.title || `參考資料 ${index + 1}`).trim();
+
+
+    const sourceType = (r.source_type || "").toLowerCase();
+
+    const isPubMed = sourceType.includes("pubmed");
+    const isSoap = sourceType.includes("soap");
+
+    const isVector =
+      sourceType.includes("vector") ||
+      sourceType.includes("qdrant") ||
+      sourceType.includes("material") ||
+      sourceType.includes("doc_index") ||
+      sourceType.includes("reference");
+
+    const sourceLabel = isPubMed
+      ? "來源：PubMed 生醫文獻資料庫"
+      : isSoap
+        ? "來源：輔大醫院授權之去識別化醫囑紀錄表"
+        : isVector
+          ? "來源：GalaBone 衛教資料庫"
+          : "來源：GalaBone 參考資料";
+
+
+
+
+    const displayTitle = isSoap
+      ? "輔大醫院授權之去識別化醫囑紀錄表"
+      : (r.display_title || r.title || `參考資料 ${index + 1}`).trim();
 
     const isUploadsUrl = (v?: string) =>
       !!v && /\/uploads\//i.test(v);
 
+    const rawPubmedUrl = r.url || r.external_url || r.download_url;
+
+    const pubmedUrl =
+      isPubMed && rawPubmedUrl && !isUploadsUrl(rawPubmedUrl)
+        ? toAbsUrl(rawPubmedUrl)
+        : "";
+
     const resolvedViewUrl =
-      r.material_id
+      isVector && r.material_id
         ? `${API_BASE}/s2/llm/materials/${r.material_id}/view`
-        : (r.url && !isUploadsUrl(r.url) ? toAbsUrl(r.url) : "");
+        : isVector && r.url && !isUploadsUrl(r.url)
+          ? toAbsUrl(r.url)
+          : "";
 
     const resolvedDownloadUrl =
-      r.material_id
+      isVector && r.material_id
         ? `${API_BASE}/s2/llm/materials/${r.material_id}/download`
-        : (r.download_url && !isUploadsUrl(r.download_url) ? toAbsUrl(r.download_url) : "");
+        : isVector && r.download_url && !isUploadsUrl(r.download_url)
+          ? toAbsUrl(r.download_url)
+          : "";
 
     const metaParts = [
-      r.page ? `${r.page}` : "",
+      sourceLabel,
+      isVector && r.page ? formatPageLabel(r.page) : "",
       typeof r.score === "number" && !Number.isNaN(r.score)
         ? `置信度 ${r.score.toFixed(3)}`
         : "",
@@ -3551,17 +3602,19 @@ function LLMClient() {
           )}
 
           <div className="mt-2 flex flex-wrap gap-2">
-            {resolvedViewUrl ? (
-              <a href={resolvedViewUrl} target="_blank" rel="noreferrer">
-                查看文件
-              </a>
-            ) : r.external_url ? (
-              <a href={r.external_url} target="_blank" rel="noreferrer">
-                前往連結
+            {isPubMed && pubmedUrl ? (
+              <a href={pubmedUrl} target="_blank" rel="noreferrer">
+                查看文獻連結
               </a>
             ) : null}
 
-            {resolvedDownloadUrl ? (
+            {isVector && resolvedViewUrl ? (
+              <a href={resolvedViewUrl} target="_blank" rel="noreferrer">
+                查看文件
+              </a>
+            ) : null}
+
+            {isVector && resolvedDownloadUrl ? (
               <a href={resolvedDownloadUrl} target="_blank" rel="noreferrer">
                 下載
               </a>
@@ -4296,6 +4349,8 @@ function LLMClient() {
                               "查詢 PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
                             {ragMode === "soap_only" &&
                               "查詢已授權的輔大醫院之去識別化soap記錄"}
+                            {ragMode === "auto_fusion" &&
+                              "自動融合 RAG：依問題自動整合教材、SOAP 與 PubMed"}
 
 
                           </span>
@@ -4318,10 +4373,10 @@ function LLMClient() {
                             }}
                           >
                             {[
-                              {
-                                value: "file_then_vector",
-                                label: "查詢上傳檔案與衛教智慧庫",
-                              },
+                              // {
+                              //   value: "file_then_vector",
+                              //   label: "查詢上傳檔案與衛教智慧庫",
+                              // },
                               // {
                               //   value: "vector_only",
                               //   label: "查詢衛教智慧庫",
@@ -4330,13 +4385,17 @@ function LLMClient() {
                               //   value: "file_only",
                               //   label: "查詢上傳檔案",
                               // },
+                              // {
+                              //   value: "pubmed_only",
+                              //   label: "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎",
+                              // },
+                              // {
+                              //   value: "soap_only",
+                              //   label: "查詢已授權的輔大醫院之去識別化soap記錄",
+                              // },
                               {
-                                value: "pubmed_only",
-                                label: "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎",
-                              },
-                              {
-                                value: "soap_only",
-                                label: "查詢已授權的輔大醫院之去識別化soap記錄",
+                                value: "auto_fusion",
+                                label: "自動融合 RAG（教材 + SOAP + PubMed）",
                               },
                             ].map((opt) => {
                               const active = ragMode === opt.value;
@@ -4630,10 +4689,13 @@ function LLMClient() {
                           borderColor: "rgba(148,163,184,0.22)",
                           color: "var(--foreground)",
                         }}
-                      >                        <span className="truncate">
+                      >
+                        <span className="truncate">
                           {ragMode === "file_then_vector" && "查詢上傳檔案與衛教智慧庫"}
                           {ragMode === "pubmed_only" && "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
                           {ragMode === "soap_only" && "查詢已授權的輔大醫院之去識別化soap記錄"}
+                          {ragMode === "auto_fusion" &&
+                            "自動融合 RAG：依問題自動整合衛教智慧庫、SOAP 與 PubMed"}
                         </span>
 
                         <i
@@ -4654,6 +4716,10 @@ function LLMClient() {
                             { value: "file_then_vector", label: "查詢上傳檔案與衛教智慧庫" },
                             { value: "pubmed_only", label: "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎" },
                             { value: "soap_only", label: "查詢已授權的輔大醫院之去識別化soap記錄" },
+                            {
+                              value: "auto_fusion",
+                              label: "自動融合 RAG：衛教智慧庫 + SOAP + PubMed",
+                            },
                           ].map((opt) => (
                             <button
                               key={opt.value}
