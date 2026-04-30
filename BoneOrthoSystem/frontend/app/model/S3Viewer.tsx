@@ -1,3 +1,4 @@
+// frontend/app/model/S3Viewer.tsx
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -329,6 +330,7 @@ type BoneModelProps = {
 function BoneModel({ url, selectedNormSet, visibleNormSet, onSelectMesh, onRegistryReady }: BoneModelProps) {
   const { scene } = useGLTF(url) as any;
   const [hovered, setHovered] = useState<string | null>(null);
+  const [targetMeshNames, setTargetMeshNames] = useState<string[]>([]);
 
   const registryRef = useRef<Record<string, THREE.Mesh>>({});
 
@@ -649,8 +651,10 @@ function flattenBoneListPayload(payload: any): BoneListItem[] {
 }
 
 export default function S3Viewer() {
+
   const searchParams = useSearchParams();
-  const targetBoneId = searchParams.get('boneId');
+  const targetBone = searchParams.get("bone") || "";
+  const targetBoneId = searchParams.get("boneId");
 
   const [selectedMode, setSelectedMode] = useState<SelectedMode>({ kind: 'none' });
 
@@ -953,6 +957,36 @@ export default function S3Viewer() {
     },
     [findListItemByMeshName, focusOnMesh]
   );
+
+  useEffect(() => {
+    if (!targetBone) return;
+
+    async function autoSelectBoneFromQuery() {
+      const res = await fetch(`${API_BASE}/s3/bone-list`);
+      const data = await res.json();
+
+      const groups = Array.isArray(data?.data) ? data.data : [];
+
+      const hit = groups.find((g: any) => {
+        return (
+          String(g.bone_zh || "").includes(targetBone) ||
+          String(g.bone_en || "").toLowerCase().includes(targetBone.toLowerCase())
+        );
+      });
+
+      const firstMesh = hit?.items?.find((it: any) => it.mesh_name)?.mesh_name;
+
+      if (!firstMesh) {
+        console.warn("找不到對應 mesh:", targetBone);
+        return;
+      }
+
+      selectByMeshName(firstMesh);
+    }
+
+    autoSelectBoneFromQuery().catch(console.error);
+  }, [targetBone, selectByMeshName]);
+
   useEffect(() => {
     if (!targetBoneId) return;
     if (!boneList.length) return;

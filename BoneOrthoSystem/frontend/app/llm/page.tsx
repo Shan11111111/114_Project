@@ -1527,6 +1527,8 @@ const HistoryOverlay = memo(function HistoryOverlay({
 function LLMClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [navigatingText, setNavigatingText] = useState("");
 
   //   改動 1：由 boolean 改成記錄最後 boot 的 caseId（避免重複 boot）
   const bootOnceRef = useRef<string>("");
@@ -3748,8 +3750,12 @@ function LLMClient() {
                     key={a.path}
                     type="button"
                     onClick={() => {
-                      const ok = confirm(`要前往「${a.label}」嗎？`);
-                      if (ok) router.push(a.path);
+                      setIsNavigating(true);
+                      setNavigatingText(a.label);
+
+                      setTimeout(() => {
+                        router.push(a.path);
+                      }, 900);
                     }}
                     className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80"
                     style={{
@@ -3803,8 +3809,12 @@ function LLMClient() {
                   key={a.path}
                   type="button"
                   onClick={() => {
-                    const ok = confirm(`要前往「${a.label}」嗎？`);
-                    if (ok) router.push(a.path);
+                    setIsNavigating(true);
+                    setNavigatingText(a.label);
+
+                    setTimeout(() => {
+                      router.push(a.path);
+                    }, 900);
                   }}
                   className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80"
                   style={{
@@ -4458,11 +4468,29 @@ function LLMClient() {
   return (
     <div
       className="llm-page h-[calc(100vh-4rem)] flex overflow-hidden transition-colors duration-500 relative"
+
+
+
       style={{
         backgroundColor: "var(--background)",
         color: "var(--foreground)",
       }}
     >
+
+      {isNavigating && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 backdrop-blur-sm">
+          <div className="rounded-3xl border px-8 py-7 text-center shadow-2xl bg-white/90">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-sky-300 border-t-transparent animate-spin" />
+            <div className="text-sm font-semibold text-slate-800">
+              正在開啟學習場景
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {navigatingText}
+            </div>
+          </div>
+        </div>
+      )}
+
       <HistoryOverlay
         isOpen={isHistoryOpen}
         onClose={() => {
@@ -4483,6 +4511,8 @@ function LLMClient() {
         persistedQueryRef={historyPersistedQueryRef}
         renderResources={renderResources}
       />
+
+
 
       {!isMobileNavOpen && (
         <button
