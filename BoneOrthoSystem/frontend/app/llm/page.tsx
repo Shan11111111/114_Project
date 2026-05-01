@@ -280,7 +280,7 @@ async function postChatStreamToBackend(
   handlers: {
     onMeta?: (data: any) => void;
     onSources?: (data: any[]) => void;
-    onToken?: (token: string) => void;
+    onToken?: (token: string) => void | Promise<void>;
     onDone?: (data: any) => void;
     onError?: (data: any) => void;
   }
@@ -322,7 +322,9 @@ async function postChatStreamToBackend(
 
       if (evt.type === "meta") handlers.onMeta?.(evt);
       else if (evt.type === "sources") handlers.onSources?.(evt.data || []);
-      else if (evt.type === "token") handlers.onToken?.(String(evt.data || ""));
+      else if (evt.type === "token") {
+        await handlers.onToken?.(String(evt.data || ""));
+      }
       else if (evt.type === "done") handlers.onDone?.(evt);
       else if (evt.type === "error") handlers.onError?.(evt);
     }
@@ -1626,6 +1628,13 @@ function LLMClient() {
 
   //  主輸入框：受控（中文/英文）
   const [draftText, setDraftText] = useState("");
+
+
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const [streamingAssistantId, setStreamingAssistantId] = useState<number | null>(null);
+
 
   const [privacyConsent, setPrivacyConsent] = useState(false);
   const [showSensitiveModal, setShowSensitiveModal] = useState(false);
@@ -3032,6 +3041,7 @@ function LLMClient() {
     setLoading(true);
 
     const assistantMessageId = Date.now() + 1;
+    setStreamingAssistantId(assistantMessageId);
 
     try {
       if (!HAS_BACKEND) {
@@ -3217,7 +3227,13 @@ function LLMClient() {
           );
         },
 
-        onToken: (token) => {
+
+
+        onToken: async (token) => {
+          console.log("[STREAM TOKEN]", token);
+
+          await new Promise((r) => setTimeout(r, 20));
+
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantMessageId
@@ -3268,7 +3284,59 @@ function LLMClient() {
       bumpThreadOnMessage(threadIdAtSend, msg, 1);
     } finally {
       setLoading(false);
+      setStreamingAssistantId(null);
     }
+  }
+
+  function toggleVoiceInput() {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("目前瀏覽器不支援語音輸入，建議使用 Chrome 或 Edge。");
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "zh-TW";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      let finalText = "";
+      let interimText = "";
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const text = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalText += text;
+        else interimText += text;
+      }
+
+      const nextText = `${draftText}${finalText || interimText}`.trim();
+      setDraftText(nextText);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
   }
 
   async function sendMessage(e?: FormEvent) {
@@ -3952,7 +4020,7 @@ function LLMClient() {
     const guideActions = getGuideActions(`${lastUserText}\n${text}`);
 
     const match =
-      text.match(/4\)\s*(?:\*\*)?\s*(延伸學習問題)?/) ||
+      text.match(/4\)\s*(?:\*\*)?\s*(延伸學習問題|延伸問題|延伸提問)?/) ||
       text.match(/(?:^|\n)(-\s*.+？(?:\n-\s*.+？){1,3})\s*$/);
 
     const idx =
@@ -4576,96 +4644,113 @@ function LLMClient() {
           messages: [{ role: "user", type: "text", content: question }],
         };
 
-        const resp = await postChatToBackend(payload);
-
-        const cid = String(resp?.conversation_id ?? "");
-        const sidFromServer = String(resp?.session_id ?? "");
-        if (sidFromServer) setSessionId(sidFromServer);
-
-        if (cid) {
-          replaceThreadId(threadIdAtBoot, cid, sidFromServer || bootSession);
-
-          activeThreadIdRef.current = cid;
-          setActiveThreadId(cid);
-          setHistoryPreviewThreadId(cid);
-
-          if (sidFromServer || bootSession) {
-            setSessionId(sidFromServer || bootSession);
-          }
-
-          // ✅ 正規化 URL：bootstrap 成功後改成 thread 模式
-          // 之後重整會走 loadThreadToMain(thread)，不會再用 caseId 重建一條新對話
-          loadedThreadFromUrlRef.current = cid;
-          router.replace(`/llm?thread=${encodeURIComponent(cid)}`);
-
-          setTimeout(() => {
-            ensureBackendAutoTitleOnce(cid, question);
-          }, 0);
-        }
-
-        let answerText = "";
-        if (resp?.answer || resp?.content || resp?.message) {
-          answerText = String(resp.answer ?? resp.content ?? resp.message);
-        } else {
-          answerText =
-            String(
-              resp?.reply ??
-              (Array.isArray(resp?.messages)
-                ? [...resp.messages]
-                  .reverse()
-                  .find((m: any) => m?.role === "assistant")?.content ??
-                resp.messages[resp.messages.length - 1]?.content ??
-                ""
-                : "")
-            ) || "";
-        }
-
-        const botResources: ChatResource[] = Array.isArray(resp?.resources)
-          ? resp.resources.map((r: any) => ({
-            title: String(r?.title ?? "未命名來源"),
-            display_title: r?.display_title
-              ? String(r.display_title)
-              : String(r?.title ?? "未命名來源"),
-            url: r?.url ? String(r.url) : undefined,
-            download_url: r?.download_url ? String(r.download_url) : undefined,
-            external_url: r?.external_url ? String(r.external_url) : undefined,
-            source_type: r?.source_type ? String(r.source_type) : undefined,
-            page: r?.page ? String(r.page) : undefined,
-            snippet: r?.snippet ? String(r.snippet) : undefined,
-            material_id: r?.material_id ? String(r.material_id) : undefined,
-            score:
-              typeof r?.score === "number"
-                ? r.score
-                : r?.score != null
-                  ? Number(r.score)
-                  : undefined,
-          }))
-          : [];
+        const assistantMessageId = Date.now() + 1;
+        setStreamingAssistantId(assistantMessageId);
 
         setMessages((prev) => [
           ...prev,
           {
-            id: Date.now() + 1,
+            id: assistantMessageId,
             role: "assistant",
-            content: String(answerText),
-            resources: botResources,
+            content: "",
+            resources: [],
           },
         ]);
 
-        const finalThreadId = cid || threadIdAtBoot;
+        let streamedConversationId = "";
+        let streamedSessionId = "";
+        let streamedResources: ChatResource[] = [];
 
-        pushHistoryMessage(
-          finalThreadId,
-          "assistant",
-          String(answerText),
-          botResources
-        );
+        await postChatStreamToBackend(payload, {
+          onMeta: (meta) => {
+            streamedConversationId = String(meta?.conversation_id ?? "");
+            streamedSessionId = String(meta?.session_id ?? "");
 
-        bumpThreadOnMessage(
-          finalThreadId,
-          String(answerText).slice(0, 80),
-          1
-        );
+            if (streamedSessionId) setSessionId(streamedSessionId);
+
+            if (streamedConversationId) {
+              replaceThreadId(
+                threadIdAtBoot,
+                streamedConversationId,
+                streamedSessionId || bootSession
+              );
+
+              activeThreadIdRef.current = streamedConversationId;
+              setActiveThreadId(streamedConversationId);
+              setHistoryPreviewThreadId(streamedConversationId);
+
+              loadedThreadFromUrlRef.current = streamedConversationId;
+              router.replace(`/llm?thread=${encodeURIComponent(streamedConversationId)}`);
+
+              setTimeout(() => {
+                ensureBackendAutoTitleOnce(streamedConversationId, question);
+              }, 0);
+            }
+          },
+
+          onSources: (resources) => {
+            streamedResources = Array.isArray(resources)
+              ? resources.map((r: any) => ({
+                title: String(r?.title ?? "未命名來源"),
+                display_title: r?.display_title
+                  ? String(r.display_title)
+                  : String(r?.title ?? "未命名來源"),
+                url: r?.url ? String(r.url) : undefined,
+                download_url: r?.download_url ? String(r.download_url) : undefined,
+                external_url: r?.external_url ? String(r.external_url) : undefined,
+                source_type: r?.source_type ? String(r.source_type) : undefined,
+                page: r?.page ? String(r.page) : undefined,
+                snippet: r?.snippet ? String(r.snippet) : undefined,
+                material_id: r?.material_id ? String(r.material_id) : undefined,
+                score:
+                  typeof r?.score === "number"
+                    ? r.score
+                    : r?.score != null
+                      ? Number(r.score)
+                      : undefined,
+              }))
+              : [];
+
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, resources: streamedResources }
+                  : msg
+              )
+            );
+          },
+
+          onToken: async (token) => {
+            await new Promise((r) => setTimeout(r, 20));
+
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, content: (msg.content || "") + token }
+                  : msg
+              )
+            );
+          },
+
+          onDone: () => {
+            const finalThreadId = streamedConversationId || threadIdAtBoot;
+
+            const bot = latestMessagesRef.current.find(
+              (m) => m.id === assistantMessageId
+            );
+
+            const finalText = bot?.content || "";
+
+            pushHistoryMessage(finalThreadId, "assistant", finalText, streamedResources);
+            bumpThreadOnMessage(finalThreadId, finalText.slice(0, 80), 1);
+          },
+
+          onError: (evt) => {
+            throw new Error(evt?.message || "串流失敗");
+          },
+        });
+
+        setStreamingAssistantId(null);
 
 
 
@@ -4830,7 +4915,7 @@ function LLMClient() {
                     <div className="text-[13px] font-semibold opacity-85 mb-1">
                       RAG 模式{" "}
                       <span className="text-[11px] font-normal opacity-60">
-                        （不會建立索引）
+                        （RAG mode）
                       </span>
                     </div>
 
@@ -5376,20 +5461,17 @@ function LLMClient() {
                     );
                   })}
 
-                  {loading && (
-                    <div className="flex justify-start mb-4">
-                      <div
-                        className="text-xs px-4 py-2 max-w-[min(70%,60ch)] rounded-2xl"
-                        style={{
-                          backgroundColor: "var(--chat-assistant-bg)",
-                          color: "var(--chat-assistant-text)",
-                          wordBreak: "break-word",
-                        }}
-                      >
-                        正在思考中…
+
+                  {loading &&
+                    !messages.some(
+                      (m) => m.id === streamingAssistantId && m.role === "assistant"
+                    ) && (
+                      <div className="flex justify-start mb-4">
+                        <div className="text-xs px-4 py-2 max-w-[min(70%,60ch)] rounded-2xl">
+                          正在思考中…
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
                   <div ref={chatEndRef} />
                 </div>
@@ -5496,7 +5578,26 @@ function LLMClient() {
 
                               {!isExpanded && (
                                 <div className="flex items-center gap-3">
+
+                                  {/* <button
+                                    type="button"
+                                    onClick={toggleVoiceInput}
+                                    className="h-7 w-7 rounded-full flex items-center justify-center text-sm"
+                                    style={{
+                                      backgroundColor: isListening
+                                        ? "rgba(239,68,68,0.18)"
+                                        : "rgba(148,163,184,0.18)",
+                                      color: isListening ? "#ef4444" : "var(--foreground)",
+                                    }}
+                                    title={isListening ? "停止語音輸入" : "語音輸入"}
+                                  >
+                                    <i className={`fa-solid ${isListening ? "fa-stop" : "fa-microphone"} text-[12px]`} />
+                                  </button> */}
+
+
                                   <span className="text-[10px] text-emerald-400">●</span>
+
+
                                   <button
                                     type="submit"
                                     disabled={

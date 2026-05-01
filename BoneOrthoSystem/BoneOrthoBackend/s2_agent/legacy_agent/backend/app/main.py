@@ -485,7 +485,7 @@ def agent_chat_stream(req: ChatRequest):
                     "data": [r.model_dump() for r in resources],
                 }, ensure_ascii=False) + "\n"
 
-                for chunk in _yield_token_chunks(final_answer, chunk_size=30):
+                for chunk in _yield_token_chunks(final_answer, chunk_size=1):
                     full_answer_parts.append(chunk)
                     yield json.dumps({
                         "type": "token",
@@ -532,7 +532,7 @@ def agent_chat_stream(req: ChatRequest):
                     "data": [r.model_dump() for r in resources],
                 }, ensure_ascii=False) + "\n"
 
-                for chunk in _yield_token_chunks(final_answer, chunk_size=30):
+                for chunk in _yield_token_chunks(final_answer, chunk_size=1):
                     full_answer_parts.append(chunk)
                     yield json.dumps({
                         "type": "token",
@@ -635,8 +635,9 @@ def agent_chat_stream(req: ChatRequest):
         generate(),
         media_type="application/x-ndjson",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
         },
     )
 

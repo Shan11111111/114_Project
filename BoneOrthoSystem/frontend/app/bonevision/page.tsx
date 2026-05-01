@@ -1507,7 +1507,7 @@ function BoneVisionPageInner() {
                   <button
                     type="button"
                     onClick={() => {
-                      window.location.href = "http://140.136.155.157/auth?mode=login";
+                      window.location.href = "https://140.136.155.157/auth?mode=login";
                     }}
                     className="rounded-2xl px-6 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
                   >
@@ -1517,7 +1517,7 @@ function BoneVisionPageInner() {
                   <button
                     type="button"
                     onClick={() => {
-                      window.location.href = "http://140.136.155.157/auth?mode=register";
+                      window.location.href = "https://140.136.155.157/auth?mode=register";
                     }}
                     className={`rounded-2xl px-6 py-3 text-sm font-semibold border transition-colors ${secondaryActionClass}`}
                   >

@@ -747,6 +747,7 @@ def _call_llm_stream(
             delta = chunk.choices[0].delta
             content = getattr(delta, "content", None)
             if content:
+                print("[LLM TOKEN]", repr(content[:20]), flush=True)
                 yield content
         except Exception:
             continue

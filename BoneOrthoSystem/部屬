@@ -1,0 +1,7 @@
+
+IIS部屬(https)
+
+https://140.136.155.157
+
+FastAPI規則
+^(s0_annotation|s1_detection|s2|s2_agent|s2x|s3|s3_viewer|shared|predict|upload|public|history|sample-images|materials|uploads|docs|openapi\.json)(/.*)?$|^auth/.+$
