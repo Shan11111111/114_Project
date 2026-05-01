@@ -4020,7 +4020,7 @@ function LLMClient() {
     const guideActions = getGuideActions(`${lastUserText}\n${text}`);
 
     const match =
-      text.match(/4\)\s*(?:\*\*)?\s*(延伸學習問題|延伸問題|延伸提問)?/) ||
+      text.match(/4\)\s*(?:\*\*)?\s*(延伸學習問題|延伸問題|延伸提問|延伸學習問題：)?/) ||
       text.match(/(?:^|\n)(-\s*.+？(?:\n-\s*.+？){1,3})\s*$/);
 
     const idx =
@@ -4641,6 +4641,13 @@ function LLMClient() {
           session_id: (bootSession || sessionId || "").trim(),
           user_id: (uidRef.current || userId || "guest").trim(),
           conversation_id: threadIdAtBoot,
+
+          // ✅ S1 交接進來也固定走 GalaBone RAG，不吃後端預設值
+          privacy_consent: true,
+          pii_mode: "block",
+          rag_mode: "auto_fusion",
+          pubmed_max_results: 5,
+
           messages: [{ role: "user", type: "text", content: question }],
         };
 
