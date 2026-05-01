@@ -9,6 +9,15 @@ from .rag_tool import retrieve_sources, _build_history_summary, _build_retrieval
 from .pubmed_tool import retrieve_pubmed_sources
 from .soap_csv_service import retrieve_soap_sources
 
+from .intent_router import analyze_user_intent
+
+from .asset_3d_tool import (
+    retrieve_3d_asset,
+    retrieve_3d_assets,
+    build_render_plan,
+    build_multi_render_plan,
+    render_plan_source,
+)
 
 Evidence = Dict[str, Any]
 
@@ -246,9 +255,21 @@ def prepare_auto_fusion_answer(
     
 ) -> Tuple[str, str, List[Dict[str, Any]]]:
     
+    
     user_q = (user_q or "").strip()
     if not user_q:
         raise ValueError("empty question")
+
+    intent = analyze_user_intent(user_q)
+        
+    # ====== 🔥 3D Intent Router 插入點 ======
+    if intent["need_3d_asset"]:
+        assets = retrieve_3d_assets(user_q, limit=6)
+        render_plan = build_multi_render_plan(user_q, assets)
+        render_source = render_plan_source(render_plan)
+    else:
+        render_source = None
+    # ====== 🔥 END ======
     
     response_language = (response_language or "zh-TW").strip()
 
@@ -331,7 +352,11 @@ def prepare_auto_fusion_answer(
             
         )
 
-        return system, prompt, []
+        raw_resources = []
+        if render_source:
+            raw_resources.insert(0, render_source)
+
+        return system, prompt, raw_resources
         
 
     history_summary = _build_history_summary(user_q, session, state)
@@ -394,5 +419,8 @@ def prepare_auto_fusion_answer(
             "year": item.get("year"),
             "visit_date": item.get("visit_date"),
         })
+        
+    if render_source:
+        raw_resources.insert(0, render_source)
 
     return system, prompt, raw_resources

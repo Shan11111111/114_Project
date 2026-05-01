@@ -339,7 +339,11 @@ def _build_resources(sources: list[dict] | None) -> list[ChatResource]:
                 download_url=str(download_url) if download_url else None,
                 source_type=str(source_type) if source_type else None,
                 page=page,
-                snippet=str(snippet)[:300] if snippet else None,
+                snippet=(
+                    str(snippet)
+                    if str(source_type).lower() == "3d_asset"
+                    else str(snippet)[:300]
+                ) if snippet else None,
                 score=float(s.get("score")) if s.get("score") is not None else None,
             )
         )

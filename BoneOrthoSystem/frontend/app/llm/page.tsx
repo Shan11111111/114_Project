@@ -18,6 +18,7 @@ import React, {
   Suspense,
 } from "react";
 
+import BoneRenderPreview from "../components/BoneRenderPreview";
 import S2PrivacyConsent from "./S2PrivacyConsent";
 import S2SensitiveInfoModal from "./S2SensitiveInfoModal";
 import { getUser } from "../lib/auth";
@@ -1124,6 +1125,9 @@ const HistoryOverlay = memo(function HistoryOverlay({
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
+
+
+
   const threadContentIndex = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of historyMessages) {
@@ -1603,6 +1607,36 @@ function LLMClient() {
 
   const [isNavigating, setIsNavigating] = useState(false);
   const [navigatingText, setNavigatingText] = useState("");
+
+  const [renderModalOpen, setRenderModalOpen] = useState(false);
+  const [renderPlan, setRenderPlan] = useState<any>(null);
+
+
+  const [renderPanelCollapsed, setRenderPanelCollapsed] = useState(false);
+
+  function getRenderItems(plan: any) {
+    if (!plan) return [];
+
+    if (Array.isArray(plan.items)) {
+      return plan.items;
+    }
+
+    if (plan.asset) {
+      return [
+        {
+          asset: plan.asset,
+          render_plan: plan.render_plan,
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  function shouldShowLesionMark(item: any) {
+    const lesionType = item?.render_plan?.lesion_type;
+    return lesionType && lesionType !== "highlight";
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -3239,6 +3273,8 @@ function LLMClient() {
       let streamedSessionId = "";
       let streamedResources: ChatResource[] = [];
 
+
+
       await postChatStreamToBackend(payload, {
         onMeta: (meta) => {
           streamedConversationId = String(meta?.conversation_id ?? "");
@@ -3261,6 +3297,8 @@ function LLMClient() {
           }
         },
         onSources: (resources) => {
+          console.log("[SOURCES RAW]", resources);
+
           streamedResources = Array.isArray(resources)
             ? resources.map((r: any) => ({
               title: String(r?.title ?? "未命名來源"),
@@ -3290,6 +3328,29 @@ function LLMClient() {
                 : msg
             )
           );
+
+          const assetSource = streamedResources.find((r: any) => {
+            const st = String(r.source_type || "").toLowerCase();
+            const title = String(r.title || r.display_title || "");
+            return st === "3d_asset" || title.includes("3D 模型");
+          });
+
+          if (assetSource?.snippet) {
+            try {
+              const plan = JSON.parse(assetSource.snippet);
+              if (plan?.ok === false) {
+                setRenderPlan(null);
+                setRenderModalOpen(false);
+                return;
+              }
+
+              setRenderPlan(plan);
+              setRenderPanelCollapsed(false);
+              setRenderModalOpen(true);
+            } catch {
+              console.error("3D render plan parse failed", assetSource.snippet);
+            }
+          }
         },
 
 
@@ -4270,6 +4331,14 @@ function LLMClient() {
   function renderResources(resources?: ChatResource[]) {
     if (!resources || resources.length === 0) return null;
 
+    resources = resources.filter((r) => {
+      const st = String(r.source_type || "").toLowerCase();
+      const title = String(r.title || r.display_title || "");
+      return st !== "3d_asset" && !title.includes("3D 模型骨折示意");
+    });
+
+    if (resources.length === 0) return null;
+
     const bestByKey = new Map<string, ChatResource>();
 
     for (const r of resources) {
@@ -4802,6 +4871,8 @@ function LLMClient() {
           },
 
           onSources: (resources) => {
+            console.log("[SOURCES RAW]", resources);
+
             streamedResources = Array.isArray(resources)
               ? resources.map((r: any) => ({
                 title: String(r?.title ?? "未命名來源"),
@@ -4831,6 +4902,29 @@ function LLMClient() {
                   : msg
               )
             );
+
+            const assetSource = streamedResources.find((r: any) => {
+              const st = String(r.source_type || "").toLowerCase();
+              const title = String(r.title || r.display_title || "");
+              return st === "3d_asset" || title.includes("3D 模型");
+            });
+
+            if (assetSource?.snippet) {
+              try {
+                const plan = JSON.parse(assetSource.snippet);
+                if (plan?.ok === false) {
+                  setRenderPlan(null);
+                  setRenderModalOpen(false);
+                  return;
+                }
+
+                setRenderPlan(plan);
+                setRenderPanelCollapsed(false);
+                setRenderModalOpen(true);
+              } catch {
+                console.error("3D render plan parse failed", assetSource.snippet);
+              }
+            }
           },
 
           onToken: async (token) => {
@@ -4925,6 +5019,78 @@ function LLMClient() {
             <div className="mt-1 text-xs text-slate-500">
               {navigatingText}
             </div>
+          </div>
+        </div>
+      )}
+
+      {renderModalOpen && renderPlan && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-slate-950/45 backdrop-blur-sm">
+          <div
+            className={`rounded-3xl bg-white shadow-2xl border transition-all ${renderPanelCollapsed
+                ? "w-[min(92vw,520px)]"
+                : "w-[min(94vw,1100px)] max-h-[88vh]"
+              } overflow-hidden`}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div>
+                <div className="font-bold text-slate-900">
+                  3D 骨骼示意
+                </div>
+                <div className="text-xs text-slate-500">
+                  {getRenderItems(renderPlan).length > 1
+                    ? `已找到 ${getRenderItems(renderPlan).length} 個模型`
+                    : `${getRenderItems(renderPlan)[0]?.asset?.bone_zh || "骨骼模型"}｜${getRenderItems(renderPlan)[0]?.render_plan?.region_zh || "位置未指定"}`}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRenderPanelCollapsed((v) => !v)}
+                  className="h-9 rounded-full bg-slate-100 px-3 text-sm text-slate-700"
+                >
+                  {renderPanelCollapsed ? "展開" : "收合"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRenderModalOpen(false)}
+                  className="h-9 w-9 rounded-full bg-slate-100 text-slate-700"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {!renderPanelCollapsed && (
+              <div className="max-h-[calc(88vh-74px)] overflow-y-auto p-5">
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                  {getRenderItems(renderPlan).map((item: any, idx: number) => (
+                    <div key={`${item?.asset?.mesh_name || idx}`} className="rounded-2xl border p-3">
+                      <BoneRenderPreview
+                        filePath={item?.asset?.file_path}
+                        meshName={item?.asset?.mesh_name}
+                        region={item?.render_plan?.region}
+                        regionZh={item?.render_plan?.region_zh}
+                        lesionZh={item?.render_plan?.lesion_zh}
+                        showLesion={shouldShowLesionMark(item)}
+                      />
+
+                      <div className="mt-3 text-sm text-slate-700">
+                        <div>骨頭：{item?.asset?.bone_zh || "未指定"}</div>
+                        <div>模型：{item?.asset?.mesh_name || "未指定"}</div>
+                        <div>
+                          顯示：{shouldShowLesionMark(item)
+                            ? item?.render_plan?.lesion_zh || "病灶示意"
+                            : "單純骨骼模型"}
+                        </div>
+                        <div>位置：{item?.render_plan?.region_zh || "未指定"}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
