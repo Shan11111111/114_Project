@@ -7,12 +7,12 @@ import { OrbitControls, Html, useGLTF, Center } from "@react-three/drei";
 import * as THREE from "three";
 
 type Props = {
-  filePath?: string;
-  meshName?: string;
-  region?: string;
-  regionZh?: string;
-  lesionZh?: string;
-  showLesion?: boolean;
+    filePath?: string;
+    meshName?: string;
+    region?: string;
+    regionZh?: string;
+    lesionZh?: string;
+    showLesion?: boolean;
 };
 
 function meshVariants(name: string): string[] {
@@ -113,33 +113,73 @@ function BoneModel({ filePath, meshName, region, regionZh, lesionZh, showLesion 
 
             {/* 骨折示意標記 */}
             {/* 骨折擬真示意：紅色病灶區 + 裂縫線 */}
-            <group position={markerPosition}>
-                <mesh>
-                    <sphereGeometry args={[0.16, 32, 32]} />
-                    <meshStandardMaterial color="red" transparent opacity={0.35} />
-                </mesh>
+            {showLesion && (
+                <>
+                    {/* 病灶光暈：貼近骨面，不用大紅球 */}
+                    <group position={markerPosition}>
+                        <mesh rotation={[Math.PI / 2, 0, 0]}>
+                            <torusGeometry args={[0.2, 0.012, 16, 64]} />
+                            <meshStandardMaterial color="#ef4444" emissive="#7f1d1d" transparent opacity={0.95} />
+                        </mesh>
 
-                <mesh rotation={[0, 0, 0.75]} position={[0, 0, 0.04]}>
-                    <boxGeometry args={[0.035, 0.5, 0.035]} />
-                    <meshStandardMaterial color="#111827" />
-                </mesh>
+                        <mesh>
+                            <sphereGeometry args={[0.18, 32, 32]} />
+                            <meshStandardMaterial color="#ef4444" transparent opacity={0.16} depthWrite={false} />
+                        </mesh>
 
-                <mesh rotation={[0, 0, -0.5]} position={[0.05, 0.08, 0.05]}>
-                    <boxGeometry args={[0.025, 0.28, 0.025]} />
-                    <meshStandardMaterial color="#7f1d1d" />
-                </mesh>
+                        {/* 主裂縫 */}
+                        <mesh rotation={[0.2, 0.1, 0.65]} position={[0, 0, 0.045]}>
+                            <boxGeometry args={[0.022, 0.52, 0.018]} />
+                            <meshStandardMaterial color="#020617" />
+                        </mesh>
 
-                <mesh rotation={[0, 0, 0.25]} position={[-0.05, -0.06, 0.05]}>
-                    <boxGeometry args={[0.022, 0.22, 0.022]} />
-                    <meshStandardMaterial color="#7f1d1d" />
-                </mesh>
-            </group>
+                        {/* 分支裂縫 */}
+                        <mesh rotation={[0.1, 0.1, -0.55]} position={[0.055, 0.08, 0.055]}>
+                            <boxGeometry args={[0.014, 0.28, 0.014]} />
+                            <meshStandardMaterial color="#450a0a" />
+                        </mesh>
 
-            <Html position={[markerPosition.x + 0.18, markerPosition.y + 0.12, markerPosition.z]} center>
-                <div className="whitespace-nowrap rounded-full bg-red-500 px-3 py-1 text-xs font-bold text-white shadow">
-                    {lesionZh || "骨折示意"}｜{regionZh || "位置標示"}
-                </div>
-            </Html>
+                        <mesh rotation={[0.1, 0.1, 0.25]} position={[-0.055, -0.07, 0.055]}>
+                            <boxGeometry args={[0.012, 0.22, 0.012]} />
+                            <meshStandardMaterial color="#450a0a" />
+                        </mesh>
+
+                        {/* 小碎片示意 */}
+                        <mesh position={[0.12, -0.08, 0.06]} rotation={[0.4, 0.2, 0.7]}>
+                            <coneGeometry args={[0.035, 0.11, 5]} />
+                            <meshStandardMaterial color="#f8fafc" roughness={0.5} />
+                        </mesh>
+                    </group>
+
+                    {/* 導引線 */}
+                    <mesh
+                        position={[markerPosition.x + 0.22, markerPosition.y + 0.16, markerPosition.z]}
+                        rotation={[0, 0, -0.55]}
+                    >
+                        <boxGeometry args={[0.01, 0.45, 0.01]} />
+                        <meshStandardMaterial color="#ef4444" />
+                    </mesh>
+
+                    {/* 浮動說明卡，不要黏在骨頭正上方 */}
+                    <Html
+                        position={[
+                            markerPosition.x + 0.55,
+                            markerPosition.y + 0.35,
+                            markerPosition.z,
+                        ]}
+                        center
+                    >
+                        <div className="rounded-xl border border-red-200 bg-white/95 px-3 py-2 text-xs text-slate-800 shadow-lg">
+                            <div className="font-bold text-red-600">
+                                {lesionZh || "病灶示意"}
+                            </div>
+                            <div className="mt-0.5 text-slate-500">
+                                {regionZh || "位置標示"}
+                            </div>
+                        </div>
+                    </Html>
+                </>
+            )}
         </Center>
     );
 }
