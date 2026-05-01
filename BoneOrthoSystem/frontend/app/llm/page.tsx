@@ -3560,11 +3560,22 @@ function LLMClient() {
       const raw = String(page || "").trim();
       if (!raw) return "";
 
-      if (/^p\.?\s*\d+/i.test(raw)) return raw.replace(/^p\.?\s*/i, "p.");
-      if (/^\d+$/.test(raw)) return `p.${raw}`;
+      // ✅ 防止 p.p.7、p. p.7、P.P.7 這種重複前綴
+      const cleaned = raw
+        .replace(/^p\.\s*p\./i, "p.")
+        .replace(/^p\s*p\./i, "p.")
+        .replace(/^p\.\s*p\s*/i, "p.");
 
-      return raw;
+      // 7 -> p.7
+      if (/^\d+$/.test(cleaned)) return `p.${cleaned}`;
+
+      // p7 / p.7 / P.7 -> p.7
+      const m = cleaned.match(/^p\.?\s*(\d+)$/i);
+      if (m) return `p.${m[1]}`;
+
+      return cleaned;
     };
+    
     const [index, setIndex] = useState(0);
 
     const safeResources = Array.isArray(resources) ? resources : [];
@@ -4020,7 +4031,9 @@ function LLMClient() {
     const guideActions = getGuideActions(`${lastUserText}\n${text}`);
 
     const match =
-      text.match(/4\)\s*(?:\*\*)?\s*(延伸學習問題|延伸問題|延伸提問|延伸學習問題：)?/) ||
+      text.match(
+        /(?:^|\n)\s*(?:\*\*)?\s*(?:4\)\s*)?(延伸學習問題|延伸問題|延伸提問)\s*[:：]?\s*(?:\*\*)?/m
+      ) ||
       text.match(/(?:^|\n)(-\s*.+？(?:\n-\s*.+？){1,3})\s*$/);
 
     const idx =
@@ -4084,9 +4097,19 @@ function LLMClient() {
     const questions = followText
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => /^-/.test(line) || /^4\)\s*-/.test(line))
-      .map((line) => line.replace(/^4\)\s*/, "").replace(/^-+\s*/, "").trim())
-
+      // 拿掉標題行，不然「延伸學習問題：」會混進問題
+      .filter(
+        (line) =>
+          !/^(?:\*\*)?\s*(?:4\)\s*)?(延伸學習問題|延伸問題|延伸提問)\s*[:：]?\s*(?:\*\*)?$/.test(line)
+      )
+      // 支援 - 問題、• 問題、1. 問題、1) 問題
+      .filter((line) => /^[-•]\s*/.test(line) || /^\d+[.)、]\s*/.test(line))
+      .map((line) =>
+        line
+          .replace(/^[-•]\s*/, "")
+          .replace(/^\d+[.)、]\s*/, "")
+          .trim()
+      )
       .filter(Boolean)
       .slice(0, 3);
 
@@ -4137,7 +4160,7 @@ function LLMClient() {
         {questions.length > 0 && (
           <div className="mt-3">
             <div className="text-[12px] font-semibold opacity-70 mb-2">
-              4) 延伸學習問題
+              延伸學習問題
             </div>
 
             <div className="flex flex-wrap gap-2">
