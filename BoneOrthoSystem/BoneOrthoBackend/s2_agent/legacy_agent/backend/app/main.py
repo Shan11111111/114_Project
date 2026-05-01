@@ -397,6 +397,12 @@ def agent_chat_stream(req: ChatRequest):
     pubmed_max_results = int(getattr(req, "pubmed_max_results", 5) or 5)
     pubmed_max_results = max(1, min(pubmed_max_results, 8))
 
+    response_language = (
+        getattr(req, "response_language", None)
+        or getattr(req, "locale", None)
+        or "zh-TW"
+    ).strip()
+
     has_fresh_uploads = False
     for m in req.messages:
         if getattr(m, "role", None) != "user":
@@ -551,6 +557,7 @@ def agent_chat_stream(req: ChatRequest):
                     pubmed_max_results=pubmed_max_results,
                     soap_max_results=2,
                     vector_top_k=3,
+                    response_language=response_language,
                 )
 
                 resources = _build_resources(raw_resources)
@@ -837,6 +844,12 @@ def agent_chat(req: ChatRequest):
         pubmed_max_results = int(getattr(req, "pubmed_max_results", 5) or 5)
         pubmed_max_results = max(1, min(pubmed_max_results, 8))
 
+        response_language = (
+            getattr(req, "response_language", None)
+            or getattr(req, "locale", None)
+            or "zh-TW"
+        ).strip()
+
         # =========================
         # PubMed only 分支
         # =========================
@@ -909,6 +922,7 @@ def agent_chat(req: ChatRequest):
                 pubmed_max_results=pubmed_max_results,
                 soap_max_results=2,
                 vector_top_k=3,
+                response_language=response_language,
             )
 
             from .tools.rag_tool import _call_llm

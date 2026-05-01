@@ -40,6 +40,12 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     messages: list[ChatMessage]
 
+    # 前端語言設定
+    # locale：目前 UI 語言
+    # response_language：希望 AI 回答的語言
+    locale: str | None = None
+    response_language: str | None = None
+
     # 前端模式切換
     rag_mode: Literal[
         "file_then_vector",

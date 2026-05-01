@@ -242,10 +242,27 @@ def prepare_auto_fusion_answer(
     pubmed_max_results: int = 3,
     soap_max_results: int = 2,
     vector_top_k: int = 3,
+    response_language: str = "zh-TW",
+    
 ) -> Tuple[str, str, List[Dict[str, Any]]]:
+    
     user_q = (user_q or "").strip()
     if not user_q:
         raise ValueError("empty question")
+    
+    response_language = (response_language or "zh-TW").strip()
+
+    if response_language == "en-US":
+        language_rule = (
+            "You must answer in English. "
+            "Even if the retrieved evidence is in Chinese, translate and explain it in natural English. "
+            "Do not answer in Traditional Chinese unless the user explicitly asks for Chinese."
+        )
+    else:
+        language_rule = (
+            "請使用繁體中文回答。"
+            "即使使用者輸入英文，也請維持繁體中文回答，除非系統指定 response_language 為 en-US。"
+        )
     
     state = dialog_state or {}
     retrieval_query = _build_retrieval_query(user_q, session, state)
@@ -296,10 +313,11 @@ def prepare_auto_fusion_answer(
         fallback_query = retrieval_query if retrieval_query != user_q else user_q
 
         system = (
-            "你是骨科衛教/判讀輔助助手。"
-            "目前檢索資料不足時，可以提供一般性衛教方向，"
-            "但必須明確說明這不是根據本次檢索資料得出的結論，且不可捏造文獻或個案資料。"
-        )
+    "你是骨科衛教/判讀輔助助手。\n"
+    f"{language_rule}\n"
+    "目前檢索資料不足時，可以提供一般性衛教方向，"
+    "但必須明確說明這不是根據本次檢索資料得出的結論，且不可捏造文獻或個案資料。"
+)
 
         prompt = (
             f"【使用者原始問題】\n{user_q}\n\n"
@@ -321,6 +339,7 @@ def prepare_auto_fusion_answer(
 
     system = (
         "你是骨科衛教/判讀輔助助手。\n"
+        f"{language_rule}\n"
         "你會收到多來源 RAG 檢索資料，來源可能包含 vector、soap、pubmed。\n"
         "請優先根據檢索資料回答，不要捏造資料中沒有的內容。\n"
         "回答前必須先判斷使用者真正想問的是：診斷判斷、治療方式、知識解釋、風險/預後，或資料解讀。\n"

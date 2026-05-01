@@ -22,6 +22,13 @@ import S2PrivacyConsent from "./S2PrivacyConsent";
 import S2SensitiveInfoModal from "./S2SensitiveInfoModal";
 import { getUser } from "../lib/auth";
 
+import {
+  messages as i18nMessages,
+  LOCALE_LABELS,
+  getSavedLocale,
+  saveLocale,
+  type AppLocale,
+} from "../lib/i18n";
 
 import {
   detectSensitiveInfo,
@@ -1529,12 +1536,56 @@ const HistoryOverlay = memo(function HistoryOverlay({
 function LLMClient() {
   const searchParams = useSearchParams();
 
+  const [locale, setLocale] = useState<AppLocale>("zh-TW");
+
+  useEffect(() => {
+    setLocale(getSavedLocale());
+  }, []);
+
+  const t = useCallback(
+    (key: string) =>
+      i18nMessages[locale]?.[key] || i18nMessages["zh-TW"]?.[key] || key,
+    [locale]
+  );
+
+  function getWelcomeText(nextLocale: AppLocale = locale) {
+    return i18nMessages[nextLocale]?.welcomeText || i18nMessages["zh-TW"].welcomeText;
+  }
+
+  function changeLocale(nextLocale: AppLocale) {
+    setLocale(nextLocale);
+    saveLocale(nextLocale);
+
+    setMessages((prev) => {
+      // 只有目前畫面還是單純歡迎訊息時，才直接替換歡迎詞
+      if (
+        prev.length === 1 &&
+        prev[0]?.role === "assistant" &&
+        (
+          prev[0]?.content === WELCOME_TEXT ||
+          prev[0]?.content === i18nMessages["zh-TW"].welcomeText ||
+          prev[0]?.content === i18nMessages["en-US"].welcomeText
+        )
+      ) {
+        return [
+          {
+            ...prev[0],
+            content: i18nMessages[nextLocale].welcomeText,
+          },
+        ];
+      }
+
+      return prev;
+    });
+  }
+
   const urlBone = searchParams.get("bone") || "";
   const urlBoneZh = searchParams.get("bone_zh") || "";
   const urlBoneEn = searchParams.get("bone_en") || "";
   const urlMesh = searchParams.get("mesh") || "";
 
   const [s3Bones, setS3Bones] = useState<any[]>([]);
+
 
   const bonePrefillDoneRef = useRef("");
   const router = useRouter();
@@ -1615,7 +1666,7 @@ function LLMClient() {
     {
       id: 1,
       role: "assistant",
-      content: WELCOME_TEXT,
+      content: i18nMessages["zh-TW"].welcomeText,
     },
   ]);
 
@@ -1736,11 +1787,17 @@ function LLMClient() {
 
     const noUserMsgYet = !threadMsgs.some((m) => m.role === "user");
 
+    const welcomeTexts = [
+      WELCOME_TEXT,
+      i18nMessages["zh-TW"].welcomeText,
+      i18nMessages["en-US"].welcomeText,
+    ];
+
     const onlyWelcome =
       threadMsgs.length === 0 ||
       (threadMsgs.length === 1 &&
         threadMsgs[0]?.role === "assistant" &&
-        threadMsgs[0]?.content === WELCOME_TEXT);
+        welcomeTexts.includes(threadMsgs[0]?.content));
 
     return titleIsNew && (noUserMsgYet || onlyWelcome);
   }
@@ -1831,7 +1888,7 @@ function LLMClient() {
         {
           id: 1,
           role: "assistant",
-          content: WELCOME_TEXT,
+          content: getWelcomeText(),
         },
       ]);
     }
@@ -2005,7 +2062,7 @@ function LLMClient() {
             {
               id: 1,
               role: "assistant",
-              content: WELCOME_TEXT,
+              content: getWelcomeText(),
             },
           ]);
           setShowToolMenu(false);
@@ -2215,7 +2272,7 @@ function LLMClient() {
         {
           id: 1,
           role: "assistant",
-          content: WELCOME_TEXT,
+          content: getWelcomeText(),
         },
       ];
     }
@@ -2351,7 +2408,7 @@ function LLMClient() {
               {
                 id: 1,
                 role: "assistant",
-                content: WELCOME_TEXT,
+                content: getWelcomeText(),
               },
             ]
         );
@@ -2576,7 +2633,7 @@ function LLMClient() {
         {
           id: Date.now(),
           role: "assistant",
-          content: WELCOME_TEXT,
+          content: getWelcomeText(),
           resources: [],
         },
       ]);
@@ -2613,7 +2670,7 @@ function LLMClient() {
         {
           id: Date.now(),
           role: "assistant",
-          content: WELCOME_TEXT,
+          content: getWelcomeText(),
           resources: [],
         },
       ]);
@@ -2654,7 +2711,7 @@ function LLMClient() {
         {
           id: Date.now(),
           role: "assistant",
-          content: WELCOME_TEXT,
+          content: getWelcomeText(),
         },
       ]);
 
@@ -2722,7 +2779,7 @@ function LLMClient() {
             {
               id: 1,
               role: "assistant",
-              content: WELCOME_TEXT,
+              content: getWelcomeText(),
             },
           ]);
           return;
@@ -2760,7 +2817,7 @@ function LLMClient() {
                   {
                     id: 1,
                     role: "assistant",
-                    content: WELCOME_TEXT,
+                    content: getWelcomeText(),
                   },
                 ]
             );
@@ -2803,7 +2860,7 @@ function LLMClient() {
                   {
                     id: 1,
                     role: "assistant",
-                    content: WELCOME_TEXT,
+                    content: getWelcomeText(),
                   },
                 ]
             );
@@ -3158,7 +3215,15 @@ function LLMClient() {
         pii_mode: piiMode,
         rag_mode: ragMode,
         pubmed_max_results: 5,
-        messages: [{ role: "user", type: "text", content: basePrompt }],
+        locale,
+        response_language: locale,
+        messages: [
+          {
+            role: "user",
+            type: "text",
+            content: basePrompt,
+          },
+        ],
       };
 
       const emptyBotMessage: ChatMessage = {
@@ -3305,7 +3370,7 @@ function LLMClient() {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = "zh-TW";
+    recognition.lang = locale;
     recognition.interimResults = true;
     recognition.continuous = false;
 
@@ -3533,7 +3598,7 @@ function LLMClient() {
       >
         <ToolMenuItem
           iconClass="fa-solid fa-cloud-arrow-up"
-          label="上傳檔案"
+          label={t("uploadFile")}
           onClick={() => {
             setShowToolMenu(false);
             handleUploadClick();
@@ -3542,12 +3607,12 @@ function LLMClient() {
         <ToolMenuDivider />
         <ToolMenuItem
           iconClass="fa-solid fa-file-pdf"
-          label="匯出 PDF"
+          label={t("exportPdf")}
           onClick={() => handleExport("pdf")}
         />
         <ToolMenuItem
           iconClass="fa-solid fa-file-powerpoint"
-          label="匯出 PPT"
+          label={t("exportPpt")}
           onClick={() => handleExport("pptx")}
         />
       </div>
@@ -3575,7 +3640,7 @@ function LLMClient() {
 
       return cleaned;
     };
-    
+
     const [index, setIndex] = useState(0);
 
     const safeResources = Array.isArray(resources) ? resources : [];
@@ -4032,9 +4097,9 @@ function LLMClient() {
 
     const match =
       text.match(
-        /(?:^|\n)\s*(?:\*\*)?\s*(?:4\)\s*)?(延伸學習問題|延伸問題|延伸提問)\s*[:：]?\s*(?:\*\*)?/m
+        /(?:^|\n)\s*(?:\*\*)?\s*(?:4\)\s*)?(延伸學習問題|延伸問題|延伸提問|Follow-up questions|Further learning questions)\s*[:：]?\s*(?:\*\*)?/im
       ) ||
-      text.match(/(?:^|\n)(-\s*.+？(?:\n-\s*.+？){1,3})\s*$/);
+      text.match(/(?:^|\n)((?:\s*(?:[-•]|\d+[.)、]\s*[-•]?)\s*.+[？?]\s*){1,4})\s*$/m);
 
     const idx =
       match?.index != null
@@ -4100,14 +4165,25 @@ function LLMClient() {
       // 拿掉標題行，不然「延伸學習問題：」會混進問題
       .filter(
         (line) =>
-          !/^(?:\*\*)?\s*(?:4\)\s*)?(延伸學習問題|延伸問題|延伸提問)\s*[:：]?\s*(?:\*\*)?$/.test(line)
+          !/^(?:\*\*)?\s*(?:4\)\s*)?(延伸學習問題|延伸問題|延伸提問)\s*[:：]?\s*(?:\*\*)?$/i.test(line)
       )
-      // 支援 - 問題、• 問題、1. 問題、1) 問題
-      .filter((line) => /^[-•]\s*/.test(line) || /^\d+[.)、]\s*/.test(line))
+      // 支援：
+      // - 問題
+      // • 問題
+      // 1. 問題
+      // 1) 問題
+      // 4) - 問題
+      // 4. - 問題
+      .filter((line) =>
+        /^[-•]\s*/.test(line) ||
+        /^\d+[.)、]\s*/.test(line) ||
+        /^\d+[.)、]\s*[-•]\s*/.test(line)
+      )
       .map((line) =>
         line
-          .replace(/^[-•]\s*/, "")
+          .replace(/^\d+[.)、]\s*[-•]\s*/, "")
           .replace(/^\d+[.)、]\s*/, "")
+          .replace(/^[-•]\s*/, "")
           .trim()
       )
       .filter(Boolean)
@@ -4564,7 +4640,7 @@ function LLMClient() {
       {
         id: Date.now(),
         role: "assistant",
-        content: WELCOME_TEXT,
+        content: getWelcomeText(),
       },
     ]);
 
@@ -4665,13 +4741,20 @@ function LLMClient() {
           user_id: (uidRef.current || userId || "guest").trim(),
           conversation_id: threadIdAtBoot,
 
-          // ✅ S1 交接進來也固定走 GalaBone RAG，不吃後端預設值
           privacy_consent: true,
           pii_mode: "block",
           rag_mode: "auto_fusion",
           pubmed_max_results: 5,
+          locale,
+          response_language: locale,
 
-          messages: [{ role: "user", type: "text", content: question }],
+          messages: [
+            {
+              role: "user",
+              type: "text",
+              content: question,
+            },
+          ],
         };
 
         const assistantMessageId = Date.now() + 1;
@@ -5092,18 +5175,18 @@ function LLMClient() {
                   <div className="mt-1">
                     <SideRow
                       iconClass="fa-regular fa-message"
-                      label="新對話"
+                      label={t("newChat")}
                       onClick={() => newThread()}
                     />                  </div>
                   <SideRow
                     iconClass="fa-solid fa-folder-tree"
-                    label="資源管理"
+                    label={t("resourceManagement")}
                     active={activeView === "assets"}
                     onClick={() => setActiveView("assets")}
                   />
                   <SideRow
                     iconClass="fa-regular fa-clock"
-                    label="對話紀錄"
+                    label={t("history")}
                     active={isHistoryOpen}
                     onClick={() => openHistory()}
                   />
@@ -5142,19 +5225,19 @@ function LLMClient() {
               <div className="flex flex-col items-center gap-3 pt-2">
                 <SideIconButton
                   iconClass="fa-regular fa-message"
-                  label="新對話"
+                  label={t("newChat")}
                   onClick={() => newThread()}
                 />
 
                 <SideIconButton
                   iconClass="fa-solid fa-folder-tree"
-                  label="資源管理"
+                  label={t("resourceManagement")}
                   active={activeView === "assets"}
                   onClick={() => setActiveView("assets")}
                 />
                 <SideIconButton
                   iconClass="fa-regular fa-clock"
-                  label="對話紀錄"
+                  label={t("history")}
                   active={isHistoryOpen}
                   onClick={() => openHistory()}
                 />
@@ -5168,19 +5251,37 @@ function LLMClient() {
           >
             {isNavCollapsed ? (
               <div className="flex justify-center">
-                <SideIconButton iconClass="fa-solid fa-gear" label="設定" />
+                <SideIconButton iconClass="fa-solid fa-gear" label={t("settings")} />
               </div>
             ) : (
-              <button
-                type="button"
-                className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
-              >
-                <i
-                  className="fa-solid fa-gear text-[11px] opacity-80 leading-none"
-                  style={{ lineHeight: 1 }}
-                />
-                <span>設定</span>
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
+                >
+                  <i
+                    className="fa-solid fa-gear text-[11px] opacity-80 leading-none"
+                    style={{ lineHeight: 1 }}
+                  />
+                  <span>{t("settings")}</span>
+                </button>
+
+                <select
+                  value={locale}
+                  onChange={(e) => changeLocale(e.target.value as AppLocale)}
+                  className="w-full rounded-lg border px-2 py-1 text-xs bg-transparent"
+                  style={{
+                    borderColor: "rgba(148,163,184,0.25)",
+                    color: "var(--foreground)",
+                  }}
+                >
+                  {Object.entries(LOCALE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
           </div>
         </aside>
@@ -5278,7 +5379,7 @@ function LLMClient() {
                   <div className="space-y-1">
                     <SideRow
                       iconClass="fa-regular fa-message"
-                      label="新對話"
+                      label={t("newChat")}
                       onClick={() => {
                         newThread();
                         setIsMobileNavOpen(false);
@@ -5287,7 +5388,7 @@ function LLMClient() {
 
                     <SideRow
                       iconClass="fa-solid fa-folder-tree"
-                      label="資源管理"
+                      label={t("resourceManagement")}
                       active={activeView === "assets"}
                       onClick={() => {
                         setActiveView("assets");
@@ -5297,7 +5398,7 @@ function LLMClient() {
 
                     <SideRow
                       iconClass="fa-regular fa-clock"
-                      label="對話紀錄"
+                      label={t("history")}
                       active={isHistoryOpen}
                       onClick={() => {
                         setIsMobileNavOpen(false);
@@ -5386,7 +5487,7 @@ function LLMClient() {
                   <div className="pt-2">
                     <div className="flex items-center justify-between px-1 mb-2">
                       <p className="text-[11px] tracking-wide opacity-60">
-                        最近對話
+                        {t("recentChats")}
                       </p>
                       <button
                         type="button"
@@ -5396,7 +5497,7 @@ function LLMClient() {
                           openHistory();
                         }}
                       >
-                        搜尋
+                        {t("search")}
                       </button>
                     </div>
 
@@ -5426,7 +5527,7 @@ function LLMClient() {
                   className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
                 >
                   <i className="fa-solid fa-gear text-[12px] opacity-80" />
-                  <span>設定</span>
+                  <span>{t("settings")}</span>
                 </button>
               </div>
             </aside>
@@ -5438,7 +5539,7 @@ function LLMClient() {
       {/* Main */}
       <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden llm-main-shell">
         {activeView === "assets" ? (
-          <PlaceholderView title="資源管理" />
+          <PlaceholderView title={t("resourceManagement")} />
         ) : (
           <section className="flex-1 min-h-0 flex flex-col relative">
             <div className="flex items-center justify-between mb-2 text-xs opacity-70 px-1" />
@@ -5498,7 +5599,7 @@ function LLMClient() {
                     ) && (
                       <div className="flex justify-start mb-4">
                         <div className="text-xs px-4 py-2 max-w-[min(70%,60ch)] rounded-2xl">
-                          正在思考中…
+                          {t("thinking")}
                         </div>
                       </div>
                     )}
@@ -5577,7 +5678,7 @@ function LLMClient() {
                                     }}
                                   >
                                     <i className="fa-solid fa-sliders text-[11px] opacity-75" />
-                                    <span>工具</span>
+                                    <span>{t("tools")}</span>
                                     <span className="text-[10px]">
                                       {showToolMenu ? "▴" : "▾"}
                                     </span>
@@ -5593,7 +5694,7 @@ function LLMClient() {
                                   requestAnimationFrame(() => autoResizeTextarea());
                                 }}
                                 onKeyDown={handleKeyDown}
-                                placeholder="提出任何問題⋯"
+                                placeholder={t("askPlaceholder")}
                                 rows={1}
                                 className={`custom-scroll bg-transparent resize-none border-none outline-none text-sm leading-relaxed overflow-hidden placeholder:text-slate-500 ${isExpanded ? "w-full" : "flex-1"
                                   }`}
@@ -5665,7 +5766,7 @@ function LLMClient() {
                                     }}
                                   >
                                     <i className="fa-solid fa-sliders text-[11px] opacity-75" />
-                                    <span>工具</span>
+                                    <span>{t("tools")}</span>
                                     <span className="text-[10px]">
                                       {showToolMenu ? "▴" : "▾"}
                                     </span>
