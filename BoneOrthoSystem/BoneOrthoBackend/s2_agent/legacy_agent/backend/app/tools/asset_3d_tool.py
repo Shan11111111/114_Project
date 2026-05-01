@@ -77,6 +77,16 @@ LESION_KEYWORDS = {
     },
 }
 
+REGION_ALIAS = {
+    "鼻子": ["鼻骨", "下鼻甲", "篩骨", "上頜骨"],
+    "鼻腔": ["鼻骨", "下鼻甲", "篩骨"],
+    "眼眶": ["顴骨", "淚骨", "篩骨", "上頜骨"],
+    "手腕": ["腕骨", "舟狀骨", "月狀骨", "三角骨"],
+    "手肘": ["肱骨", "尺骨", "橈骨"],
+    "膝蓋": ["股骨", "脛骨", "髕骨"],
+    "大腿": ["股骨"],
+    "小腿": ["脛骨", "腓骨"],
+}
 
 def detect_lesion_type(question: str) -> dict:
     q = question or ""
@@ -95,9 +105,18 @@ def detect_lesion_type(question: str) -> dict:
         "lesion_zh": LESION_KEYWORDS["highlight"]["zh"],
         "visual_marks": LESION_KEYWORDS["highlight"]["marks"],
     }
+    
+def expand_query(question: str) -> str:
+    q = question
+    for k, bones in REGION_ALIAS.items():
+        if k in question:
+            q += " " + " ".join(bones)
+    return q
+
+
 
 def retrieve_3d_assets(question: str, limit: int = 6) -> list[dict]:
-    q = (question or "").strip()
+    q = expand_query(question).strip()
     if not q:
         return []
 
@@ -111,14 +130,21 @@ def retrieve_3d_assets(question: str, limit: int = 6) -> list[dict]:
         bs.small_bone_en AS bone_en,
         bs.place AS place,
         m.MeshName AS mesh_name
+        
+        
     FROM [dbo].[bone.Bone_small] bs
     INNER JOIN [model].[BoneMeshMap] m
         ON bs.small_bone_id = m.SmallBoneId
+    LEFT JOIN [dbo].[Bone_Info] bi
+        ON bs.bone_id = bi.bone_id
     WHERE
         ? LIKE N'%' + bs.small_bone_zh + N'%'
         OR LOWER(?) LIKE N'%' + LOWER(bs.small_bone_en) + N'%'
         OR LOWER(?) LIKE N'%' + LOWER(m.MeshName) + N'%'
         OR LOWER(?) LIKE N'%' + LOWER(REPLACE(m.MeshName, '.', '')) + N'%'
+        OR ? LIKE N'%' + bi.bone_zh + N'%'
+        OR LOWER(?) LIKE N'%' + LOWER(bi.bone_en) + N'%'
+    
     ORDER BY
         LEN(bs.small_bone_zh) DESC,
         bs.small_bone_id ASC
@@ -127,7 +153,7 @@ def retrieve_3d_assets(question: str, limit: int = 6) -> list[dict]:
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(sql, q, q, q, q)
+            cur.execute(sql, q, q, q, q, q, q)
             rows = cur.fetchall()
 
         if not rows:
@@ -220,7 +246,7 @@ def detect_region(question: str) -> tuple[str, str]:
     return "general", "整體骨骼"
 
 def retrieve_3d_asset(question: str) -> dict | None:
-    q = (question or "").strip()
+    q = expand_query(question).strip()
     if not q:
         return None
 
@@ -234,14 +260,22 @@ def retrieve_3d_asset(question: str) -> dict | None:
         bs.small_bone_en AS bone_en,
         bs.place AS place,
         m.MeshName AS mesh_name
+        
     FROM [dbo].[bone.Bone_small] bs
     INNER JOIN [model].[BoneMeshMap] m
         ON bs.small_bone_id = m.SmallBoneId
+    LEFT JOIN [dbo].[Bone_Info] bi
+        ON bs.bone_id = bi.bone_id
     WHERE
         ? LIKE N'%' + bs.small_bone_zh + N'%'
         OR LOWER(?) LIKE N'%' + LOWER(bs.small_bone_en) + N'%'
         OR LOWER(?) LIKE N'%' + LOWER(m.MeshName) + N'%'
         OR LOWER(?) LIKE N'%' + LOWER(REPLACE(m.MeshName, '.', '')) + N'%'
+        OR ? LIKE N'%' + bi.bone_zh + N'%'
+        OR LOWER(?) LIKE N'%' + LOWER(bi.bone_en) + N'%'
+        
+        
+        
     ORDER BY
         LEN(bs.small_bone_zh) DESC,
         bs.small_bone_id ASC
@@ -250,7 +284,7 @@ def retrieve_3d_asset(question: str) -> dict | None:
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(sql, q, q, q, q)
+            cur.execute(sql, q, q, q, q, q, q)
             rows = cur.fetchall()
 
         if not rows:

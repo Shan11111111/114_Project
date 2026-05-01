@@ -94,17 +94,28 @@ function BoneModel({ filePath, meshName, region, regionZh, lesionZh, showLesion 
         box.getSize(size);
         box.getCenter(center);
 
-        const y =
-            region === "proximal" ? box.max.y - size.y * 0.18 :
-                region === "distal" ? box.min.y + size.y * 0.18 :
-                    region === "shaft" ? center.y :
-                        box.max.y - size.y * 0.35;
+        const isIrregularBone =
+            size.y < size.x * 0.85 && size.y < size.z * 1.25;
 
-        return new THREE.Vector3(
-            box.max.x + size.x * 0.08,
-            y,
-            center.z
-        );
+        let y = center.y;
+
+        if (!isIrregularBone) {
+            if (region === "proximal") {
+                y = center.y + size.y * 0.38;
+            } else if (region === "distal") {
+                y = center.y - size.y * 0.38;
+            } else if (region === "shaft") {
+                y = center.y;
+            } else {
+                y = center.y + size.y * 0.18;
+            }
+        }
+
+        // marker 放在骨頭表面附近，不要固定飛到右邊
+        const x = center.x + size.x * 0.08;
+        const z = center.z + size.z * 0.08;
+
+        return new THREE.Vector3(x, y, z);
     }, [cloned, region]);
 
     return (
@@ -153,7 +164,7 @@ function BoneModel({ filePath, meshName, region, regionZh, lesionZh, showLesion 
 
                     {/* 導引線 */}
                     <mesh
-                        position={[markerPosition.x + 0.22, markerPosition.y + 0.16, markerPosition.z]}
+                        position={[markerPosition.x + 0.18, markerPosition.y + 0.14, markerPosition.z]}
                         rotation={[0, 0, -0.55]}
                     >
                         <boxGeometry args={[0.01, 0.45, 0.01]} />
@@ -163,8 +174,8 @@ function BoneModel({ filePath, meshName, region, regionZh, lesionZh, showLesion 
                     {/* 浮動說明卡，不要黏在骨頭正上方 */}
                     <Html
                         position={[
-                            markerPosition.x + 0.55,
-                            markerPosition.y + 0.35,
+                            markerPosition.x + 0.36,
+                            markerPosition.y + 0.26,
                             markerPosition.z,
                         ]}
                         center
