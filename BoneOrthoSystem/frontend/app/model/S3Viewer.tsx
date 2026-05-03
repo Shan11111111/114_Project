@@ -660,6 +660,7 @@ export default function S3Viewer() {
 
   const searchParams = useSearchParams();
   const targetBone = searchParams.get("bone") || "";
+  const targetMesh = searchParams.get("mesh") || "";
   const targetBoneId = searchParams.get("boneId");
 
   const [selectedMode, setSelectedMode] = useState<SelectedMode>({ kind: 'none' });
@@ -1076,33 +1077,91 @@ export default function S3Viewer() {
   );
 
   useEffect(() => {
-    if (!targetBone) return;
+    if (!targetBone && !targetMesh) return;
 
-    async function autoSelectBoneFromQuery() {
-      const res = await fetch(`${API_BASE}/s3/bone-list`);
-      const data = await res.json();
+    let cancelled = false;
 
-      const groups = Array.isArray(data?.data) ? data.data : [];
+    async function autoSelectFromQuery() {
+      // 1) 優先用 mesh + bone 打後端 mesh-map
+      // /model?bone=遠節指骨&mesh=Little_Distal.R
+      // 會變成：
+      // /s3/mesh-map/Little_Distal.R?bone=遠節指骨
+      if (targetMesh) {
+        try {
+          const url =
+            `${API_BASE}/s3/mesh-map/${encodeURIComponent(targetMesh)}` +
+            `?bone=${encodeURIComponent(targetBone || "")}`;
 
-      const hit = groups.find((g: any) => {
-        return (
-          String(g.bone_zh || "").includes(targetBone) ||
-          String(g.bone_en || "").toLowerCase().includes(targetBone.toLowerCase())
-        );
-      });
+          console.log("[S3 autoSelect] mesh-map url =", url);
 
-      const firstMesh = hit?.items?.find((it: any) => it.mesh_name)?.mesh_name;
+          const res = await fetch(url);
+          const data = await res.json().catch(() => null);
 
-      if (!firstMesh) {
-        console.warn("找不到對應 mesh:", targetBone);
-        return;
+          console.log("[S3 autoSelect] mesh-map result =", data);
+
+          if (!cancelled && res.ok && data?.best_match?.mesh_name) {
+            const realMeshName = String(data.best_match.mesh_name);
+            selectByMeshName(realMeshName);
+            return;
+          }
+        } catch (err) {
+          console.error("[S3 autoSelect] mesh-map failed:", err);
+        }
+
+        // 2) 如果後端 mesh-map 查不到，至少嘗試直接用 URL mesh 選
+        if (!cancelled) {
+          const localHit = findListItemByMeshName(targetMesh);
+          if (localHit?.mesh_name) {
+            selectByMeshName(localHit.mesh_name);
+            return;
+          }
+        }
       }
 
-      selectByMeshName(firstMesh);
+      // 3) 最後才用 bone 名稱模糊找 bone-list
+      // 這是 fallback，不要當主路徑
+      if (targetBone) {
+        const normalizedTargetBone = String(targetBone)
+          .replace(/\s+/g, "")
+          .replace(/[指趾]/g, "[指趾]");
+
+        const hit = boneList.find((x: any) => {
+          const zh = String(x.bone_zh || "").replace(/\s+/g, "");
+          const en = String(x.bone_en || "").toLowerCase();
+          const mesh = String(x.mesh_name || "").toLowerCase();
+
+          return (
+            zh.includes(targetBone.replace(/\s+/g, "")) ||
+            en.includes(targetBone.toLowerCase()) ||
+            mesh.includes(targetBone.toLowerCase()) ||
+            new RegExp(normalizedTargetBone).test(zh)
+          );
+        });
+
+        if (!cancelled && hit?.mesh_name) {
+          selectByMeshName(hit.mesh_name);
+          return;
+        }
+
+        console.warn("[S3 autoSelect] 找不到對應 mesh:", {
+          targetBone,
+          targetMesh,
+        });
+      }
     }
 
-    autoSelectBoneFromQuery().catch(console.error);
-  }, [targetBone, selectByMeshName]);
+    autoSelectFromQuery().catch(console.error);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    targetBone,
+    targetMesh,
+    boneList,
+    findListItemByMeshName,
+    selectByMeshName,
+  ]);
 
   useEffect(() => {
     if (!targetBoneId) return;

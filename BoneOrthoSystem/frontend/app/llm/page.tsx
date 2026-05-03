@@ -3965,100 +3965,257 @@ function LLMClient() {
 
     const normalizedText = normalize(text);
 
-    const hits = s3Bones.filter((b: any) => {
-      const zh = normalize(
-        b.small_bone_zh ||
-        b.bone_zh ||
-        b.displayZh ||
-        b.display_zh ||
-        b.zh ||
-        b.name_zh ||
-        b.name ||
-        b.label
-      );
+    function getOrdinalFromText(rawText: string) {
+      const lower = String(rawText || "").toLowerCase();
 
-      const en = normalize(
-        b.small_bone_en ||
-        b.bone_en ||
-        b.displayEn ||
-        b.display_en ||
-        b.en ||
-        b.name_en
-      );
+      if (
+        rawText.includes("第三") ||
+        rawText.includes("第3") ||
+        lower.includes("third") ||
+        /\b3rd\b/.test(lower)
+      ) {
+        return "third";
+      }
 
-      const mesh = normalize(
-        b.mesh_name ||
-        b.MeshName ||
-        b.mesh ||
-        b.meshName ||
-        b.L?.mesh_name ||
-        b.R?.mesh_name ||
-        b.C?.mesh_name ||
-        b.L?.mesh ||
-        b.R?.mesh ||
-        b.C?.mesh
-      );
+      if (
+        rawText.includes("第二") ||
+        rawText.includes("第2") ||
+        lower.includes("second") ||
+        /\b2nd\b/.test(lower)
+      ) {
+        return "second";
+      }
 
-      return (
-        (zh && normalizedText.includes(zh)) ||
-        (en && normalizedText.includes(en)) ||
-        (mesh && normalizedText.includes(mesh))
-      );
-    });
+      if (
+        rawText.includes("第四") ||
+        rawText.includes("第4") ||
+        lower.includes("fourth") ||
+        /\b4th\b/.test(lower)
+      ) {
+        return "fourth";
+      }
 
-    const mapped = hits
-      .map((hit: any) => ({
-        zh: String(
-          hit.small_bone_zh ||
-          hit.bone_zh ||
-          hit.displayZh ||
-          hit.display_zh ||
-          hit.zh ||
-          hit.name_zh ||
-          hit.name ||
-          hit.label ||
+      if (
+        rawText.includes("第五") ||
+        rawText.includes("第5") ||
+        rawText.includes("小指") ||
+        rawText.includes("小趾") ||
+        lower.includes("fifth") ||
+        lower.includes("little") ||
+        /\b5th\b/.test(lower)
+      ) {
+        return "fifth";
+      }
+
+      if (
+        rawText.includes("第一") ||
+        rawText.includes("第1") ||
+        rawText.includes("拇指") ||
+        rawText.includes("拇趾") ||
+        lower.includes("first") ||
+        lower.includes("thumb") ||
+        lower.includes("big toe") ||
+        /\b1st\b/.test(lower)
+      ) {
+        return "first";
+      }
+
+      return "";
+    }
+
+    function getSectionFromText(rawText: string) {
+      const lower = String(rawText || "").toLowerCase();
+
+      if (rawText.includes("遠節") || lower.includes("distal")) return "distal";
+      if (rawText.includes("中節") || lower.includes("middle")) return "middle";
+      if (rawText.includes("近節") || lower.includes("proximal")) return "proximal";
+
+      return "";
+    }
+
+    function ordinalScore(targetOrdinal: string, zh: string, en: string, mesh: string) {
+      const all = `${zh} ${en} ${mesh}`.toLowerCase();
+
+      if (!targetOrdinal) return 0;
+
+      if (targetOrdinal === "third") {
+        return zh.includes("第三") || all.includes("third") || all.includes("3rd") || all.includes("thirdtoe")
+          ? 80
+          : -80;
+      }
+
+      if (targetOrdinal === "second") {
+        return zh.includes("第二") || all.includes("second") || all.includes("2nd")
+          ? 80
+          : -80;
+      }
+
+      if (targetOrdinal === "fourth") {
+        return zh.includes("第四") || all.includes("fourth") || all.includes("4th")
+          ? 80
+          : -80;
+      }
+
+      if (targetOrdinal === "fifth") {
+        return zh.includes("第五") || zh.includes("小指") || zh.includes("小趾") || all.includes("fifth") || all.includes("little") || all.includes("5th")
+          ? 80
+          : -80;
+      }
+
+      if (targetOrdinal === "first") {
+        return zh.includes("第一") || zh.includes("拇指") || zh.includes("拇趾") || all.includes("first") || all.includes("thumb") || all.includes("bigtoe") || all.includes("1st")
+          ? 80
+          : -80;
+      }
+
+      return 0;
+    }
+
+    function sectionScore(targetSection: string, zh: string, en: string, mesh: string) {
+      const all = `${zh} ${en} ${mesh}`.toLowerCase();
+
+      if (!targetSection) return 0;
+
+      if (targetSection === "distal") {
+        return zh.includes("遠節") || all.includes("distal") ? 40 : -40;
+      }
+
+      if (targetSection === "middle") {
+        return zh.includes("中節") || all.includes("middle") ? 40 : -40;
+      }
+
+      if (targetSection === "proximal") {
+        return zh.includes("近節") || all.includes("proximal") ? 40 : -40;
+      }
+
+      return 0;
+    }
+
+    function fingerToeScore(rawText: string, zh: string, en: string, mesh: string) {
+      const lower = String(rawText || "").toLowerCase();
+      const all = `${zh} ${en} ${mesh}`.toLowerCase();
+
+      const wantsToe =
+        rawText.includes("趾") ||
+        lower.includes("toe");
+
+      const wantsFinger =
+        rawText.includes("指") ||
+        lower.includes("finger");
+
+      if (wantsToe) {
+        return zh.includes("趾") || all.includes("toe") ? 30 : -30;
+      }
+
+      if (wantsFinger) {
+        return zh.includes("指") || all.includes("finger") ? 30 : -30;
+      }
+
+      return 0;
+    }
+
+    const targetOrdinal = getOrdinalFromText(text);
+    const targetSection = getSectionFromText(text);
+
+    const candidates = s3Bones
+      .map((b: any) => {
+        const rawZh = String(
+          b.small_bone_zh ||
+          b.bone_zh ||
+          b.displayZh ||
+          b.display_zh ||
+          b.zh ||
+          b.name_zh ||
+          b.name ||
+          b.label ||
           ""
         )
           .replace(/\s*[\(（]\d+[\)）]\s*/g, "")
-          .trim(),
+          .trim();
 
-        en:
-          hit.small_bone_en ||
-          hit.bone_en ||
-          hit.displayEn ||
-          hit.display_en ||
-          hit.en ||
-          hit.name_en ||
-          "",
+        const rawEn = String(
+          b.small_bone_en ||
+          b.bone_en ||
+          b.displayEn ||
+          b.display_en ||
+          b.en ||
+          b.name_en ||
+          ""
+        ).trim();
 
-        mesh:
-          hit.mesh_name ||
-          hit.MeshName ||
-          hit.mesh ||
-          hit.meshName ||
-          hit.L?.mesh_name ||
-          hit.R?.mesh_name ||
-          hit.C?.mesh_name ||
-          "",
+        const rawMesh = String(
+          b.mesh_name ||
+          b.MeshName ||
+          b.mesh ||
+          b.meshName ||
+          b.L?.mesh_name ||
+          b.R?.mesh_name ||
+          b.C?.mesh_name ||
+          b.L?.mesh ||
+          b.R?.mesh ||
+          b.C?.mesh ||
+          ""
+        ).trim();
 
-        region:
-          hit.region ||
-          hit.bone_region ||
-          hit.regionKey ||
-          "",
-      }))
-      .filter((x: any) => x.zh || x.mesh);
+        const zh = normalize(rawZh);
+        const en = normalize(rawEn);
+        const mesh = normalize(rawMesh);
+
+        const basicHit =
+          (zh && normalizedText.includes(zh)) ||
+          (en && normalizedText.includes(en)) ||
+          (mesh && normalizedText.includes(mesh)) ||
+          (
+            targetSection &&
+            (
+              rawZh.includes("遠節") ||
+              rawZh.includes("中節") ||
+              rawZh.includes("近節") ||
+              rawEn.toLowerCase().includes(targetSection) ||
+              rawMesh.toLowerCase().includes(targetSection)
+            )
+          );
+
+        if (!basicHit) return null;
+
+        let score = 0;
+
+        if (zh && normalizedText.includes(zh)) score += 100;
+        if (en && normalizedText.includes(en)) score += 70;
+        if (mesh && normalizedText.includes(mesh)) score += 70;
+
+        score += ordinalScore(targetOrdinal, rawZh, rawEn, rawMesh);
+        score += sectionScore(targetSection, rawZh, rawEn, rawMesh);
+        score += fingerToeScore(text, rawZh, rawEn, rawMesh);
+
+        return {
+          zh: rawZh,
+          en: rawEn,
+          mesh: rawMesh,
+          region:
+            b.region ||
+            b.bone_region ||
+            b.regionKey ||
+            "",
+          score,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    const sorted = candidates.sort((a, b) => b.score - a.score);
 
     const deduped = Array.from(
       new Map(
-        mapped.map((x: any) => [
-          x.zh || String(x.mesh).replace(/\.[LR]$/i, ""),
+        sorted.map((x: any) => [
+          `${x.zh}|${x.mesh}`,
           x,
         ])
       ).values()
     );
 
-    return deduped.slice(0, 6);
+    return deduped
+      .filter((x: any) => x.score > 0)
+      .slice(0, 6);
   }
 
 

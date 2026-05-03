@@ -1,6 +1,8 @@
 # BoneOrthoBackend/s3_viewer/router.py
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
@@ -20,9 +22,8 @@ def api_bone_list():
 
 
 @router.get("/mesh-map/{mesh_name}")
-def api_mesh_map(mesh_name: str):
-    data = get_mesh_map(mesh_name)
+def api_mesh_map(mesh_name: str, bone: Optional[str] = ""):
+    data = get_mesh_map(mesh_name, bone_name=bone or "")
     if isinstance(data, dict) and "detail" in data:
         return JSONResponse(status_code=404, content=data)
     return data
-
