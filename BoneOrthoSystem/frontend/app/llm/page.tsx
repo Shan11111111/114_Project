@@ -3298,6 +3298,16 @@ function LLMClient() {
         },
         onSources: (resources) => {
           console.log("[SOURCES RAW]", resources);
+          console.log("[3D MODAL] resources =", resources);
+
+          const assetSourceDebug = resources.find((r: any) => {
+            const st = String(r.source_type || "").toLowerCase();
+            const title = String(r.title || r.display_title || "");
+            return st === "3d_asset" || title.includes("3D 模型");
+          });
+
+          console.log("[3D MODAL] assetSource =", assetSourceDebug);
+          console.log("[3D MODAL] assetSource snippet =", assetSourceDebug?.snippet);
 
           streamedResources = Array.isArray(resources)
             ? resources.map((r: any) => ({
@@ -3955,6 +3965,125 @@ function LLMClient() {
     return out;
   }
 
+  function inferToeOrdinalZhFromMesh(meshName: string) {
+    const m = String(meshName || "").toLowerCase();
+
+    if (m.includes("hallux") || m.includes("big") || m.includes("first")) {
+      return "拇趾";
+    }
+
+    if (m.includes("second")) return "第二趾";
+    if (m.includes("third")) return "第三趾";
+    if (m.includes("fourth")) return "第四趾";
+
+    if (m.includes("fifth") || m.includes("little")) {
+      return "第五趾";
+    }
+
+    return "";
+  }
+
+  function inferPhalanxSectionZhFromMesh(meshName: string) {
+    const m = String(meshName || "").toLowerCase();
+
+    if (m.includes("distal")) return "遠節";
+    if (m.includes("middle")) return "中節";
+    if (m.includes("proximal")) return "近節";
+
+    return "";
+  }
+
+  function makeS3TargetDisplayZh(rawZh: string, rawEn: string, rawMesh: string) {
+    const zh = String(rawZh || "").trim();
+    const en = String(rawEn || "").trim();
+    const mesh = String(rawMesh || "").trim();
+
+    const toeOrdinal = inferToeOrdinalZhFromMesh(mesh);
+    const section = inferPhalanxSectionZhFromMesh(mesh);
+
+    // 例如：
+    // rawZh = 遠節趾骨
+    // mesh = Third_Distal.R
+    // => 第三趾遠節趾骨
+    if (zh.includes("趾骨")) {
+      if (toeOrdinal && section) return `${toeOrdinal}${section}趾骨`;
+      if (toeOrdinal && zh) return `${toeOrdinal}${zh}`;
+    }
+
+    // 指骨備援
+    if (zh.includes("指骨")) {
+      const fingerOrdinal = toeOrdinal.replace("趾", "指");
+      if (fingerOrdinal && section) return `${fingerOrdinal}${section}指骨`;
+      if (fingerOrdinal && zh) return `${fingerOrdinal}${zh}`;
+    }
+
+    // 如果中文只有「遠節趾骨」，但英文或 mesh 有資訊，也補強
+    if (section && toeOrdinal && (en.toLowerCase().includes("phalanx") || mesh)) {
+      return `${toeOrdinal}${section}趾骨`;
+    }
+
+    return zh || mesh;
+  }
+
+
+  function inferToeOrdinalEnFromMesh(meshName: string) {
+    const m = String(meshName || "").toLowerCase();
+
+    if (m.includes("hallux") || m.includes("big") || m.includes("first")) {
+      return "Hallux";
+    }
+
+    if (m.includes("second")) return "Second toe";
+    if (m.includes("third")) return "Third toe";
+    if (m.includes("fourth")) return "Fourth toe";
+
+    if (m.includes("fifth") || m.includes("little")) {
+      return "Fifth toe";
+    }
+
+    return "";
+  }
+
+  function inferPhalanxSectionEnFromMesh(meshName: string) {
+    const m = String(meshName || "").toLowerCase();
+
+    if (m.includes("distal")) return "distal";
+    if (m.includes("middle")) return "middle";
+    if (m.includes("proximal")) return "proximal";
+
+    return "";
+  }
+
+  function makeS3TargetDisplayEn(rawEn: string, rawMesh: string) {
+    const en = String(rawEn || "").trim();
+    const mesh = String(rawMesh || "").trim();
+
+    const toeOrdinal = inferToeOrdinalEnFromMesh(mesh);
+    const section = inferPhalanxSectionEnFromMesh(mesh);
+
+    if (toeOrdinal && section) {
+      return `${toeOrdinal} ${section} phalanx`;
+    }
+
+    return en || mesh || "";
+  }
+
+  function makeS3ModalBoneLabel(item: any) {
+    const asset = item?.asset || {};
+    const meshName = String(asset?.mesh_name || asset?.MeshName || "");
+    const rawZh = String(asset?.bone_zh || asset?.small_bone_zh || "");
+    const rawEn = String(asset?.bone_en || asset?.small_bone_en || "");
+
+    const displayZh = makeS3TargetDisplayZh(rawZh, rawEn, meshName);
+    const displayEn = makeS3TargetDisplayEn(rawEn, meshName);
+
+    return {
+      zh: displayZh || rawZh || "未指定骨頭",
+      en: displayEn || rawEn || "",
+      mesh: meshName || "未指定模型",
+    };
+  }
+
   function detectS3BoneTargets(text: string) {
     const normalize = (v: any) =>
       String(v || "")
@@ -4188,8 +4317,11 @@ function LLMClient() {
         score += sectionScore(targetSection, rawZh, rawEn, rawMesh);
         score += fingerToeScore(text, rawZh, rawEn, rawMesh);
 
+        const displayZh = makeS3TargetDisplayZh(rawZh, rawEn, rawMesh);
+
         return {
           zh: rawZh,
+          displayZh,
           en: rawEn,
           mesh: rawMesh,
           region:
@@ -4261,12 +4393,24 @@ function LLMClient() {
     if (!urlBoneName && !urlMeshName) {
       if (s3Targets.length > 0) {
         s3Targets.forEach((target) => {
+          const meshName = String(target.mesh || "");
+          const displayName =
+            makeS3TargetDisplayZh(
+              String(target.zh || ""),
+              String(target.en || ""),
+              meshName
+            ) ||
+            target.displayZh ||
+            target.zh ||
+            meshName ||
+            "骨骼模型";
+
           actions.push({
-            label: `觀察 3D 模型：${target.zh}`,
-            note: target.mesh ? `mesh：${target.mesh}` : undefined,
+            label: `觀察 3D 模型：${displayName}`,
+            note: meshName ? `mesh：${meshName}` : undefined,
             path: `/model?${new URLSearchParams({
-              bone: target.zh,
-              mesh: target.mesh || "",
+              bone: displayName,
+              mesh: meshName,
             }).toString()}`,
             icon: "fa-solid fa-cube",
           });
@@ -4306,6 +4450,45 @@ function LLMClient() {
     return actions.slice(0, 8);
   }
 
+  function getPrettyActionText(a: { label: string; path: string; note?: string }) {
+    const rawLabel = String(a.label || "");
+    const rawNote = String(a.note || "");
+
+    let meshName = "";
+
+    try {
+      const u = new URL(a.path, "http://local");
+      meshName = u.searchParams.get("mesh") || "";
+    } catch {
+      const m = a.path.match(/[?&]mesh=([^&]+)/);
+      meshName = m ? decodeURIComponent(m[1]) : "";
+    }
+
+    if (!meshName) {
+      const m = rawNote.match(/mesh\s*[：:]\s*([^)）\s]+)/i);
+      meshName = m ? m[1] : "";
+    }
+
+    const prettyName = makeS3TargetDisplayZh("", "", meshName);
+
+    if (
+      rawLabel.includes("觀察 3D 模型") &&
+      meshName &&
+      prettyName &&
+      prettyName !== meshName
+    ) {
+      return {
+        label: `觀察 3D 模型：${prettyName}`,
+        note: `mesh：${meshName}`,
+      };
+    }
+
+    return {
+      label: rawLabel,
+      note: rawNote,
+    };
+  }
+
   function renderAssistantContent(content: string) {
     const text = String(content || "");
     const lastUserText =
@@ -4331,45 +4514,39 @@ function LLMClient() {
         <>
           <div className="whitespace-pre-wrap break-words">{text}</div>
 
-          {guideActions.length > 0 && (
-            <div className="mt-3">
-              <div className="text-[12px] font-semibold opacity-70 mb-2">
-                相關功能
-              </div>
+          {guideActions.map((a) => {
+            const pretty = getPrettyActionText(a);
 
-              <div className="flex flex-wrap gap-2">
-                {guideActions.map((a) => (
-                  <button
-                    key={a.path}
-                    type="button"
-                    onClick={() => {
-                      setIsNavigating(true);
-                      setNavigatingText(a.label);
+            return (
+              <button
+                key={a.path}
+                type="button"
+                onClick={() => {
+                  setIsNavigating(true);
+                  setNavigatingText(pretty.label);
 
-                      setTimeout(() => {
-                        router.push(a.path);
-                      }, 900);
-                    }}
-                    className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80"
-                    style={{
-                      borderColor: "rgba(56,189,248,0.35)",
-                      backgroundColor: "rgba(56,189,248,0.10)",
-                    }}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      <i className={`${a.icon} text-[10px] opacity-70`} />
-                      <span>
-                        {a.label}
-                        {a.note && (
-                          <span className="ml-1 opacity-60">（{a.note}）</span>
-                        )}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+                  setTimeout(() => {
+                    router.push(a.path);
+                  }, 900);
+                }}
+                className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80"
+                style={{
+                  borderColor: "rgba(56,189,248,0.35)",
+                  backgroundColor: "rgba(56,189,248,0.10)",
+                }}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <i className={`${a.icon} text-[10px] opacity-70`} />
+                  <span>
+                    {pretty.label}
+                    {pretty.note && (
+                      <span className="ml-1 opacity-60">（{pretty.note}）</span>
+                    )}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </>
       );
     }
@@ -5029,6 +5206,16 @@ function LLMClient() {
 
           onSources: (resources) => {
             console.log("[SOURCES RAW]", resources);
+            console.log("[3D MODAL] resources =", resources);
+
+            const assetSourceDebug = resources.find((r: any) => {
+              const st = String(r.source_type || "").toLowerCase();
+              const title = String(r.title || r.display_title || "");
+              return st === "3d_asset" || title.includes("3D 模型");
+            });
+
+            console.log("[3D MODAL] assetSource =", assetSourceDebug);
+            console.log("[3D MODAL] assetSource snippet =", assetSourceDebug?.snippet);
 
             streamedResources = Array.isArray(resources)
               ? resources.map((r: any) => ({
@@ -5196,7 +5383,7 @@ function LLMClient() {
                 <div className="text-xs text-slate-500">
                   {getRenderItems(renderPlan).length > 1
                     ? `已找到 ${getRenderItems(renderPlan).length} 個模型`
-                    : `${getRenderItems(renderPlan)[0]?.asset?.bone_zh || "骨骼模型"}｜${getRenderItems(renderPlan)[0]?.render_plan?.region_zh || "位置未指定"}`}
+                    : `${makeS3ModalBoneLabel(getRenderItems(renderPlan)[0]).zh}｜${makeS3ModalBoneLabel(getRenderItems(renderPlan)[0]).en || "英文名稱未指定"}｜${getRenderItems(renderPlan)[0]?.render_plan?.region_zh || "位置未指定"}`}
                 </div>
               </div>
 
@@ -5233,16 +5420,23 @@ function LLMClient() {
                         showLesion={shouldShowLesionMark(item)}
                       />
 
-                      <div className="mt-3 text-sm text-slate-700">
-                        <div>骨頭：{item?.asset?.bone_zh || "未指定"}</div>
-                        <div>模型：{item?.asset?.mesh_name || "未指定"}</div>
-                        <div>
-                          顯示：{shouldShowLesionMark(item)
-                            ? item?.render_plan?.lesion_zh || "病灶示意"
-                            : "單純骨骼模型"}
-                        </div>
-                        <div>位置：{item?.render_plan?.region_zh || "未指定"}</div>
-                      </div>
+                      {(() => {
+                        const label = makeS3ModalBoneLabel(item);
+
+                        return (
+                          <div className="mt-3 text-sm text-slate-700">
+                            <div>骨頭：{label.zh}</div>
+                            {label.en && <div>英文：{label.en}</div>}
+                            <div>模型：{label.mesh}</div>
+                            <div>
+                              顯示：{shouldShowLesionMark(item)
+                                ? item?.render_plan?.lesion_zh || "病灶示意"
+                                : "單純骨骼模型"}
+                            </div>
+                            <div>位置：{item?.render_plan?.region_zh || "未指定"}</div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -5385,16 +5579,16 @@ function LLMClient() {
                               opacity: 0.9,
                             }}
                           >
-                            {ragMode === "file_then_vector" &&
-                              "查詢上傳檔案與衛教智慧庫"}
+                            {/* {ragMode === "file_then_vector" &&
+                              "查詢上傳檔案與衛教智慧庫"} */}
                             {/* {ragMode === "vector_only" &&
                               "查詢衛教智慧庫"}
                             {/* {ragMode === "file_only" &&
                               "查詢上傳檔案"} */}
-                            {ragMode === "pubmed_only" &&
+                            {/* {ragMode === "pubmed_only" &&
                               "查詢 PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
                             {ragMode === "soap_only" &&
-                              "查詢已授權的輔大醫院之去識別化soap記錄"}
+                              "查詢已授權的輔大醫院之去識別化soap記錄"} */}
                             {ragMode === "auto_fusion" &&
                               "GalaBone RAG"}
 

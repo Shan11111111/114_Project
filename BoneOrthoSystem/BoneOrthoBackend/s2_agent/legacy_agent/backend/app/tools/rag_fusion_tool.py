@@ -261,14 +261,21 @@ def prepare_auto_fusion_answer(
         raise ValueError("empty question")
 
     intent = analyze_user_intent(user_q)
+    print("[AUTO_FUSION][INTENT]", intent)
         
     # ====== 🔥 3D Intent Router 插入點 ======
-    if intent["need_3d_asset"]:
+    if intent.get("need_3d_asset"):
         assets = retrieve_3d_assets(user_q, limit=6)
+        print("[AUTO_FUSION][3D_ASSETS]", assets)
+
         render_plan = build_multi_render_plan(user_q, assets)
+        print("[AUTO_FUSION][RENDER_PLAN]", render_plan)
+
         render_source = render_plan_source(render_plan)
+        print("[AUTO_FUSION][RENDER_SOURCE]", render_source)
     else:
         render_source = None
+        print("[AUTO_FUSION][3D_SKIP] need_3d_asset = false")
     # ====== 🔥 END ======
     
     response_language = (response_language or "zh-TW").strip()

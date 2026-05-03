@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
+
+from fastapi import params
+from polars import sql
 
 # C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\frontend\public\models\bones.glb
 MODEL_FILE_PATH = "/models/bones.glb"
@@ -35,10 +39,10 @@ def _row_to_dict(cur, row) -> dict[str, Any]:
 def _detect_side(question: str) -> str | None:
     q = question or ""
 
-    if any(k in q for k in ["左", "左側", "left", "Left", ".L"]):
+    if any(k in q for k in ["左", "左側", "left", "Left", ".L", "_L"]):
         return "Left"
 
-    if any(k in q for k in ["右", "右側", "right", "Right", ".R"]):
+    if any(k in q for k in ["右", "右側", "right", "Right", ".R", "_R"]):
         return "Right"
 
     return None
@@ -88,6 +92,7 @@ REGION_ALIAS = {
     "小腿": ["脛骨", "腓骨"],
 }
 
+
 def detect_lesion_type(question: str) -> dict:
     q = question or ""
     for key, cfg in LESION_KEYWORDS.items():
@@ -105,14 +110,231 @@ def detect_lesion_type(question: str) -> dict:
         "lesion_zh": LESION_KEYWORDS["highlight"]["zh"],
         "visual_marks": LESION_KEYWORDS["highlight"]["marks"],
     }
-    
+
+
 def expand_query(question: str) -> str:
-    q = question
+    q = question or ""
     for k, bones in REGION_ALIAS.items():
-        if k in question:
+        if k in q:
             q += " " + " ".join(bones)
     return q
 
+
+def _normalize_text(v: str) -> str:
+    """
+    Third_Distal.R / Third Distal.R / ThirdDistalR
+    都壓成 thirddistalr，給模糊比對用。
+    """
+    return re.sub(r"[\s_\-\.]+", "", str(v or "")).lower()
+
+
+def _query_terms(question: str) -> list[str]:
+    q = str(question or "").strip()
+    q_lower = q.lower()
+
+    terms: list[str] = []
+
+    def add(x: str):
+        x = str(x or "").strip()
+        if x and x not in terms:
+            terms.append(x)
+
+    add(q)
+
+    # 指 / 趾互換
+    if "指" in q:
+        add(q.replace("指", "趾"))
+    if "趾" in q:
+        add(q.replace("趾", "指"))
+
+    # 序號
+    if any(k in q for k in ["第一", "第1", "拇指", "拇趾"]) or any(
+        k in q_lower for k in ["first", "thumb", "big toe", "1st"]
+    ):
+        add("第一")
+        add("拇")
+        add("first")
+        add("thumb")
+
+    if any(k in q for k in ["第二", "第2"]) or any(
+        k in q_lower for k in ["second", "2nd"]
+    ):
+        add("第二")
+        add("second")
+
+    if any(k in q for k in ["第三", "第3"]) or any(
+        k in q_lower for k in ["third", "3rd"]
+    ):
+        add("第三")
+        add("third")
+
+    if any(k in q for k in ["第四", "第4"]) or any(
+        k in q_lower for k in ["fourth", "4th"]
+    ):
+        add("第四")
+        add("fourth")
+
+    if any(k in q for k in ["第五", "第5", "小指", "小趾"]) or any(
+        k in q_lower for k in ["fifth", "little", "5th"]
+    ):
+        add("第五")
+        add("小指")
+        add("小趾")
+        add("fifth")
+        add("little")
+
+    # 節段
+    if "遠節" in q or "遠端" in q or "distal" in q_lower:
+        add("遠節")
+        add("Distal")
+        add("distal")
+
+    if "近節" in q or "近端" in q or "proximal" in q_lower:
+        add("近節")
+        add("Proximal")
+        add("proximal")
+
+    if "中節" in q or "中間" in q or "middle" in q_lower:
+        add("中節")
+        add("Middle")
+        add("middle")
+
+    # 類型
+    if "趾" in q or "toe" in q_lower:
+        add("趾")
+        add("toe")
+        add("Phalanges")
+        add("phalanx")
+
+    if "指" in q or "finger" in q_lower:
+        add("指")
+        add("finger")
+        add("Phalanges")
+        add("phalanx")
+
+    return terms
+
+
+def _rank_asset(row: dict[str, Any], question: str, preferred_side: str | None = None) -> int:
+    q = str(question or "")
+    q_lower = q.lower()
+
+    mesh = str(row.get("mesh_name") or "")
+    mesh_lower = mesh.lower()
+
+    zh = str(row.get("bone_zh") or "")
+    en = str(row.get("bone_en") or "")
+    place = str(row.get("place") or "")
+    all_text = f"{zh} {en} {mesh} {place}".lower()
+
+    score = 0
+
+    # 完整名稱命中
+    if zh and zh in q:
+        score += 100
+    if en and en.lower() in q_lower:
+        score += 80
+    if mesh and _normalize_text(mesh) in _normalize_text(q):
+        score += 90
+
+    # 序號
+    if any(k in q for k in ["第三", "第3"]) or any(k in q_lower for k in ["third", "3rd"]):
+        score += 60 if ("第三" in zh or "third" in all_text or "3rd" in all_text) else -60
+
+    if any(k in q for k in ["第二", "第2"]) or any(k in q_lower for k in ["second", "2nd"]):
+        score += 60 if ("第二" in zh or "second" in all_text or "2nd" in all_text) else -60
+
+    if any(k in q for k in ["第四", "第4"]) or any(k in q_lower for k in ["fourth", "4th"]):
+        score += 60 if ("第四" in zh or "fourth" in all_text or "4th" in all_text) else -60
+
+    if any(k in q for k in ["第五", "第5", "小指", "小趾"]) or any(
+        k in q_lower for k in ["fifth", "little", "5th"]
+    ):
+        score += 60 if (
+            "第五" in zh
+            or "小指" in zh
+            or "小趾" in zh
+            or "fifth" in all_text
+            or "little" in all_text
+        ) else -60
+
+    if any(k in q for k in ["第一", "第1", "拇指", "拇趾"]) or any(
+        k in q_lower for k in ["first", "thumb", "big toe", "1st"]
+    ):
+        score += 60 if ("第一" in zh or "拇" in zh or "first" in all_text or "thumb" in all_text) else -60
+
+    # 節段
+    if "遠節" in q or "遠端" in q or "distal" in q_lower:
+        score += 40 if ("遠節" in zh or "distal" in all_text) else -40
+
+    if "近節" in q or "近端" in q or "proximal" in q_lower:
+        score += 40 if ("近節" in zh or "proximal" in all_text) else -40
+
+    if "中節" in q or "middle" in q_lower:
+        score += 40 if ("中節" in zh or "middle" in all_text) else -40
+
+    # 指 / 趾
+    if "趾" in q or "toe" in q_lower:
+        score += 30 if ("趾" in zh or "toe" in all_text or "phalanges" in all_text) else -30
+
+    if "指" in q or "finger" in q_lower:
+        score += 30 if ("指" in zh or "finger" in all_text or "phalanges" in all_text) else -30
+
+    # 左右
+    if preferred_side == "Left":
+        score += 20 if (place.lower() == "left" or mesh.endswith(".L")) else -20
+
+    if preferred_side == "Right":
+        score += 20 if (place.lower() == "right" or mesh.endswith(".R")) else -20
+
+    return score
+
+
+def _build_asset_search_sql(q: str) -> tuple[str, list[Any]]:
+    terms = _query_terms(q)
+
+    where_parts: list[str] = []
+    params: list[Any] = []
+
+    for term in terms:
+        like_kw = f"%{term}%"
+        compact_kw = f"%{_normalize_text(term)}%"
+
+        where_parts.append(
+            """
+            (
+                bs.small_bone_zh LIKE ?
+                OR bs.small_bone_en LIKE ?
+                OR m.MeshName LIKE ?
+                OR REPLACE(REPLACE(REPLACE(REPLACE(m.MeshName, '_', ''), '.', ''), ' ', ''), '-', '') LIKE ?
+                OR bi.bone_zh LIKE ?
+                OR bi.bone_en LIKE ?
+            )
+            """
+        )
+        params.extend([like_kw, like_kw, like_kw, compact_kw, like_kw, like_kw])
+
+    if not where_parts:
+        where_parts.append("1 = 0")
+
+    sql = f"""
+    SELECT TOP 80
+        bs.small_bone_id AS small_bone_id,
+        bs.bone_id AS bone_id,
+        bs.small_bone_zh AS bone_zh,
+        bs.small_bone_en AS bone_en,
+        bs.place AS place,
+        m.MeshName AS mesh_name
+    FROM [dbo].[bone.Bone_small] bs
+    INNER JOIN [model].[BoneMeshMap] m
+        ON bs.small_bone_id = m.SmallBoneId
+    LEFT JOIN [dbo].[Bone_Info] bi
+        ON bs.bone_id = bi.bone_id
+    WHERE
+        {" OR ".join(where_parts)}
+    """
+
+    return sql, params
 
 
 def retrieve_3d_assets(question: str, limit: int = 6) -> list[dict]:
@@ -121,53 +343,36 @@ def retrieve_3d_assets(question: str, limit: int = 6) -> list[dict]:
         return []
 
     preferred_side = _detect_side(q)
-
-    sql = """
-    SELECT TOP 50
-        bs.small_bone_id AS small_bone_id,
-        bs.bone_id AS bone_id,
-        bs.small_bone_zh AS bone_zh,
-        bs.small_bone_en AS bone_en,
-        bs.place AS place,
-        m.MeshName AS mesh_name
-        
-        
-    FROM [dbo].[bone.Bone_small] bs
-    INNER JOIN [model].[BoneMeshMap] m
-        ON bs.small_bone_id = m.SmallBoneId
-    LEFT JOIN [dbo].[Bone_Info] bi
-        ON bs.bone_id = bi.bone_id
-    WHERE
-        ? LIKE N'%' + bs.small_bone_zh + N'%'
-        OR LOWER(?) LIKE N'%' + LOWER(bs.small_bone_en) + N'%'
-        OR LOWER(?) LIKE N'%' + LOWER(m.MeshName) + N'%'
-        OR LOWER(?) LIKE N'%' + LOWER(REPLACE(m.MeshName, '.', '')) + N'%'
-        OR ? LIKE N'%' + bi.bone_zh + N'%'
-        OR LOWER(?) LIKE N'%' + LOWER(bi.bone_en) + N'%'
-    
-    ORDER BY
-        LEN(bs.small_bone_zh) DESC,
-        bs.small_bone_id ASC
-    """
+    sql, params = _build_asset_search_sql(q)
+    print("[3D_ASSET][QUERY]", q)
+    print("[3D_ASSET][PARAMS]", params)
 
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(sql, q, q, q, q, q, q)
+            cur.execute(sql, *params)
             rows = cur.fetchall()
+            print("[3D_ASSET][ROWS]", len(rows))
 
-        if not rows:
-            return []
+            if not rows:
+                return []
 
-        raw = [_row_to_dict(cur, r) for r in rows]
+            raw = [_row_to_dict(cur, r) for r in rows]
 
-        # 去重：同一個 small_bone_id 如果有左右，依使用者指定；沒指定就保留全部，但最多 limit
+        raw.sort(
+            key=lambda x: _rank_asset(x, q, preferred_side),
+            reverse=True,
+        )
+
         out = []
         seen_mesh = set()
 
         for c in raw:
             mesh_name = str(c.get("mesh_name") or "")
             place = str(c.get("place") or "")
+
+            if not mesh_name:
+                continue
 
             if preferred_side:
                 if preferred_side.lower() not in place.lower():
@@ -188,18 +393,20 @@ def retrieve_3d_assets(question: str, limit: int = 6) -> list[dict]:
                 "mesh_name": mesh_name,
                 "file_path": MODEL_FILE_PATH,
                 "side_zh": place or "未指定",
+                "rank_score": _rank_asset(c, q, preferred_side),
             })
 
             if len(out) >= limit:
                 break
-
+        
+        print("[3D_ASSET][OUT]", out)
         return out
 
     except Exception as e:
         print("[3D_ASSET] DB multi retrieve failed:", e)
         return []
-    
-    
+
+
 def build_multi_render_plan(question: str, assets: list[dict]):
     if not assets:
         return {
@@ -234,16 +441,17 @@ def build_multi_render_plan(question: str, assets: list[dict]):
         "count": len(items),
         "items": items,
     }
-    
-    
+
+
 def detect_region(question: str) -> tuple[str, str]:
-    if any(k in question for k in ["上方", "近端", "上端"]):
+    if any(k in question for k in ["上方", "近端", "上端", "近節"]):
         return "proximal", "近端／上方"
-    if any(k in question for k in ["下方", "遠端", "下端"]):
+    if any(k in question for k in ["下方", "遠端", "下端", "遠節"]):
         return "distal", "遠端／下方"
-    if any(k in question for k in ["中段", "中間", "骨幹"]):
+    if any(k in question for k in ["中段", "中間", "骨幹", "中節"]):
         return "shaft", "骨幹中段"
     return "general", "整體骨骼"
+
 
 def retrieve_3d_asset(question: str) -> dict | None:
     q = expand_query(question).strip()
@@ -251,62 +459,35 @@ def retrieve_3d_asset(question: str) -> dict | None:
         return None
 
     preferred_side = _detect_side(q)
-
-    sql = """
-    SELECT TOP 20
-        bs.small_bone_id AS small_bone_id,
-        bs.bone_id AS bone_id,
-        bs.small_bone_zh AS bone_zh,
-        bs.small_bone_en AS bone_en,
-        bs.place AS place,
-        m.MeshName AS mesh_name
-        
-    FROM [dbo].[bone.Bone_small] bs
-    INNER JOIN [model].[BoneMeshMap] m
-        ON bs.small_bone_id = m.SmallBoneId
-    LEFT JOIN [dbo].[Bone_Info] bi
-        ON bs.bone_id = bi.bone_id
-    WHERE
-        ? LIKE N'%' + bs.small_bone_zh + N'%'
-        OR LOWER(?) LIKE N'%' + LOWER(bs.small_bone_en) + N'%'
-        OR LOWER(?) LIKE N'%' + LOWER(m.MeshName) + N'%'
-        OR LOWER(?) LIKE N'%' + LOWER(REPLACE(m.MeshName, '.', '')) + N'%'
-        OR ? LIKE N'%' + bi.bone_zh + N'%'
-        OR LOWER(?) LIKE N'%' + LOWER(bi.bone_en) + N'%'
-        
-        
-        
-    ORDER BY
-        LEN(bs.small_bone_zh) DESC,
-        bs.small_bone_id ASC
-    """
+    sql, params = _build_asset_search_sql(q)
+    print("[3D_ASSET][QUERY]", q)
+    print("[3D_ASSET][PARAMS]", params)
 
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(sql, q, q, q, q, q, q)
+            cur.execute(sql, *params)
             rows = cur.fetchall()
+            print("[3D_ASSET][ROWS]", len(rows))
 
-        if not rows:
-            return None
+            if not rows:
+                return None
 
-        candidates = [_row_to_dict(cur, r) for r in rows]
+            candidates = [_row_to_dict(cur, r) for r in rows]
+
+        candidates.sort(
+            key=lambda x: _rank_asset(x, q, preferred_side),
+            reverse=True,
+        )
 
         picked = candidates[0]
 
-        # 沒指定左右時，預設選右側
-        if not preferred_side:
-            for c in candidates:
-                mesh_name = str(c.get("mesh_name") or "")
-                place = str(c.get("place") or "")
-                if mesh_name.endswith(".R") or place.lower() == "right":
-                    picked = c
-                    break
-
+        # 有指定左右，優先選指定側
         if preferred_side:
             for c in candidates:
                 place = str(c.get("place") or "")
                 mesh_name = str(c.get("mesh_name") or "")
+
                 if preferred_side.lower() in place.lower():
                     picked = c
                     break
@@ -314,6 +495,22 @@ def retrieve_3d_asset(question: str) -> dict | None:
                     picked = c
                     break
                 if preferred_side == "Right" and mesh_name.endswith(".R"):
+                    picked = c
+                    break
+
+        # 沒指定左右時，預設選右側，但前提是右側分數不能比第一名低太多
+        if not preferred_side:
+            top_score = _rank_asset(picked, q, preferred_side)
+
+            for c in candidates:
+                mesh_name = str(c.get("mesh_name") or "")
+                place = str(c.get("place") or "")
+                c_score = _rank_asset(c, q, preferred_side)
+
+                if c_score < top_score - 20:
+                    continue
+
+                if mesh_name.endswith(".R") or place.lower() == "right":
                     picked = c
                     break
 
@@ -325,6 +522,7 @@ def retrieve_3d_asset(question: str) -> dict | None:
             "mesh_name": picked.get("mesh_name"),
             "file_path": MODEL_FILE_PATH,
             "side_zh": picked.get("place") or "未指定",
+            "rank_score": _rank_asset(picked, q, preferred_side),
         }
 
     except Exception as e:
