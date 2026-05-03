@@ -3958,9 +3958,9 @@ function LLMClient() {
   function detectS3BoneTargets(text: string) {
     const normalize = (v: any) =>
       String(v || "")
-        .replace(/\s*[\(（]\d+[\)）]\s*/g, "") // 先移除 (2)、（2）
-        .replace(/\s+/g, "")
+        .replace(/\s*[\(（]\d+[\)）]\s*/g, "")
         .replace(/[()（）]/g, "")
+        .replace(/[\s_\-\.]+/g, "")
         .toLowerCase();
 
     const normalizedText = normalize(text);
@@ -5027,8 +5027,8 @@ function LLMClient() {
         <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-slate-950/45 backdrop-blur-sm">
           <div
             className={`rounded-3xl bg-white shadow-2xl border transition-all ${renderPanelCollapsed
-                ? "w-[min(92vw,520px)]"
-                : "w-[min(94vw,1100px)] max-h-[88vh]"
+              ? "w-[min(92vw,520px)]"
+              : "w-[min(94vw,1100px)] max-h-[88vh]"
               } overflow-hidden`}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b">
