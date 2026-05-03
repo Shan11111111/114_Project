@@ -260,15 +260,34 @@ def prepare_auto_fusion_answer(
     if not user_q:
         raise ValueError("empty question")
 
-    intent = analyze_user_intent(user_q)
+    # 先建立對話語境查詢，讓「前面那個、剛剛那個、同一個模型」能接上上一輪主題
+    state = dialog_state or {}
+    retrieval_query = _build_retrieval_query(user_q, session, state)
+
+    # 給 intent router 用的文字：同時包含原始問題 + 上下文補強後查詢
+    # 例：
+    # user_q = 前面那個模型再給我一次
+    # retrieval_query = 尺骨 前面那個模型再給我一次
+    intent_query = f"{retrieval_query}\n{user_q}".strip()
+
+    intent = analyze_user_intent(intent_query)
     print("[AUTO_FUSION][INTENT]", intent)
-        
+    print("[AUTO_FUSION][USER_Q]", user_q)
+    print("[AUTO_FUSION][RETRIEVAL_QUERY]", retrieval_query)
+    print("[AUTO_FUSION][INTENT_QUERY]", intent_query)
+
     # ====== 🔥 3D Intent Router 插入點 ======
     if intent.get("need_3d_asset"):
-        assets = retrieve_3d_assets(user_q, limit=6)
+        # 關鍵：3D asset 查詢要用 retrieval_query，不要只用 user_q
+        assets = retrieve_3d_assets(retrieval_query, limit=6)
+
+        # 如果上下文查不到，再退回原始問題查一次
+        if not assets and retrieval_query != user_q:
+            assets = retrieve_3d_assets(user_q, limit=6)
+
         print("[AUTO_FUSION][3D_ASSETS]", assets)
 
-        render_plan = build_multi_render_plan(user_q, assets)
+        render_plan = build_multi_render_plan(retrieval_query, assets)
         print("[AUTO_FUSION][RENDER_PLAN]", render_plan)
 
         render_source = render_plan_source(render_plan)
@@ -277,7 +296,7 @@ def prepare_auto_fusion_answer(
         render_source = None
         print("[AUTO_FUSION][3D_SKIP] need_3d_asset = false")
     # ====== 🔥 END ======
-    
+
     response_language = (response_language or "zh-TW").strip()
 
     if response_language == "en-US":
@@ -292,9 +311,7 @@ def prepare_auto_fusion_answer(
             "即使使用者輸入英文，也請維持繁體中文回答，除非系統指定 response_language 為 en-US。"
         )
     
-    state = dialog_state or {}
-    retrieval_query = _build_retrieval_query(user_q, session, state)
-
+    
     selected_sources = route_sources(retrieval_query)
     evidence: List[Evidence] = []
     
@@ -337,15 +354,48 @@ def prepare_auto_fusion_answer(
 
     if not evidence:
         
-        
         fallback_query = retrieval_query if retrieval_query != user_q else user_q
 
+        raw_resources = []
+        if render_source:
+            raw_resources.insert(0, render_source)
+
+        # ✅ 有查到 3D 模型，但沒有查到文字型 RAG 資料
+        if render_source:
+            system = (
+                "你是骨科衛教/判讀輔助助手。\n"
+                f"{language_rule}\n"
+                "目前系統已成功查到與使用者問題相關的 3D 骨骼模型資源，"
+                "但 vector、PubMed、SOAP 等文字型 RAG 資料不足。\n"
+                "回答時不可說『沒有查到資料』或『沒有 3D 模型資訊』，"
+                "而是要明確說明：已找到可供觀察的 3D 模型，但缺少可支持深入衛教或臨床判讀的文字資料。\n"
+                "請根據已找到的 3D 模型資訊，協助使用者理解可觀察的骨頭位置與用途；"
+                "若需要醫療判斷，仍需提醒使用者補充影像、診斷或由專業醫師評估。\n"
+            )
+
+            prompt = (
+                f"【使用者原始問題】\n{user_q}\n\n"
+                f"【系統推定查詢語意】\n{fallback_query}\n\n"
+                f"【3D 模型資源】\n{render_source.get('snippet') or render_source}\n\n"
+                "目前狀態：\n"
+                "- 已找到相關 3D 骨骼模型資源，可提供前端開啟 modal 或跳轉 3D 模型頁。\n"
+                "- 但沒有找到足夠的文字型 RAG 證據，例如衛教資料、PubMed 文獻或 SOAP 去識別化紀錄。\n\n"
+                "請輸出：\n"
+                "1) 先說明已找到可觀察的 3D 模型，不要說完全沒查到。\n"
+                "2) 說明這些模型可用來觀察哪個骨頭、哪個部位或左右側。\n"
+                "3) 補充一般性的骨骼學習方向，但要說明文字資料不足，不能當成診斷結論。\n"
+                "4) 延伸學習問題：請設計 2～3 個與本主題相關的問題，每題獨立成一行，格式固定為：- 問題文字\n"
+            )
+
+            return system, prompt, raw_resources
+
+        # ❌ 真的連 3D 模型也沒有、文字 RAG 也沒有
         system = (
-    "你是骨科衛教/判讀輔助助手。\n"
-    f"{language_rule}\n"
-    "目前檢索資料不足時，可以提供一般性衛教方向，"
-    "但必須明確說明這不是根據本次檢索資料得出的結論，且不可捏造文獻或個案資料。"
-)
+            "你是骨科衛教/判讀輔助助手。\n"
+            f"{language_rule}\n"
+            "目前檢索資料不足時，可以提供一般性衛教方向，"
+            "但必須明確說明這不是根據本次檢索資料得出的結論，且不可捏造文獻或個案資料。"
+        )
 
         prompt = (
             f"【使用者原始問題】\n{user_q}\n\n"
@@ -356,12 +406,7 @@ def prepare_auto_fusion_answer(
             "2) 提供一般性骨科衛教方向\n"
             "3) 提醒需要專業醫師判斷\n"
             "4) 建議使用者補充更明確的部位、診斷、影像結果或上傳文件\n"
-            
         )
-
-        raw_resources = []
-        if render_source:
-            raw_resources.insert(0, render_source)
 
         return system, prompt, raw_resources
         
