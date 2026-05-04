@@ -90,6 +90,12 @@ REGION_ALIAS = {
     "膝蓋": ["股骨", "脛骨", "髕骨"],
     "大腿": ["股骨"],
     "小腿": ["脛骨", "腓骨"],
+
+    # ✅ 新增：脊椎群組
+    "頸椎": ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "Cervical vertebrae"],
+    "胸椎": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "Thoracic vertebrae"],
+    "腰椎": ["L1", "L2", "L3", "L4", "L5", "Lumbar vertebrae"],
+    "脊椎": ["頸椎", "胸椎", "腰椎", "Cervical vertebrae", "Thoracic vertebrae", "Lumbar vertebrae"],
 }
 
 
@@ -211,9 +217,134 @@ def _query_terms(question: str) -> list[str]:
         add("finger")
         add("Phalanges")
         add("phalanx")
+        
+        # ✅ 脊椎：頸椎 C1~C7、胸椎 T1~T12、腰椎 L1~L5
+    if "頸椎" in q or "頸部脊椎" in q or "cervical" in q_lower:
+        add("頸椎")
+        add("Cervical vertebra")
+        add("Cervical vertebrae")
+        for i in range(1, 8):
+            add(f"C{i}")
+
+    if "胸椎" in q or "胸部脊椎" in q or "thoracic" in q_lower:
+        add("胸椎")
+        add("Thoracic vertebra")
+        add("Thoracic vertebrae")
+        for i in range(1, 13):
+            add(f"T{i}")
+
+    if "腰椎" in q or "腰部脊椎" in q or "lumbar" in q_lower:
+        add("腰椎")
+        add("Lumbar vertebra")
+        add("Lumbar vertebrae")
+        for i in range(1, 6):
+            add(f"L{i}")
+
+    # ✅ 精準 C7 / T12 / L5
+    m = re.search(r"\b([CTLctl])\s*[-_ ]?\s*(\d{1,2})\b", q)
+    if m:
+        add(f"{m.group(1).upper()}{int(m.group(2))}")
+
+    # ✅ 中文「第七頸椎」「第十二胸椎」「第五腰椎」
+    zh_num_map = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+        "十一": 11,
+        "十二": 12,
+    }
+
+    zh = re.search(r"第(十一|十二|十|一|二|三|四|五|六|七|八|九|\d{1,2})(頸椎|胸椎|腰椎)", q)
+    if zh:
+        raw_no = zh.group(1)
+        group_zh = zh.group(2)
+        no = int(raw_no) if raw_no.isdigit() else zh_num_map.get(raw_no, 0)
+
+        prefix = ""
+        if group_zh == "頸椎":
+            prefix = "C"
+        elif group_zh == "胸椎":
+            prefix = "T"
+        elif group_zh == "腰椎":
+            prefix = "L"
+
+        if prefix and no:
+            add(f"{prefix}{no}")
 
     return terms
 
+def _detect_vertebra_target(question: str) -> tuple[str, int | None]:
+    """
+    回傳：
+    ("C", 7) 代表第七頸椎 / C7
+    ("T", None) 代表只問胸椎群組
+    ("", None) 代表不是脊椎問題
+    """
+    q = str(question or "")
+    q_lower = q.lower()
+
+    direct = re.search(r"\b([CTLctl])\s*[-_ ]?\s*(\d{1,2})\b", q)
+    if direct:
+        return direct.group(1).upper(), int(direct.group(2))
+
+    zh_num_map = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+        "十一": 11,
+        "十二": 12,
+    }
+
+    zh = re.search(r"第(十一|十二|十|一|二|三|四|五|六|七|八|九|\d{1,2})(頸椎|胸椎|腰椎)", q)
+    if zh:
+        raw_no = zh.group(1)
+        group_zh = zh.group(2)
+        no = int(raw_no) if raw_no.isdigit() else zh_num_map.get(raw_no)
+
+        if group_zh == "頸椎":
+            return "C", no
+        if group_zh == "胸椎":
+            return "T", no
+        if group_zh == "腰椎":
+            return "L", no
+
+    if "頸椎" in q or "頸部脊椎" in q or "cervical" in q_lower:
+        return "C", None
+
+    if "胸椎" in q or "胸部脊椎" in q or "thoracic" in q_lower:
+        return "T", None
+
+    if "腰椎" in q or "腰部脊椎" in q or "lumbar" in q_lower:
+        return "L", None
+
+    return "", None
+
+
+def _parse_vertebra_mesh(mesh_name: str) -> tuple[str, int | None]:
+    """
+    C7 -> ("C", 7)
+    T12 -> ("T", 12)
+    L5 -> ("L", 5)
+    """
+    mesh = str(mesh_name or "").strip()
+    m = re.match(r"^([CTLctl])(\d{1,2})$", mesh)
+    if not m:
+        return "", None
+    return m.group(1).upper(), int(m.group(2))
 
 def _rank_asset(row: dict[str, Any], question: str, preferred_side: str | None = None) -> int:
     q = str(question or "")
@@ -236,6 +367,23 @@ def _rank_asset(row: dict[str, Any], question: str, preferred_side: str | None =
         score += 80
     if mesh and _normalize_text(mesh) in _normalize_text(q):
         score += 90
+        
+        # ✅ 脊椎 C/T/L 精準與群組加權
+    target_group, target_no = _detect_vertebra_target(q)
+    mesh_group, mesh_no = _parse_vertebra_mesh(mesh)
+
+    if target_group and mesh_group:
+        if target_group == mesh_group:
+            score += 90
+
+            # 有指定 C7/T12/L5，精準命中加很多
+            if target_no is not None:
+                if mesh_no == target_no:
+                    score += 180
+                else:
+                    score -= 120
+        else:
+            score -= 80
 
     # 序號
     if any(k in q for k in ["第三", "第3"]) or any(k in q_lower for k in ["third", "3rd"]):
