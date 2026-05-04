@@ -92,6 +92,239 @@ function toRegionKey(region?: string | null): RegionKey {
 }
 
 /** =========================
+ *  Semantic search for S3 bone list
+ *  ========================= */
+
+function normalizeSearchText(value?: string | number | null) {
+  if (value === null || value === undefined) return "";
+
+  return String(value)
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[()（）【】\[\]{}]/g, "")
+    .replace(/[，,。.!！?？、:：;；]/g, "")
+    .trim();
+}
+
+const S3_SEARCH_STOP_WORDS = [
+  "我要",
+  "我想",
+  "想看",
+  "幫我",
+  "請",
+  "顯示",
+  "查詢",
+  "搜尋",
+  "找",
+  "相關",
+  "骨頭",
+  "骨骼",
+  "模型",
+  "3d",
+  "三d",
+  "的",
+  "一下",
+  "看看",
+  "可以看",
+  "給我",
+];
+
+function removeS3SearchStopWords(keyword: string) {
+  let q = normalizeSearchText(keyword);
+
+  S3_SEARCH_STOP_WORDS.forEach((word) => {
+    const w = normalizeSearchText(word);
+    if (w) q = q.replaceAll(w, "");
+  });
+
+  return q;
+}
+
+/**
+ * 使用者口語查詢 → 可能對應的正式骨名 / 英文 / mesh 關鍵字
+ */
+function expandS3SemanticTerms(keyword: string): string[] {
+  const rawQ = normalizeSearchText(keyword);
+  const q = removeS3SearchStopWords(keyword);
+
+  const terms = new Set<string>();
+
+  if (rawQ) terms.add(rawQ);
+  if (q) terms.add(q);
+
+  const add = (...items: string[]) => {
+    items.forEach((item) => {
+      const n = normalizeSearchText(item);
+      if (n) terms.add(n);
+    });
+  };
+
+  const hasAny = (...items: string[]) => {
+    return items.some((item) => {
+      const n = normalizeSearchText(item);
+      return n && (rawQ.includes(n) || q.includes(n));
+    });
+  };
+
+  // 頭顱
+  if (hasAny("頭", "頭部", "頭骨", "頭顱", "腦袋", "skull")) {
+    add("顱骨", "skull", "cranial", "cranium");
+  }
+
+  // 脊椎總類
+  if (hasAny("脊椎", "脊柱", "spine", "vertebra")) {
+    add("脊椎", "vertebra", "spine");
+  }
+
+  // 頸椎：脖子第三根、C3、頸部
+  if (hasAny("脖子", "頸部", "頸椎", "neck", "cervical", "cspine")) {
+    add("頸椎", "cervical", "cervicalvertebra", "c1", "c2", "c3", "c4", "c5", "c6", "c7");
+  }
+
+  // 胸椎：上背、背部上段
+  if (hasAny("胸椎", "上背", "胸背", "背部上段", "thoracic", "tspine")) {
+    add("胸椎", "thoracic", "thoracicvertebra", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11", "t12");
+  }
+
+  // 腰椎：腰、下背
+  if (hasAny("腰", "腰部", "腰椎", "下背", "下背部", "lowerback", "lumbar", "lspine")) {
+    add("腰椎", "lumbar", "lumbarvertebra", "l1", "l2", "l3", "l4", "l5");
+  }
+
+  // 胸廓
+  if (hasAny("肋骨", "肋", "rib", "ribs")) {
+    add("肋骨", "rib", "ribs");
+  }
+
+  if (hasAny("胸骨", "胸口中間", "胸前中間", "sternum", "breastbone")) {
+    add("胸骨", "sternum");
+  }
+
+  if (hasAny("鎖骨", "肩膀前面", "胸前上方", "clavicle", "collarbone")) {
+    add("鎖骨", "clavicle");
+  }
+
+  if (hasAny("肩胛骨", "肩胛", "肩膀後面", "背後肩膀", "scapula", "shoulderblade")) {
+    add("肩胛骨", "scapula");
+  }
+
+  // 上肢
+  if (hasAny("上臂", "手臂上段", "肱骨", "humerus", "upperarm")) {
+    add("肱骨", "humerus");
+  }
+
+  if (hasAny("小指側", "小拇指側", "前臂內側", "尺骨", "ulna", "ulnar")) {
+    add("尺骨", "ulna", "ulnar");
+  }
+
+  if (hasAny("拇指側", "大拇指側", "前臂外側", "橈骨", "radius", "radial")) {
+    add("橈骨", "radius", "radial");
+  }
+
+  if (hasAny("手腕", "腕部", "腕骨", "carpal", "carpals", "wrist")) {
+    add("腕骨", "carpal", "scaphoid", "lunate", "triquetrum", "pisiform", "trapezium", "trapezoid", "capitate", "hamate");
+  }
+
+  if (hasAny("手掌", "掌骨", "掌部", "metacarpal", "palm")) {
+    add("掌骨", "metacarpal");
+  }
+
+  if (hasAny("手指", "指頭", "指骨", "finger", "phalanges", "phalanx")) {
+    add("指骨", "phalanges", "phalanx");
+  }
+
+  // 下肢
+  if (hasAny("骨盆", "髖", "屁股", "pelvis", "hip")) {
+    add("骨盆", "髖骨", "pelvis", "hip");
+  }
+
+  if (hasAny("大腿", "大腿骨", "股骨", "femur", "thigh")) {
+    add("股骨", "femur");
+  }
+
+  if (hasAny("膝蓋", "髕骨", "patella", "kneecap")) {
+    add("髕骨", "patella");
+  }
+
+  if (hasAny("小腿前側", "小腿內側", "脛骨", "tibia", "shin")) {
+    add("脛骨", "tibia");
+  }
+
+  if (hasAny("小腿外側", "腓骨", "fibula")) {
+    add("腓骨", "fibula");
+  }
+
+  if (hasAny("腳踝", "踝", "距骨", "talus", "ankle")) {
+    add("距骨", "talus", "ankle");
+  }
+
+  if (hasAny("腳跟", "跟骨", "heel", "calcaneus")) {
+    add("跟骨", "calcaneus");
+  }
+
+  if (hasAny("腳掌", "蹠骨", "metatarsal", "foot")) {
+    add("蹠骨", "metatarsal");
+  }
+
+  if (hasAny("腳趾", "趾骨", "toe", "phalanges")) {
+    add("趾骨", "phalanges", "phalanx");
+  }
+
+  // 第幾根 / 第幾節口語補強
+  const ordinalMatch = keyword.match(/第([一二三四五六七八九十\d]+)[根節個顆]?/);
+  if (ordinalMatch) {
+    const rawNo = ordinalMatch[1];
+
+    const zhToNum: Record<string, string> = {
+      一: "1",
+      二: "2",
+      三: "3",
+      四: "4",
+      五: "5",
+      六: "6",
+      七: "7",
+      八: "8",
+      九: "9",
+      十: "10",
+    };
+
+    const no = zhToNum[rawNo] ?? rawNo;
+
+    if (hasAny("脖子", "頸", "頸椎")) add(`c${no}`, `頸椎${no}`, `第${rawNo}頸椎`);
+    if (hasAny("胸椎", "上背", "胸背")) add(`t${no}`, `胸椎${no}`, `第${rawNo}胸椎`);
+    if (hasAny("腰", "腰椎", "下背")) add(`l${no}`, `腰椎${no}`, `第${rawNo}腰椎`);
+    if (hasAny("手指", "指骨", "指頭")) add(`第${rawNo}指`, `finger${no}`, `metacarpal${no}`);
+    if (hasAny("腳趾", "趾骨")) add(`第${rawNo}趾`, `toe${no}`, `metatarsal${no}`);
+  }
+
+  return Array.from(terms);
+}
+
+function isS3BoneMatchedByKeyword(item: BoneListItem, keyword: string) {
+  const rawQ = normalizeSearchText(keyword);
+  const q = removeS3SearchStopWords(keyword);
+  if (!rawQ && !q) return true;
+
+  const terms = expandS3SemanticTerms(keyword);
+
+  const haystack = [
+    item.bone_zh,
+    item.bone_en,
+    item.mesh_name,
+    item.bone_region,
+    item.bone_desc,
+    normalizeMeshName(item.mesh_name),
+  ]
+    .map(normalizeSearchText)
+    .filter(Boolean)
+    .join(" ");
+
+  return terms.some((term) => {
+    const t = normalizeSearchText(term);
+    return t && haystack.includes(t);
+  });
+}
+/** =========================
  *  Side parsing
  *  ========================= */
 
@@ -920,12 +1153,10 @@ export default function S3Viewer() {
   );
 
   const searched = useMemo(() => {
-    const kw = q.trim().toLowerCase();
+    const kw = q.trim();
     if (!kw) return boneList;
-    return boneList.filter((x) => {
-      const key = `${x.bone_zh} ${x.bone_en} ${x.mesh_name} ${x.bone_region ?? ''}`.toLowerCase();
-      return key.includes(kw);
-    });
+
+    return boneList.filter((x) => isS3BoneMatchedByKeyword(x, kw));
   }, [boneList, q]);
 
   const regionCards = useMemo(() => {
@@ -1426,7 +1657,7 @@ export default function S3Viewer() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋：尺骨、胸椎…"
+          placeholder="搜尋：尺骨、胸椎、脖子第三根、手腕小骨頭…"
           style={{
             width: '100%',
             padding: '10px 12px',
