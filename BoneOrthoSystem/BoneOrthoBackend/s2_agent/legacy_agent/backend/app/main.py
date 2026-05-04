@@ -141,6 +141,40 @@ def _extract_image_case_id(text: str | None) -> int | None:
     except Exception:
         return None
 
+def _append_request_messages_to_session(session: dict, messages: list[ChatMessage]) -> None:
+    """
+    把前端送來的最近對話上下文放進 session。
+    讓追問「再查其他網站」「前面那個」能接上上一輪主題。
+    """
+    if not session or not messages:
+        return
+
+    session.setdefault("messages", [])
+
+    existing_keys = set()
+    for m in session.get("messages", []):
+        if isinstance(m, dict):
+            role = m.get("role")
+            content = m.get("content")
+        else:
+            role = getattr(m, "role", None)
+            content = getattr(m, "content", None)
+
+        existing_keys.add((role, content))
+
+    for m in messages:
+        role = getattr(m, "role", None)
+        content = getattr(m, "content", None)
+
+        if not content:
+            continue
+
+        key = (role, content)
+        if key in existing_keys:
+            continue
+
+        session["messages"].append(m)
+        existing_keys.add(key)
 
 def _extract_question(text: str) -> str:
     t = (text or "").strip()
@@ -384,7 +418,30 @@ def agent_chat_stream(req: ChatRequest):
     ensure_conversation_exists(conversation_id, user_id=user_id, source="s2x")
 
     session = get_session(conversation_id)
-    append_messages(session, [req.messages[-1]])
+
+    # 前端現在會送最近 6 則 messages。
+    # 這裡要把前面的 messages 也放進 session，讓「再查其他網站」能接上上一輪主題。
+    incoming_messages = list(req.messages or [])
+
+    if incoming_messages:
+        # 保留既有 session 訊息，再補這次 request 裡帶來的上下文
+        session.setdefault("messages", [])
+
+        existing_keys = set()
+        for m in session.get("messages", []):
+            try:
+                existing_keys.add((
+                    getattr(m, "role", None) if not isinstance(m, dict) else m.get("role"),
+                    getattr(m, "content", None) if not isinstance(m, dict) else m.get("content"),
+                ))
+            except Exception:
+                pass
+
+        for m in incoming_messages:
+            key = (m.role, m.content)
+            if key not in existing_keys:
+                session["messages"].append(m)
+                existing_keys.add(key)
 
     last = req.messages[-1]
     if last.role != "user" or last.type != "text":
@@ -765,9 +822,32 @@ def agent_chat(req: ChatRequest):
     ensure_conversation_exists(conversation_id, user_id=user_id, source="s2x")
 
     session = get_session(conversation_id)
-    append_messages(session, [req.messages[-1]])
+
+    session = get_session(conversation_id)
+
+    incoming_messages = list(req.messages or [])
+
+    if incoming_messages:
+        session.setdefault("messages", [])
+
+        existing_keys = set()
+        for m in session.get("messages", []):
+            try:
+                existing_keys.add((
+                    getattr(m, "role", None) if not isinstance(m, dict) else m.get("role"),
+                    getattr(m, "content", None) if not isinstance(m, dict) else m.get("content"),
+                ))
+            except Exception:
+                pass
+
+        for m in incoming_messages:
+            key = (m.role, m.content)
+            if key not in existing_keys:
+                session["messages"].append(m)
+                existing_keys.add(key)
 
     last_in = req.messages[-1]
+    
     if last_in.role == "user":
         attachments_json = None
         image_case_id = None

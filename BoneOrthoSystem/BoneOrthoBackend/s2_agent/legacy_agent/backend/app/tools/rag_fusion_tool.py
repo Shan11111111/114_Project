@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .rag_tool import retrieve_sources, _build_history_summary, _build_retrieval_query
 from .pubmed_tool import retrieve_pubmed_sources
 from .soap_csv_service import retrieve_soap_sources
+from .web_tool import retrieve_web_sources
 
 from .intent_router import analyze_user_intent
 
@@ -38,8 +39,21 @@ def clean_soap_text(text: str) -> str:
 def route_sources(query: str) -> List[str]:
     q = (query or "").lower()
     sources = set()
-    
-    
+
+    # 使用者明確要「其他網站 / 外部網站」
+    # 你的規則：其他網站 = PubMed + web
+    # 不要加 vector / soap，避免跑出教材或 SOAP
+    external_site_intent = any(k in q for k in [
+        "其他網站", "查其他網站", "再查其他網站",
+        "外部網站", "外部資料", "網站資料",
+        "查網站", "網路資料", "可信網站",
+        "官方網站", "醫院網站",
+        "mayo", "cleveland", "aaos", "orthoinfo",
+        "medlineplus", "衛福部", "國健署",
+    ])
+
+    if external_site_intent:
+        return ["pubmed", "web"]
 
     if any(k in q for k in [
         "骨頭", "骨骼", "位置", "功能", "解剖", "介紹", "衛教",
@@ -58,16 +72,29 @@ def route_sources(query: str) -> List[str]:
         "治療指引", "臨床試驗", "guideline", "用藥", "治療"
     ]):
         sources.add("pubmed")
-    
-    
+
+    if any(k in q for k in [
+        "網站", "網路", "官方", "可信",
+        "衛福部", "國健署", "醫院網站",
+        "mayo", "cleveland", "aaos", "orthoinfo",
+        "medlineplus", "nih", "ncbi",
+        "clinical guideline",
+    ]):
+        sources.add("web")
 
     # 常見跨來源問題：教材 + 文獻一起看
     if any(k in q for k in ["骨質疏鬆", "骨鬆", "骨折", "治療", "診斷", "風險", "用藥"]):
         sources.update(["vector", "pubmed"])
 
-    if any(k in q for k in ["還有嗎", "還有沒有", "更多", "其他", "處理方法", "怎麼辦"]):
+    # 一般追問：走教材 + PubMed
+    # 注意：不要把「其他」放這裡，因為「其他網站」上面已經處理了
+    if any(k in q for k in ["還有嗎", "還有沒有", "更多", "處理方法", "怎麼辦"]):
         sources.update(["vector", "pubmed"])
-    
+
+    # 只有「其他治療 / 其他方法」這類才走 vector + pubmed
+    if "其他" in q and not any(k in q for k in ["其他網站", "外部網站", "網站"]):
+        sources.update(["vector", "pubmed"])
+
     if not sources:
         sources.add("vector")
 
@@ -137,6 +164,37 @@ def normalize_pubmed_sources(items: List[Dict[str, Any]]) -> List[Evidence]:
         })
     return out
 
+def normalize_web_sources(items: List[Dict[str, Any]]) -> List[Evidence]:
+    out: List[Evidence] = []
+
+    for item in items or []:
+        text = _text_of(item)
+        if not text:
+            continue
+
+        site_name = item.get("site_name") or "可信醫療網站"
+        title = item.get("title") or site_name
+
+        out.append({
+            "source_type": "web",
+            "title": title,
+            "content": text,
+            "snippet": item.get("snippet") or text[:300],
+            "score": float(item.get("score") or 0.65),
+            "url": item.get("url"),
+            "download_url": item.get("download_url") or item.get("url"),
+            "external_url": item.get("external_url") or item.get("url"),
+            "site_name": site_name,
+            "is_search_entry": item.get("is_search_entry", True),
+            "fetched": item.get("fetched", False),
+            "search_topic": item.get("search_topic"),
+            "page": None,
+            "chunk": None,
+            "metadata": item,
+        })
+
+    return out
+
 
 def normalize_soap_sources(items: List[Dict[str, Any]]) -> List[Evidence]:
     out: List[Evidence] = []
@@ -186,10 +244,11 @@ def dedupe_evidence(items: List[Evidence]) -> List[Evidence]:
 
 def rerank_evidence(items: List[Evidence]) -> List[Evidence]:
     source_weight = {
-        "vector": 1.00,
-        "soap": 0.95,
-        "pubmed": 1.05,
-    }
+    "vector": 1.00,
+    "soap": 0.95,
+    "pubmed": 1.05,
+    "web": 0.90,
+}
 
     for item in items:
         source_type = str(item.get("source_type") or "vector")
@@ -230,7 +289,9 @@ def format_evidence_for_prompt(items: List[Evidence]) -> str:
     "vector": "GalaBone 衛教資料庫",
     "pubmed": "PubMed 文獻",
     "soap": "輔大醫院授權之去識別化醫囑紀錄表",
+    "web": "可信醫療網站資料",
 }.get(str(source_type).lower(), "GalaBone 參考資料")
+        
         content = item.get("content", "")
 
         blocks.append(
@@ -243,6 +304,252 @@ def format_evidence_for_prompt(items: List[Evidence]) -> str:
 
     return "\n\n".join(blocks)
 
+
+def is_external_site_followup(user_q: str) -> bool:
+    q = (user_q or "").lower()
+    return any(k in q for k in [
+        "其他網站", "查其他網站", "再查其他網站",
+        "外部網站", "外部資料", "網站資料",
+        "查網站", "網路資料", "可信網站",
+        "官方網站", "醫院網站",
+    ])
+    
+def _clean_external_followup_topic(text: str) -> str:
+    x = str(text or "").strip()
+    if not x:
+        return ""
+
+    bad_patterns = [
+        r"再查其他網站有沒有資料",
+        r"再查其他的網站",
+        r"可以再查其他網站嗎",
+        r"查其他網站",
+        r"其他網站",
+        r"外部網站",
+        r"網站資料",
+        r"網路資料",
+        r"有沒有資料",
+        r"還有資料嗎",
+        r"可以再查",
+        r"幫我查",
+        r"查一下",
+        r"嗎",
+        r"\?",
+        r"？",
+    ]
+
+    for pat in bad_patterns:
+        x = re.sub(pat, " ", x, flags=re.IGNORECASE)
+
+    x = re.sub(r"\s+", " ", x).strip(" ，,。.;；：:")
+
+    if not x or x in {"資料", "網站", "其他", "再查", "查", "有沒有資料"}:
+        return ""
+
+    if len(x.replace(" ", "")) < 2:
+        return ""
+
+    return x
+
+
+def pick_external_search_query(
+    user_q: str,
+    retrieval_query: str,
+    session: dict | None,
+    state: Dict[str, Any],
+) -> str:
+    cleaned = _clean_external_followup_topic(retrieval_query)
+    if cleaned:
+        return cleaned
+
+    hs = _build_history_summary(user_q, session, state) or ""
+    if hs.strip() and "未明確主題" not in hs and "目前主題" not in hs:
+        cleaned_hs = _clean_external_followup_topic(hs)
+        if cleaned_hs:
+            return cleaned_hs
+
+    messages = []
+    if isinstance(session, dict):
+        val = session.get("messages")
+        if isinstance(val, list):
+            messages = val
+
+    bad_words = [
+        "其他網站", "查其他網站", "再查其他網站",
+        "外部網站", "網站資料", "網路資料", "有沒有資料",
+    ]
+
+    medical_keywords = [
+        "椎間盤", "退化", "骨質疏鬆", "骨鬆", "骨折", "關節炎",
+        "腰椎", "頸椎", "胸椎", "脊椎", "疼痛", "治療", "診斷",
+        "intervertebral", "disc", "degeneration", "osteoporosis",
+        "fracture", "arthritis", "spine", "lumbar", "cervical",
+    ]
+
+    for m in reversed(messages):
+        if isinstance(m, dict):
+            role = str(m.get("role") or "").lower()
+            text = str(m.get("content") or "").strip()
+        else:
+            role = str(getattr(m, "role", "") or "").lower()
+            text = str(getattr(m, "content", "") or "").strip()
+
+        if not text:
+            continue
+        if text.strip() == user_q.strip():
+            continue
+        if any(b in text for b in bad_words):
+            continue
+
+        for kw in medical_keywords:
+            if kw.lower() in text.lower():
+                return text[:120]
+
+        if role == "user" and 2 <= len(text) <= 120:
+            return text
+
+    return ""
+    
+def _clean_external_followup_topic(text: str) -> str:
+    """
+    把「再查其他網站有沒有資料」這種操作句清掉。
+    只留下可能的醫療主題。
+    """
+    x = str(text or "").strip()
+    if not x:
+        return ""
+
+    bad_patterns = [
+        r"再查其他網站有沒有資料",
+        r"再查其他的網站",
+        r"可以再查其他網站嗎",
+        r"查其他網站",
+        r"其他網站",
+        r"外部網站",
+        r"網站資料",
+        r"網路資料",
+        r"有沒有資料",
+        r"還有資料嗎",
+        r"可以再查",
+        r"幫我查",
+        r"查一下",
+        r"嗎",
+        r"\?",
+        r"？",
+    ]
+
+    for pat in bad_patterns:
+        x = re.sub(pat, " ", x, flags=re.IGNORECASE)
+
+    x = re.sub(r"\s+", " ", x).strip(" ，,。.;；：:")
+
+    bad_leftovers = [
+        "有沒有資料",
+        "資料",
+        "網站",
+        "其他",
+        "再查",
+        "查",
+    ]
+
+    if not x:
+        return ""
+
+    if x in bad_leftovers:
+        return ""
+
+    if len(x.replace(" ", "")) < 2:
+        return ""
+
+    return x
+
+
+def pick_external_search_query(
+    user_q: str,
+    retrieval_query: str,
+    session: dict | None,
+    state: Dict[str, Any],
+) -> str:
+    """
+    使用者問「再查其他網站」時，真正要查的是上一輪醫療主題，
+    不是「有沒有資料」這種操作句。
+    """
+
+    # 1. 先試 retrieval_query 清洗後是否仍有主題
+    cleaned = _clean_external_followup_topic(retrieval_query)
+    if cleaned:
+        return cleaned
+
+    # 2. 再試 history summary
+    hs = _build_history_summary(user_q, session, state) or ""
+    if (
+        hs.strip()
+        and "未明確主題" not in hs
+        and "目前主題" not in hs
+    ):
+        cleaned_hs = _clean_external_followup_topic(hs)
+        if cleaned_hs:
+            return cleaned_hs
+
+    # 3. 從 session messages 往前找上一輪 user 問題
+    messages = []
+    if isinstance(session, dict):
+        for key in ["messages", "history", "chat_history", "dialog", "conversation"]:
+            val = session.get(key)
+            if isinstance(val, list):
+                messages = val
+                break
+
+    bad_words = [
+        "其他網站",
+        "查其他網站",
+        "再查其他網站",
+        "外部網站",
+        "網站資料",
+        "網路資料",
+        "有沒有資料",
+    ]
+
+    medical_keywords = [
+        "椎間盤", "退化", "骨質疏鬆", "骨鬆", "骨折", "關節炎",
+        "腰椎", "頸椎", "胸椎", "脊椎", "疼痛", "治療", "診斷",
+        "intervertebral", "disc", "degeneration", "osteoporosis",
+        "fracture", "arthritis", "spine", "lumbar", "cervical",
+    ]
+
+    for m in reversed(messages):
+        if not isinstance(m, dict):
+            continue
+
+        text = str(
+            m.get("content")
+            or m.get("message")
+            or m.get("text")
+            or ""
+        ).strip()
+
+        if not text:
+            continue
+
+        if text.strip() == user_q.strip():
+            continue
+
+        if any(b in text for b in bad_words):
+            continue
+
+        # 優先抓明確醫療詞
+        for kw in medical_keywords:
+            if kw.lower() in text.lower():
+                # 如果句子太長，抓附近即可；先簡單回整句
+                return text[:120]
+
+        # 上一輪 user 問句通常可以當主題
+        role = str(m.get("role") or "").lower()
+        if role == "user" and 2 <= len(text) <= 120:
+            return text
+
+    # 4. 最後真的抓不到，就回空，不要拿「有沒有資料」去搜
+    return ""
 
 def prepare_auto_fusion_answer(
     user_q: str,
@@ -335,7 +642,11 @@ def prepare_auto_fusion_answer(
         )
     
     
-    selected_sources = route_sources(retrieval_query)
+    route_query = f"{user_q}\n{retrieval_query}".strip()
+    selected_sources = route_sources(route_query)
+    print("[AUTO_FUSION][ROUTE_QUERY]", route_query)
+    print("[AUTO_FUSION][SELECTED_SOURCES]", selected_sources)
+
     evidence: List[Evidence] = []
     
 
@@ -352,13 +663,57 @@ def prepare_auto_fusion_answer(
 
     if "pubmed" in selected_sources:
         try:
-            pubmed_raw = retrieve_pubmed_sources(retrieval_query, max_results=pubmed_max_results)
+            pubmed_query = retrieval_query
+
+            if is_external_site_followup(user_q):
+                picked = pick_external_search_query(user_q, retrieval_query, session, state)
+                if picked:
+                    pubmed_query = picked
+
+            print("[AUTO_FUSION][PUBMED_QUERY]", pubmed_query)
+
+            pubmed_raw = retrieve_pubmed_sources(
+                pubmed_query,
+                max_results=pubmed_max_results,
+            )
+
+            if not pubmed_raw and pubmed_query != retrieval_query:
+                pubmed_raw = retrieve_pubmed_sources(
+                    retrieval_query,
+                    max_results=pubmed_max_results,
+                )
 
             if not pubmed_raw and retrieval_query != user_q:
-                pubmed_raw = retrieve_pubmed_sources(user_q, max_results=pubmed_max_results)
+                pubmed_raw = retrieve_pubmed_sources(
+                    user_q,
+                    max_results=pubmed_max_results,
+                )
+
             evidence.extend(normalize_pubmed_sources(pubmed_raw))
         except Exception as e:
             print("auto_fusion pubmed failed:", e)
+                
+    if "web" in selected_sources:
+        try:
+            web_query = retrieval_query
+
+            if is_external_site_followup(user_q):
+                picked = pick_external_search_query(user_q, retrieval_query, session, state)
+                if picked:
+                    web_query = picked
+                else:
+                    print("[AUTO_FUSION][WEB_QUERY_SKIP] no valid previous topic")
+                    web_query = ""
+
+            print("[AUTO_FUSION][WEB_QUERY]", web_query)
+
+            web_raw = []
+            if web_query:
+                web_raw = retrieve_web_sources(web_query, max_results=3)
+
+            evidence.extend(normalize_web_sources(web_raw))
+        except Exception as e:
+            print("auto_fusion web failed:", e)
 
     if "soap" in selected_sources:
         try:
@@ -451,7 +806,7 @@ def prepare_auto_fusion_answer(
     "4. 若檢索資料中有衝突，請明確指出哪些來源支持哪種觀點。\n"
     "5. 禁止回答模糊不清、沒有根據的空話。\n"
     "【專業守則】若涉及醫學診斷結論，必須語氣審慎，但不能因為怕而不敢給出醫學上的解釋。\n"
-        "你會收到多來源 RAG 檢索資料，來源可能包含 vector、soap、pubmed。\n"
+        "你會收到多來源 RAG 檢索資料，來源可能包含 vector、soap、pubmed、web。\n"
         "請優先根據檢索資料回答，不要捏造資料中沒有的內容。\n"
         "回答前必須先判斷使用者真正想問的是：診斷判斷、治療方式、知識解釋、風險/預後，或資料解讀。\n"
         "禁止只提供泛用醫療常識，必須根據使用者問題語意與檢索內容進行針對性回答。\n"
@@ -464,7 +819,10 @@ def prepare_auto_fusion_answer(
         "若回答中出現骨科、影像、藥物或檢查相關概念，必須在該中文名詞第一次出現時直接補上英文專有名詞，不可省略。\n"
         "當問題涉及臨床決策、治療影響或風險評估時，必須進一步說明『因此臨床上會如何調整處置或治療策略』，不可只停留在知識描述。\n"
         "若問題為『如何評估』『如何影響』『怎麼決定』，請優先提供臨床判斷流程或決策邏輯。\n"
-        "RAG 檢索資料來源名稱必須寫出來，只能使用：（來源：GalaBone 衛教資料庫）、（來源：PubMed 文獻）、（來源：輔大醫院授權之去識別化醫囑紀錄表）。\n"
+        "RAG 檢索資料來源名稱必須寫出來，只能使用：（來源：GalaBone 衛教資料庫）、（來源：PubMed 文獻）、（來源：輔大醫院授權之去識別化醫囑紀錄表）、（來源：可信醫療網站資料）。\n"
+"若來源類型為 web，代表系統已嘗試從可信醫療網站搜尋並擷取頁面文字；"
+"若該筆 web evidence 的內容明確且 fetched=True，可作為可信衛教來源輔助說明，"
+"但仍不可取代醫師診斷或臨床指引。\n"
 "請依據實際使用的檢索資料標註來源，不可隨意標註，也不可全部標成同一來源。\n"
     )
 
@@ -488,23 +846,29 @@ def prepare_auto_fusion_answer(
     raw_resources: List[Dict[str, Any]] = []
     for item in evidence:
         raw_resources.append({
-            "title": item.get("title"),
-            "display_title": item.get("title"),
-            "source_type": item.get("source_type"),
-            "score": item.get("final_score") or item.get("score"),
-            "url": item.get("url"),
-            "download_url": item.get("download_url"),
-            "external_url": item.get("external_url"),
-            "page": item.get("page"),
-            "chunk": item.get("chunk"),
-            "material_id": item.get("material_id"),
-            "snippet": item.get("snippet") or str(item.get("content") or "")[:300],
-            "content": item.get("content"),
-            "pmid": item.get("pmid"),
-            "journal": item.get("journal"),
-            "year": item.get("year"),
-            "visit_date": item.get("visit_date"),
-        })
+    "title": item.get("title"),
+    "display_title": item.get("title"),
+    "source_type": item.get("source_type"),
+    "score": item.get("final_score") or item.get("score"),
+    "url": item.get("url"),
+    "download_url": item.get("download_url"),
+    "external_url": item.get("external_url"),
+    "page": item.get("page"),
+    "chunk": item.get("chunk"),
+    "material_id": item.get("material_id"),
+    "snippet": item.get("snippet") or str(item.get("content") or "")[:300],
+    "content": item.get("content"),
+    "pmid": item.get("pmid"),
+    "journal": item.get("journal"),
+    "year": item.get("year"),
+    "visit_date": item.get("visit_date"),
+    "site_name": item.get("site_name"),
+    "is_search_entry": item.get("is_search_entry"),
+
+    # 這兩個一定要補，不然前端看不到是否真的抓到網頁正文
+    "fetched": item.get("fetched"),
+    "search_topic": item.get("search_topic"),
+})
         
     if render_source:
         raw_resources.insert(0, render_source)

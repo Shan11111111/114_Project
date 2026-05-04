@@ -916,11 +916,11 @@ html.dark .mobile-user-card {
 }
 
 :root {
-  --glass-hover: rgba(255,255,255,0.9);
+  --glass-hover: rgba(255, 255, 255, 0.9);
 }
 
 .dark {
-  --glass-hover: rgba(255,255,255,0.16);
+  --glass-hover: rgba(255, 255, 255, 0.16);
 }
 
 
@@ -1000,131 +1000,704 @@ html.dark .mobile-user-card {
 =========================== */
 
 /* ============================
-   Materials Page Dark Theme
+   Materials Page / Qdrant 教材管理
+   只調整外觀，不影響功能
+============================ */
+
+/* ---------- Page ---------- */
+.materials-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(6, 182, 212, 0.08), transparent 28%),
+    linear-gradient(180deg, #f8fafc 0%, #eef4f8 100%) !important;
+  color: #0f172a !important;
+}
+
+.materials-page h1 {
+  color: #0f172a !important;
+  letter-spacing: -0.04em;
+}
+
+/* ---------- Upload Card ---------- */
+.materials-card {
+  background: rgba(255, 255, 255, 0.88) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 24px !important;
+  box-shadow:
+    0 18px 45px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(16px);
+  color: #0f172a !important;
+}
+
+.materials-card h2 {
+  color: #0f172a !important;
+  font-size: 17px !important;
+  font-weight: 800 !important;
+}
+
+.materials-card span,
+.materials-card div {
+  color: #334155 !important;
+}
+
+.materials-card .rounded-xl {
+  background: rgba(241, 245, 249, 0.72) !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.materials-card input[type="file"] {
+  color: #334155 !important;
+  font-size: 14px !important;
+  line-height: 1.6;
+}
+
+.materials-card input[type="file"]::file-selector-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 16px;
+  margin-right: 12px;
+  background: linear-gradient(135deg, #06b6d4, #22d3ee);
+  color: #06202a;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(6, 182, 212, 0.22);
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.materials-card input[type="file"]::file-selector-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+.materials-card>button {
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #06b6d4, #67e8f9) !important;
+  color: #06202a !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.04em;
+  box-shadow: 0 16px 34px rgba(6, 182, 212, 0.25) !important;
+}
+
+.materials-card>button:hover:not(:disabled) {
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+}
+
+.materials-card>button:disabled {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  color: #0f172a !important;
+}
+
+.materials-card pre {
+  color: #16a34a !important;
+  font-weight: 700;
+}
+
+/* ---------- Materials Table Light ---------- */
+.materials-table-card {
+  background: rgba(255, 255, 255, 0.88) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 24px !important;
+  box-shadow:
+    0 18px 45px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  color: #0f172a !important;
+}
+
+.materials-table-card h2 {
+  color: #0f172a !important;
+  font-size: 17px !important;
+  font-weight: 800 !important;
+}
+
+/* ============================
+   Dark Mode
 ============================ */
 
 html.dark .materials-page {
-  background: #020617 !important;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(34, 211, 238, 0.12), transparent 28%),
+    radial-gradient(circle at 85% 20%, rgba(59, 130, 246, 0.08), transparent 30%),
+    linear-gradient(180deg, #020617 0%, #050b18 100%) !important;
   color: #e5e7eb !important;
 }
 
-html.dark .materials-table-card {
-  background: #0f172a !important;
-  border-color: rgba(148, 163, 184, 0.25) !important;
-  color: #e5e7eb !important;
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35) !important;
+html.dark .materials-page h1 {
+  color: #eaf6ff !important;
+  text-shadow: 0 0 20px rgba(34, 211, 238, 0.12);
 }
 
-/* 搜尋區文字 */
-html.dark .materials-table-card h2 {
-  color: #f8fafc !important;
-}
-
-html.dark .materials-table-card .text-slate-500 {
-  color: #94a3b8 !important;
-}
-
-/* 搜尋框 */
-html.dark .materials-table-card input {
-  background: #020617 !important;
-  color: #f8fafc !important;
-  border-color: rgba(148, 163, 184, 0.35) !important;
-}
-
-html.dark .materials-table-card input::placeholder {
-  color: #64748b !important;
-}
-
-/* 表格外框 */
-html.dark .materials-table-card table {
-  background: #020617 !important;
-}
-
-/* 表頭 */
-html.dark .materials-table-card thead,
-html.dark .materials-table-card th {
-  background: #111827 !important;
-  color: #94a3b8 !important;
-  border-color: rgba(148, 163, 184, 0.18) !important;
-}
-
-/* 表格內容 */
-html.dark .materials-table-card tbody,
-html.dark .materials-table-card tr,
-html.dark .materials-table-card td {
-  background: #020617 !important;
-  color: #cbd5e1 !important;
-  border-color: rgba(148, 163, 184, 0.14) !important;
-}
-
-/* 表格 hover */
-html.dark .materials-table-card tbody tr:hover td {
-  background: #0f172a !important;
-}
-
-/* 右側 sticky 操作欄 */
-html.dark .materials-table-card td.sticky,
-html.dark .materials-table-card th.sticky {
-  background: #020617 !important;
-}
-
-/* icon 按鈕不要白底 */
-html.dark .materials-table-card a,
-html.dark .materials-table-card button {
-  background: transparent !important;
-}
-
-/* 查看 / 下載 / 刪除 icon 按鈕保留邊框色 */
-html.dark .materials-table-card a.inline-flex,
-html.dark .materials-table-card button.inline-flex {
-  background: #0f172a !important;
-}
-
-/* 分頁區 */
-html.dark .materials-table-card .pagination-btn {
-  background: #0f172a !important;
-  border-color: rgba(148, 163, 184, 0.35) !important;
-  color: #cbd5e1 !important;
-}
-
-html.dark .materials-table-card .pagination-btn:hover:not(:disabled) {
-  background: #1e293b !important;
-  color: #f8fafc !important;
-}
-
-html.dark .materials-table-card .pagination-btn:disabled {
-  opacity: 0.35 !important;
-  cursor: not-allowed !important;
-}
-
-/* 上半部：MaterialsUploader dark fix */
+/* ---------- Upload Card Dark ---------- */
 html.dark .materials-card {
-  background: #0f172a !important;
-  border-color: rgba(148, 163, 184, 0.25) !important;
+  background: rgba(15, 23, 42, 0.86) !important;
+  border-color: rgba(148, 163, 184, 0.26) !important;
   color: #e5e7eb !important;
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35) !important;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
 }
 
-html.dark .materials-card h1,
 html.dark .materials-card h2 {
   color: #f8fafc !important;
 }
 
 html.dark .materials-card span,
 html.dark .materials-card div {
-  color: #94a3b8 !important;
+  color: #a9bdd4 !important;
 }
 
 html.dark .materials-card .rounded-xl {
-  background: #020617 !important;
-  border-color: rgba(148, 163, 184, 0.22) !important;
+  background: rgba(2, 6, 23, 0.72) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 0 0 1px rgba(15, 23, 42, 0.4);
+}
+
+html.dark .materials-card input[type="file"] {
+  color: #cbd5e1 !important;
+}
+
+html.dark .materials-card input[type="file"]::file-selector-button {
+  background: linear-gradient(135deg, #06b6d4, #22d3ee);
+  color: #02131a;
+  box-shadow: 0 8px 18px rgba(34, 211, 238, 0.28);
+}
+
+html.dark .materials-card>button {
+  background: linear-gradient(135deg, #22d3ee, #67e8f9) !important;
+  color: #02131a !important;
+  box-shadow:
+    0 16px 34px rgba(34, 211, 238, 0.24),
+    0 0 24px rgba(34, 211, 238, 0.12) !important;
+}
+
+html.dark .materials-card>button:disabled {
+  opacity: 0.55 !important;
+  color: #082f3a !important;
+  background: linear-gradient(135deg, #38bdf8, #67e8f9) !important;
 }
 
 html.dark .materials-card pre {
   color: #22c55e !important;
 }
 
-html.dark .materials-card button {
-  background: #0891b2 !important;
-  color: #020617 !important;
+/* ---------- Table Card Dark ---------- */
+html.dark .materials-table-card {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e5e7eb !important;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .materials-table-card h2 {
+  color: #f8fafc !important;
+}
+
+html.dark .materials-table-card .text-slate-500,
+html.dark .materials-table-card .text-slate-600,
+html.dark .materials-table-card .text-slate-700,
+html.dark .materials-table-card .text-slate-800,
+html.dark .materials-table-card .text-slate-900 {
+  color: #a9bdd4 !important;
+}
+
+/* Search */
+html.dark .materials-table-card input {
+  background: rgba(2, 6, 23, 0.78) !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  color: #e5e7eb !important;
+}
+
+html.dark .materials-table-card input::placeholder {
+  color: #64748b !important;
+}
+
+html.dark .materials-table-card>.flex button,
+html.dark .materials-table-card .mt-3 button {
+  background: rgba(2, 6, 23, 0.72) !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  color: #cbd5e1 !important;
+  box-shadow: none !important;
+}
+
+html.dark .materials-table-card>.flex button:hover:not(:disabled),
+html.dark .materials-table-card .mt-3 button:hover:not(:disabled) {
+  background: rgba(30, 41, 59, 0.9) !important;
+}
+
+/* Table */
+html.dark .materials-table-card .overflow-x-auto,
+html.dark .materials-table-card table {
+  background: #020617 !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #dbeafe !important;
+}
+
+html.dark .materials-table-card thead,
+html.dark .materials-table-card thead tr,
+html.dark .materials-table-card thead th {
+  background: #0f172a !important;
+  color: #9fb3c8 !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+html.dark .materials-table-card tbody tr {
+  background: #020617 !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark .materials-table-card tbody tr:hover {
+  background: #0b1220 !important;
+}
+
+html.dark .materials-table-card tbody td {
+  background: transparent !important;
+  color: #dbe7f5 !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark .materials-table-card th.sticky,
+html.dark .materials-table-card td.sticky {
+  background: #021220 !important;
+  color: #dbe7f5 !important;
+  border-left: 1px solid rgba(148, 163, 184, 0.18) !important;
+}
+
+html.dark .materials-table-card tbody tr:hover td.sticky {
+  background: #0b1220 !important;
+}
+
+html.dark .materials-table-card td.sticky>div {
+  background: transparent !important;
+}
+
+html.dark .materials-table-card tbody td {
+  background: #020617 !important;
+}
+
+/* Action Icons */
+html.dark .materials-table-card td.sticky a,
+html.dark .materials-table-card td.sticky button {
+  background: rgba(15, 23, 42, 0.9) !important;
+  box-shadow: none !important;
+}
+
+html.dark .materials-table-card td.sticky a:hover,
+html.dark .materials-table-card td.sticky button:hover:not(:disabled) {
+  background: rgba(30, 41, 59, 0.95) !important;
+}
+
+html.dark .materials-table-card .text-emerald-600,
+html.dark .materials-table-card .dark\:text-emerald-400 {
+  color: #34d399 !important;
+}
+
+html.dark .materials-table-card .text-sky-600,
+html.dark .materials-table-card .dark\:text-sky-400 {
+  color: #38bdf8 !important;
+}
+
+html.dark .materials-table-card .text-red-600,
+html.dark .materials-table-card .dark\:text-red-400 {
+  color: #fb7185 !important;
+}
+
+/* Pagination */
+html.dark .materials-table-card .pagination-btn {
+  background: rgba(15, 23, 42, 0.82) !important;
+  border-color: rgba(148, 163, 184, 0.26) !important;
+  color: #cbd5e1 !important;
+  box-shadow: none !important;
+}
+
+html.dark .materials-table-card .pagination-btn:hover:not(:disabled) {
+  background: rgba(30, 41, 59, 0.95) !important;
+}
+
+html.dark .materials-table-card .pagination-btn:disabled {
+  opacity: 0.35 !important;
+}
+
+html.dark .materials-table-card .pagination-btn+span,
+html.dark .materials-table-card span.text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+/* Scrollbar */
+html.dark .materials-table-card .overflow-x-auto::-webkit-scrollbar-track {
+  background: #020617;
+}
+
+html.dark .materials-table-card .overflow-x-auto::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+
+.materials-table-card input:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.35) !important;
+  border-color: #22d3ee !important;
+}
+
+html.dark .materials-table-card input:focus {
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.25) !important;
+  border-color: #22d3ee !important;
+}
+
+/* ============================
+   Materials Mobile Only
+   只改手機版，不影響電腦版
+============================ */
+@media (max-width: 1024px) {
+  .materials-page {
+    padding: 12px !important;
+    overflow-x: hidden !important;
+  }
+
+  .materials-card,
+  .materials-table-card {
+    width: 100% !important;
+    padding: 14px !important;
+    border-radius: 18px !important;
+  }
+
+  .materials-table-card>.flex:first-child {
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+  }
+
+  .materials-table-card>.flex:first-child>div {
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+
+  /* 刷新清單：白天恢復正常白底 */
+  html:not(.dark) .materials-table-card>.flex:first-child button {
+    background: #ffffff !important;
+    color: #334155 !important;
+    border: 1px solid rgba(148, 163, 184, 0.45) !important;
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06) !important;
+  }
+
+  .materials-table-card>.flex:first-child button {
+    width: auto !important;
+    min-width: 92px !important;
+    height: 38px !important;
+    padding: 0 12px !important;
+    border-radius: 14px !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+  }
+
+  html:not(.dark) .materials-table-card input {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-color: rgba(148, 163, 184, 0.55) !important;
+  }
+
+  html:not(.dark) .materials-table-card input::placeholder {
+    color: #94a3b8 !important;
+  }
+
+  .materials-table-card input {
+    height: 40px !important;
+    border-radius: 14px !important;
+    font-size: 13px !important;
+  }
+
+  .materials-table-card .mt-3 .flex {
+    gap: 8px !important;
+  }
+
+  .materials-table-card .mt-3 button {
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 13px !important;
+  }
+
+  .materials-table-card .overflow-x-auto {
+    overflow: visible !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+
+  .materials-table-card table.materials-table {
+    display: block !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .materials-table-card table.materials-table thead {
+    display: none !important;
+  }
+
+  .materials-table-card table.materials-table tbody {
+    display: grid !important;
+    gap: 10px !important;
+  }
+
+  .materials-table-card table.materials-table tr {
+    display: block !important;
+    padding: 11px 14px !important;
+    border-radius: 16px !important;
+    border: 1px solid rgba(203, 213, 225, 0.85) !important;
+    background: #ffffff !important;
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.045) !important;
+  }
+
+  .materials-table-card table.materials-table td {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 1.5px 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: #475569 !important;
+    font-size: 13px !important;
+    line-height: 1.32 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .materials-table-card table.materials-table td::before {
+    display: inline !important;
+    width: auto !important;
+    min-width: 0 !important;
+    margin-right: 6px !important;
+    font-weight: 800 !important;
+    color: #334155 !important;
+  }
+
+  .materials-table-card table.materials-table td:nth-child(1) {
+    display: block !important;
+    width: 100% !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    color: #0f172a !important;
+    margin-bottom: 4px !important;
+    line-height: 1.25 !important;
+    letter-spacing: -0.02em !important;
+  }
+
+  .materials-table-card table.materials-table td:nth-child(1)::before {
+    content: "上傳者代碼：";
+  }
+
+  .materials-table-card table.materials-table td:nth-child(2)::before {
+    content: "檔案名稱：";
+  }
+
+  .materials-table-card table.materials-table td:nth-child(3)::before {
+    content: "檔案格式：";
+  }
+
+  .materials-table-card table.materials-table td:nth-child(4)::before {
+    content: "語言：";
+  }
+
+  .materials-table-card table.materials-table td:nth-child(5)::before {
+    content: "內容分類：";
+  }
+
+  .materials-table-card table.materials-table td:nth-child(6)::before {
+    content: "建立時間：";
+  }
+
+  .materials-table-card table.materials-table td:nth-child(7)::before {
+    content: "教材代碼：";
+  }
+
+  .materials-table-card table.materials-table td:nth-child(7) {
+    font-size: 12px !important;
+    color: #94a3b8 !important;
+  }
+
+  .materials-table-card table.materials-table td.sticky {
+    display: block !important;
+    position: static !important;
+    padding-top: 9px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .materials-table-card table.materials-table td.sticky::before {
+    content: "" !important;
+  }
+
+  .materials-table-card table.materials-table td.sticky>div {
+    justify-content: flex-start !important;
+    gap: 10px !important;
+    background: transparent !important;
+  }
+
+  .materials-table-card table.materials-table td.sticky a,
+  .materials-table-card table.materials-table td.sticky button {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 13px !important;
+  }
+
+  .materials-table-card table.materials-table td.sticky svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+
+  /* 三個操作按鈕：白天白底 */
+  html:not(.dark) .materials-table-card table.materials-table td.sticky a,
+  html:not(.dark) .materials-table-card table.materials-table td.sticky button {
+    background: #ffffff !important;
+    border-width: 1.5px !important;
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06) !important;
+  }
+
+  /* 三個操作按鈕：黑夜深底 */
+  html.dark .materials-table-card table.materials-table td.sticky a,
+  html.dark .materials-table-card table.materials-table td.sticky button {
+    background: #020617 !important;
+    border-width: 1.5px !important;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28) !important;
+  }
+
+  /* Dark */
+  html.dark .materials-table-card table.materials-table tr {
+    background: rgba(15, 23, 42, 0.92) !important;
+    border-color: rgba(148, 163, 184, 0.24) !important;
+  }
+
+  html.dark .materials-table-card table.materials-table td {
+    background: transparent !important;
+    color: #cbd5e1 !important;
+  }
+
+  html.dark .materials-table-card table.materials-table td:nth-child(1) {
+    color: #f8fafc !important;
+  }
+
+  html.dark .materials-table-card table.materials-table td::before {
+    color: #94a3b8 !important;
+  }
+
+
+  /* 卡片之間黑底 → 拿掉 */
+  html.dark .materials-table-card .overflow-x-auto,
+  html.dark .materials-table-card table.materials-table,
+  html.dark .materials-table-card table.materials-table tbody {
+    background: transparent !important;
+  }
+
+  /*片中間縫隙黑塊 */
+  html.dark .materials-table-card table.materials-table tbody {
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* 搜尋欄 X 按鈕（清除）有底色 → 移除 */
+  .materials-table-card .mt-3 button {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  /* 👉 只保留搜尋 icon 按鈕樣式 */
+  .materials-table-card .mt-3 button:last-child {
+    background: inherit !important;
+  }
+
+  /* 🔍 搜尋 X 顏色 */
+  html.dark .materials-table-card .mt-3 button {
+    color: #cbd5e1 !important;
+  }
+
+  html:not(.dark) .materials-table-card .mt-3 button {
+    color: #64748b !important;
+  }
+
+  /* 搜尋按鈕（右邊放大鏡）白天外框統一灰色 */
+  html:not(.dark) .materials-table-card .mt-3 button:last-child {
+    background: #ffffff !important;
+    border: 1px solid rgba(148, 163, 184, 0.55) !important;
+    color: #0f172a !important;
+  }
+
+  /*黑夜模式搜尋按鈕 */
+  html.dark .materials-table-card .mt-3 button:last-child {
+    background: transparent !important;
+    border: 1px solid rgba(148, 163, 184, 0.3) !important;
+    color: #e5e7eb !important;
+  }
+
+  .materials-table-card .mt-4.flex {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    margin-top: 18px !important;
+  }
+
+  /* 分頁按鈕 */
+  .materials-table-card .mt-4.flex>div:last-child {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  /* 頁碼文字 */
+  .materials-table-card .mt-4.flex .text-xs,
+  .materials-table-card .mt-4.flex span {
+    text-align: center !important;
+  }
+
+  /* ============================
+   只修搜尋清空 X 按鈕
+   不影響右邊搜尋按鈕
+============================ */
+
+  .materials-table-card button[title="清空搜尋"],
+  .materials-table-card button[title="清空搜尋"]:hover,
+  .materials-table-card button[title="清空搜尋"]:focus,
+  .materials-table-card button[title="清空搜尋"]:active {
+    width: 18px !important;
+    height: 18px !important;
+    min-width: 18px !important;
+    min-height: 18px !important;
+    padding: 0 !important;
+
+    background: transparent !important;
+    background-color: transparent !important;
+    border-color: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+
+    --tw-ring-color: transparent !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-shadow: 0 0 #0000 !important;
+    --tw-shadow-colored: 0 0 #0000 !important;
+  }
+
+  .materials-table-card button[title="清空搜尋"] svg {
+    width: 18px !important;
+    height: 18px !important;
+    display: block !important;
+    color: #0f172a !important;
+  }
+
+  html.dark .materials-table-card button[title="清空搜尋"] svg {
+    color: #e5e7eb !important;
+  }
 }
