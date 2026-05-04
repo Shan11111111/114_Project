@@ -3937,6 +3937,37 @@ function LLMClient() {
     );
   }
 
+  function pickMeshName(v: any): string {
+    if (!v) return "";
+
+    if (typeof v === "string") return v.trim();
+
+    if (typeof v === "number") return String(v);
+
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        const picked = pickMeshName(item);
+        if (picked) return picked;
+      }
+      return "";
+    }
+
+    if (typeof v === "object") {
+      return String(
+        v.mesh_name ??
+        v.MeshName ??
+        v.meshName ??
+        v.mesh ??
+        v.name ??
+        v.label ??
+        v.id ??
+        ""
+      ).trim();
+    }
+
+    return "";
+  }
+
   function flattenS3Bones(data: any): any[] {
     const out: any[] = [];
 
@@ -3950,6 +3981,16 @@ function LLMClient() {
 
       if (typeof node !== "object") return;
 
+      const meshName = pickMeshName(
+        node.mesh_name ??
+        node.MeshName ??
+        node.meshName ??
+        node.mesh ??
+        node.L ??
+        node.R ??
+        node.C
+      );
+
       const maybeBone =
         node.small_bone_zh ||
         node.bone_zh ||
@@ -3959,13 +4000,24 @@ function LLMClient() {
         node.name_zh ||
         node.name ||
         node.label ||
-        node.mesh_name ||
-        node.MeshName ||
-        node.mesh ||
-        node.meshName;
+        meshName;
 
-      if (maybeBone) {
-        out.push(node);
+      // 避免把只有 children / 分組的 parent 節點也丟進去
+      const hasRealBoneData =
+        !!maybeBone &&
+        (
+          !!meshName ||
+          !!node.small_bone_zh ||
+          !!node.bone_zh ||
+          !!node.small_bone_en ||
+          !!node.bone_en
+        );
+
+      if (hasRealBoneData) {
+        out.push({
+          ...node,
+          mesh_name: meshName || pickMeshName(node.mesh_name || node.MeshName),
+        });
       }
 
       for (const key of ["items", "children", "bones", "data", "regions", "list"]) {
@@ -4221,7 +4273,7 @@ function LLMClient() {
 
   function makeS3ModalBoneLabel(item: any) {
     const asset = item?.asset || {};
-    const meshName = String(asset?.mesh_name || asset?.MeshName || "");
+    const meshName = pickMeshName(asset?.mesh_name || asset?.MeshName || asset?.mesh || asset?.meshName);
     const rawZh = String(asset?.bone_zh || asset?.small_bone_zh || "");
     const rawEn = String(asset?.bone_en || asset?.small_bone_en || "");
 
@@ -4446,24 +4498,19 @@ function LLMClient() {
           ""
         ).trim();
 
-        const rawMesh = String(
+        const rawMesh = pickMeshName(
           b.mesh_name ||
           b.MeshName ||
-          b.mesh ||
           b.meshName ||
-          b.L?.mesh_name ||
-          b.R?.mesh_name ||
-          b.C?.mesh_name ||
-          b.L?.mesh ||
-          b.R?.mesh ||
-          b.C?.mesh ||
+          b.mesh ||
+          b.L ||
+          b.R ||
           b.C ||
           b.T ||
           b.Lumbar ||
           b.center ||
-          b.Center ||
-          ""
-        ).trim();
+          b.Center
+        );
 
         const zh = normalize(rawZh);
         const en = normalize(rawEn);
@@ -4621,7 +4668,7 @@ function LLMClient() {
     if (!urlBoneName && !urlMeshName) {
       if (s3Targets.length > 0) {
         s3Targets.forEach((target) => {
-          const meshName = String(target.mesh || "");
+          const meshName = pickMeshName(target.mesh);
           const displayName =
             makeS3TargetDisplayZh(
               String(target.zh || ""),
@@ -4637,8 +4684,8 @@ function LLMClient() {
             label: `觀察 3D 模型：${displayName}`,
             note: meshName ? `mesh：${meshName}` : undefined,
             path: `/model?${new URLSearchParams({
-              bone: displayName,
-              mesh: meshName,
+              bone: String(displayName || ""),
+              mesh: String(meshName || ""),
             }).toString()}`,
             icon: "fa-solid fa-cube",
           });
