@@ -3965,6 +3965,138 @@ function LLMClient() {
     return out;
   }
 
+  function inferVertebraZhFromMesh(meshName: string) {
+    const mesh = String(meshName || "").trim();
+    const lower = mesh.toLowerCase();
+
+    const c = mesh.match(/^C(\d{1,2})$/i);
+    if (c) return `頸椎 C${c[1]}`;
+
+    const t = mesh.match(/^T(\d{1,2})$/i);
+    if (t) return `胸椎 T${t[1]}`;
+
+    const l = mesh.match(/^L(\d{1,2})$/i);
+    if (l) return `腰椎 L${l[1]}`;
+
+    if (lower.includes("sacrum")) return "薦椎";
+    if (lower.includes("coccyx")) return "尾椎";
+
+    return "";
+  }
+
+  function inferVertebraEnFromMesh(meshName: string) {
+    const mesh = String(meshName || "").trim();
+    const lower = mesh.toLowerCase();
+
+    const c = mesh.match(/^C(\d{1,2})$/i);
+    if (c) return `Cervical vertebra C${c[1]}`;
+
+    const t = mesh.match(/^T(\d{1,2})$/i);
+    if (t) return `Thoracic vertebra T${t[1]}`;
+
+    const l = mesh.match(/^L(\d{1,2})$/i);
+    if (l) return `Lumbar vertebra L${l[1]}`;
+
+    if (lower.includes("sacrum")) return "Sacrum";
+    if (lower.includes("coccyx")) return "Coccyx";
+
+    return "";
+  }
+
+  function getVertebraGroupFromText(rawText: string) {
+    const text = String(rawText || "");
+    const lower = text.toLowerCase();
+
+    if (
+      text.includes("頸椎") ||
+      text.includes("頸部脊椎") ||
+      lower.includes("cervical")
+    ) {
+      return "C";
+    }
+
+    if (
+      text.includes("胸椎") ||
+      text.includes("胸部脊椎") ||
+      lower.includes("thoracic")
+    ) {
+      return "T";
+    }
+
+    if (
+      text.includes("腰椎") ||
+      text.includes("腰部脊椎") ||
+      lower.includes("lumbar")
+    ) {
+      return "L";
+    }
+
+    return "";
+  }
+
+  function getVertebraNumberFromText(rawText: string) {
+    const text = String(rawText || "");
+    const lower = text.toLowerCase();
+
+    const direct = lower.match(/\b([ctl])\s*[-_ ]?\s*(\d{1,2})\b/i);
+    if (direct) {
+      return {
+        group: direct[1].toUpperCase(),
+        number: Number(direct[2]),
+      };
+    }
+
+    const zhNumMap: Record<string, number> = {
+      一: 1,
+      二: 2,
+      三: 3,
+      四: 4,
+      五: 5,
+      六: 6,
+      七: 7,
+      八: 8,
+      九: 9,
+      十: 10,
+      十一: 11,
+      十二: 12,
+    };
+
+    const zh = text.match(/第(十一|十二|十|一|二|三|四|五|六|七|八|九|\d{1,2})(頸椎|胸椎|腰椎)/);
+    if (zh) {
+      const rawNo = zh[1];
+      const groupZh = zh[2];
+
+      const number = /^\d+$/.test(rawNo) ? Number(rawNo) : zhNumMap[rawNo];
+      const group =
+        groupZh === "頸椎" ? "C" :
+          groupZh === "胸椎" ? "T" :
+            groupZh === "腰椎" ? "L" :
+              "";
+
+      return { group, number };
+    }
+
+    return { group: "", number: 0 };
+  }
+
+  function getVertebraGroupFromMesh(meshName: string) {
+    const mesh = String(meshName || "").trim();
+
+    const m = mesh.match(/^([CTL])(\d{1,2})$/i);
+    if (!m) return "";
+
+    return m[1].toUpperCase();
+  }
+
+  function getVertebraNumberFromMesh(meshName: string) {
+    const mesh = String(meshName || "").trim();
+
+    const m = mesh.match(/^([CTL])(\d{1,2})$/i);
+    if (!m) return 0;
+
+    return Number(m[2]);
+  }
+
   function inferToeOrdinalZhFromMesh(meshName: string) {
     const m = String(meshName || "").toLowerCase();
 
@@ -3997,6 +4129,9 @@ function LLMClient() {
     const zh = String(rawZh || "").trim();
     const en = String(rawEn || "").trim();
     const mesh = String(rawMesh || "").trim();
+
+    const vertebraZh = inferVertebraZhFromMesh(mesh);
+    if (vertebraZh) return vertebraZh;
 
     const toeOrdinal = inferToeOrdinalZhFromMesh(mesh);
     const section = inferPhalanxSectionZhFromMesh(mesh);
@@ -4057,6 +4192,9 @@ function LLMClient() {
   function makeS3TargetDisplayEn(rawEn: string, rawMesh: string) {
     const en = String(rawEn || "").trim();
     const mesh = String(rawMesh || "").trim();
+
+    const vertebraEn = inferVertebraEnFromMesh(mesh);
+    if (vertebraEn) return vertebraEn;
 
     const toeOrdinal = inferToeOrdinalEnFromMesh(mesh);
     const section = inferPhalanxSectionEnFromMesh(mesh);
@@ -4246,6 +4384,9 @@ function LLMClient() {
     const targetOrdinal = getOrdinalFromText(text);
     const targetSection = getSectionFromText(text);
 
+    const targetVertebraGroup = getVertebraGroupFromText(text);
+    const targetVertebraExact = getVertebraNumberFromText(text);
+
     const candidates = s3Bones
       .map((b: any) => {
         const rawZh = String(
@@ -4283,6 +4424,11 @@ function LLMClient() {
           b.L?.mesh ||
           b.R?.mesh ||
           b.C?.mesh ||
+          b.C ||
+          b.T ||
+          b.Lumbar ||
+          b.center ||
+          b.Center ||
           ""
         ).trim();
 
@@ -4290,10 +4436,26 @@ function LLMClient() {
         const en = normalize(rawEn);
         const mesh = normalize(rawMesh);
 
+        const meshGroup = getVertebraGroupFromMesh(rawMesh);
+        const meshNo = getVertebraNumberFromMesh(rawMesh);
+
+        const vertebraGroupHit =
+          !!targetVertebraGroup &&
+          !!meshGroup &&
+          targetVertebraGroup === meshGroup;
+
+        const vertebraExactHit =
+          !!targetVertebraExact.group &&
+          !!targetVertebraExact.number &&
+          targetVertebraExact.group === meshGroup &&
+          targetVertebraExact.number === meshNo;
+
         const basicHit =
           (zh && normalizedText.includes(zh)) ||
           (en && normalizedText.includes(en)) ||
           (mesh && normalizedText.includes(mesh)) ||
+          vertebraGroupHit ||
+          vertebraExactHit ||
           (
             targetSection &&
             (
@@ -4312,6 +4474,27 @@ function LLMClient() {
         if (zh && normalizedText.includes(zh)) score += 100;
         if (en && normalizedText.includes(en)) score += 70;
         if (mesh && normalizedText.includes(mesh)) score += 70;
+
+        if (vertebraExactHit) {
+          score += 220;
+        } else if (vertebraGroupHit) {
+          score += 90;
+        }
+
+        // 如果使用者指定「頸椎 C7」，不是 C7 的要扣分
+        if (
+          targetVertebraExact.group &&
+          targetVertebraExact.number &&
+          meshGroup &&
+          meshNo
+        ) {
+          if (
+            targetVertebraExact.group !== meshGroup ||
+            targetVertebraExact.number !== meshNo
+          ) {
+            score -= 120;
+          }
+        }
 
         score += ordinalScore(targetOrdinal, rawZh, rawEn, rawMesh);
         score += sectionScore(targetSection, rawZh, rawEn, rawMesh);
