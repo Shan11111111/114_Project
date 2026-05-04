@@ -271,6 +271,65 @@ def get_history_detail(case_id: int):
         if conn is not None:
             conn.close()
 
+@router.delete("/{case_id}")
+def delete_history(case_id: int, user_id: str = Query(...)):
+    conn = None
+    try:
+        conn = get_db_conn()
+        cursor = conn.cursor()
+
+        resolved_user_id = resolve_user_id(cursor, user_id)
+        if resolved_user_id is None:
+            raise HTTPException(status_code=401, detail="使用者不存在或未登入")
+
+        # 先確認這筆紀錄屬於目前使用者
+        cursor.execute("""
+            SELECT ImageCaseId
+            FROM vision.ImageCase
+            WHERE ImageCaseId = ?
+              AND CreatedByUserId = ?
+        """, case_id, resolved_user_id)
+
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="找不到紀錄或無權限刪除")
+
+        # 先刪這筆 case 底下的 detections
+        cursor.execute("""
+            DELETE FROM vision.ImageDetection
+            WHERE ImageCaseId = ?
+        """, case_id)
+
+        # 再刪這一筆 ImageCase
+        cursor.execute("""
+            DELETE FROM vision.ImageCase
+            WHERE ImageCaseId = ?
+              AND CreatedByUserId = ?
+        """, case_id, resolved_user_id)
+
+        conn.commit()
+
+        return {
+            "ok": True,
+            "deleted_case_id": case_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn is not None:
+            conn.rollback()
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "delete history failed",
+                "error": repr(e),
+            },
+        )
+    finally:
+        if conn is not None:
+            conn.close()
 
 @router.get("/image/{bone_image_id}")
 def preview_history_image(bone_image_id: int):

@@ -978,7 +978,49 @@ function BoneVisionPageInner() {
       setLoadingHistoryDetail(false);
     }
   };
+  const handleDeleteHistory = async (imageCaseId: number) => {
+    const safeUserId = getCurrentUserId();
 
+    if (!safeUserId) {
+      alert("目前登入資訊異常，請重新登入後再刪除");
+      return;
+    }
+
+    const ok = window.confirm("確定要刪除這筆歷史紀錄嗎？");
+    if (!ok) return;
+
+    try {
+      setLoadingHistoryDetail(true);
+      setHistoryError(null);
+
+      const res = await fetch(
+        `${HISTORY_LIST_URL}/${imageCaseId}?user_id=${encodeURIComponent(safeUserId)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        }
+      );
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`刪除失敗 ${res.status}：${text}`);
+      }
+
+      setHistoryList((prev) =>
+        prev.filter((item) => item.image_case_id !== imageCaseId)
+      );
+
+      setSelectedHistoryId(null);
+      setSelectedHistoryDetail(null);
+
+      alert("刪除成功");
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message ?? "刪除失敗");
+    } finally {
+      setLoadingHistoryDetail(false);
+    }
+  };
   useEffect(() => {
     if (!isHistoryOpen) return;
     if (!currentUser) return;
@@ -1015,8 +1057,15 @@ function BoneVisionPageInner() {
     const fd = new FormData();
     fd.append("file", targetFile);
 
-    const token = localStorage.getItem("galabone_access_token");
+    const token =
+      localStorage.getItem("galabone_access_token") ||
+      localStorage.getItem("access_token") ||
+      localStorage.getItem("token");
 
+    if (currentUser && !token) {
+      alert("登入狀態異常，請重新登入");
+      return;
+    }
     const headers: Record<string, string> = {};
     if (token) {
       headers.Authorization = `Bearer ${token}`;
@@ -1358,9 +1407,13 @@ function BoneVisionPageInner() {
 
                   {detections.length > 0 && (
                     <svg
-                      className="absolute inset-0 w-full h-full pointer-events-none"
+                      className="absolute inset-0 w-full h-full"
                       viewBox={`0 0 ${imgBox.width || 100} ${imgBox.height || 100}`}
                       preserveAspectRatio="none"
+                      style={{
+                        pointerEvents: "auto",
+                        zIndex: 20,
+                      }}
                     >
                       {!showOnlyActive &&
                         detections
@@ -1368,14 +1421,21 @@ function BoneVisionPageInner() {
                           .map((box) => {
                             const pts = polyToPoints(box.poly);
                             if (!pts) return null;
+
                             return (
                               <polygon
                                 key={box.id}
                                 points={pts}
-                                fill="none"
+                                fill="rgba(14, 165, 233, 0.04)"
                                 stroke="#0ea5e9"
                                 strokeWidth={2}
-                                opacity={0.7}
+                                opacity={0.75}
+                                style={{ cursor: "pointer" }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveId(box.id);
+                                }}
                               />
                             );
                           })}
@@ -1384,14 +1444,21 @@ function BoneVisionPageInner() {
                         (() => {
                           const pts = polyToPoints(activeBox.poly);
                           if (!pts) return null;
+
                           return (
                             <polygon
                               key={`${activeBox.id}_active`}
                               points={pts}
-                              fill="none"
+                              fill="rgba(34, 211, 238, 0.10)"
                               stroke="#22d3ee"
                               strokeWidth={4}
                               className="drop-shadow-[0_0_12px_rgba(34,211,238,0.9)]"
+                              style={{ cursor: "pointer" }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveId(activeBox.id);
+                              }}
                             />
                           );
                         })()}
@@ -1890,17 +1957,28 @@ function BoneVisionPageInner() {
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              applyHistoryDetailToCanvas(selectedHistoryDetail);
-                              setIsHistoryOpen(false);
-                              router.push(`/bonevision?caseId=${selectedHistoryDetail.image_case_id}`);
-                            }}
-                            className="rounded-2xl px-5 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors shrink-0"
-                          >
-                            回到這次辨識
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                applyHistoryDetailToCanvas(selectedHistoryDetail);
+                                setIsHistoryOpen(false);
+                                router.push(`/bonevision?caseId=${selectedHistoryDetail.image_case_id}`);
+                              }}
+                              className="flex items-center gap-2 rounded-2xl bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-cyan-400 transition-colors"
+                            >
+                              回到辨識
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={loadingHistoryDetail}
+                              onClick={() => handleDeleteHistory(selectedHistoryDetail.image_case_id)}
+                              className="flex items-center gap-2 rounded-2xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            >
+                              刪除
+                            </button>
+                          </div>
                         </div>
 
                         {selectedHistoryDetail.bone_image_id != null && (
