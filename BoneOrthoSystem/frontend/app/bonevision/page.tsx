@@ -1284,7 +1284,7 @@ function BoneVisionPageInner() {
           />
 
           <div
-            className={`relative w-full max-w-7xl max-h-[88vh] rounded-[28px] overflow-hidden shadow-2xl border ${modalSurfaceClass}`}
+            className={`relative w-full max-w-7xl h-[88vh] rounded-[28px] overflow-hidden shadow-2xl border ${modalSurfaceClass} flex flex-col`}
           >
             <div
               className={`absolute inset-x-0 top-0 h-28 pointer-events-none ${isDarkMode
@@ -1294,7 +1294,7 @@ function BoneVisionPageInner() {
             />
 
             <div
-              className={`relative flex items-start justify-between gap-4 px-7 py-6 border-b ${modalBorderClass}`}
+              className={`relative shrink-0 flex items-start justify-between gap-4 px-7 py-6 border-b ${modalBorderClass}`}
             >
               <div>
                 <h3 className="text-2xl font-bold tracking-tight">範例影像庫</h3>
@@ -1312,7 +1312,7 @@ function BoneVisionPageInner() {
               </button>
             </div>
 
-            <div className={`px-7 py-4 border-b ${modalBorderClass}`}>
+            <div className={`relative shrink-0 px-7 py-6 border-b ${modalBorderClass}`}>
               <div className="mb-4">
                 <div
                   className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${isDarkMode
@@ -1386,7 +1386,7 @@ function BoneVisionPageInner() {
             </div>
 
             <div
-              className={`p-7 overflow-y-auto max-h-[calc(88vh-156px)] ${modalSubBgClass}`}
+              className={`flex-1 min-h-0 overflow-y-auto overscroll-contain p-7 pb-10 ${modalSubBgClass}`}
             >
               {filteredSamples.length === 0 ? (
                 <div className={`text-sm text-center py-12 ${modalTextSubClass}`}>
@@ -1472,7 +1472,7 @@ function BoneVisionPageInner() {
           />
 
           <div
-            className={`relative w-full max-w-6xl h-[88vh] rounded-[28px] shadow-2xl border ${modalSurfaceClass} flex flex-col overflow-hidden`}
+            className={`relative w-full max-w-7xl h-[88vh] rounded-[28px] shadow-2xl border ${modalSurfaceClass} flex flex-col overflow-hidden`}
           >
             <div className={`shrink-0 px-7 py-6 border-b ${modalBorderClass}`}>
               <div className="flex items-start justify-between gap-4">
