@@ -300,29 +300,99 @@ function expandS3SemanticTerms(keyword: string): string[] {
   return Array.from(terms);
 }
 
-function isS3BoneMatchedByKeyword(item: BoneListItem, keyword: string) {
+function scoreS3BoneByKeyword(item: BoneListItem, keyword: string) {
   const rawQ = normalizeSearchText(keyword);
   const q = removeS3SearchStopWords(keyword);
-  if (!rawQ && !q) return true;
+  if (!rawQ && !q) return 1;
 
   const terms = expandS3SemanticTerms(keyword);
 
-  const haystack = [
-    item.bone_zh,
-    item.bone_en,
-    item.mesh_name,
-    item.bone_region,
-    item.bone_desc,
-    normalizeMeshName(item.mesh_name),
-  ]
-    .map(normalizeSearchText)
+  const zh = normalizeSearchText(item.bone_zh);
+  const en = normalizeSearchText(item.bone_en);
+  const mesh = normalizeSearchText(item.mesh_name);
+  const meshPretty = normalizeSearchText(normalizeMeshName(item.mesh_name));
+  const region = normalizeSearchText(item.bone_region);
+  const desc = normalizeSearchText(item.bone_desc);
+
+  const haystack = [zh, en, mesh, meshPretty, region, desc]
     .filter(Boolean)
     .join(" ");
 
-  return terms.some((term) => {
+  let score = 0;
+
+  // 1. 中文骨名完全命中，最高
+  if (zh && (rawQ === zh || q === zh)) {
+    score = Math.max(score, 140);
+  }
+
+  // 2. 英文骨名完全命中
+  if (en && (rawQ === en || q === en)) {
+    score = Math.max(score, 130);
+  }
+
+  // 3. Mesh 名稱完全命中，例如 C3、L5、Talus
+  if (meshPretty && (rawQ === meshPretty || q === meshPretty)) {
+    score = Math.max(score, 125);
+  }
+
+  // 4. 語意展開詞命中
+  for (const term of terms) {
     const t = normalizeSearchText(term);
-    return t && haystack.includes(t);
-  });
+    if (!t) continue;
+
+    if (zh === t || en === t || mesh === t || meshPretty === t) {
+      score = Math.max(score, 120);
+    } else if (zh.includes(t) || en.includes(t) || mesh.includes(t) || meshPretty.includes(t)) {
+      score = Math.max(score, 90);
+    } else if (haystack.includes(t)) {
+      score = Math.max(score, 60);
+    }
+  }
+
+  // 5. 原始 query 直接命中
+  if (q.length >= 2 && haystack.includes(q)) {
+    score = Math.max(score, 70);
+  }
+
+  // 6. 部位 / 描述命中，給低分，避免太廣
+  if (q.length >= 2 && ((region && region.includes(q)) || (desc && desc.includes(q)))) {
+    score = Math.max(score, 35);
+  }
+
+  // 7. 特別處理：第幾根 / 第幾節
+  const ordinalMatch = keyword.match(/第([一二三四五六七八九十\d]+)[根節個顆]?/);
+  if (ordinalMatch) {
+    const rawNo = ordinalMatch[1];
+
+    const zhToNum: Record<string, string> = {
+      一: "1",
+      二: "2",
+      三: "3",
+      四: "4",
+      五: "5",
+      六: "6",
+      七: "7",
+      八: "8",
+      九: "9",
+      十: "10",
+    };
+
+    const no = zhToNum[rawNo] ?? rawNo;
+
+    if ((rawQ.includes("脖子") || rawQ.includes("頸")) && meshPretty === `c${no}`) {
+      score = Math.max(score, 160);
+    }
+
+    if ((rawQ.includes("胸椎") || rawQ.includes("上背") || rawQ.includes("胸背")) && meshPretty === `t${no}`) {
+      score = Math.max(score, 160);
+    }
+
+    if ((rawQ.includes("腰") || rawQ.includes("下背")) && meshPretty === `l${no}`) {
+      score = Math.max(score, 160);
+    }
+  }
+
+  return score;
 }
 /** =========================
  *  Side parsing
@@ -746,7 +816,12 @@ type SeriesCard = {
 
 type Card = LRCard | SeriesCard;
 
-function buildCardsForRegion(items: BoneListItem[], regionKey: RegionKey): Card[] {
+function buildCardsForRegion(
+  items: BoneListItem[],
+  regionKey: RegionKey,
+  scoreByMesh?: Map<string, number>
+): Card[] {
+
   let rest = items;
   const seriesCards: SeriesCard[] = [];
 
@@ -809,8 +884,30 @@ function buildCardsForRegion(items: BoneListItem[], regionKey: RegionKey): Card[
     else g.C = it;
   }
 
-  const lrCards = Array.from(m.values()).sort((a, b) => a.displayZh.localeCompare(b.displayZh, 'zh-Hant'));
-  return regionKey === 'spine' ? [...seriesCards, ...lrCards] : lrCards;
+  const cards = [...seriesCards, ...Array.from(m.values())];
+
+  if (!scoreByMesh) return cards;
+
+  return cards.sort((a, b) => {
+    const getCardScore = (card: Card) => {
+      if (card.kind === "series") {
+        return Math.max(
+          ...Object.values(card.items).map(
+            (item) => scoreByMesh.get(normalizeMeshName(item.mesh_name)) ?? 0
+          ),
+          0
+        );
+      }
+
+      return Math.max(
+        card.L ? scoreByMesh.get(normalizeMeshName(card.L.mesh_name)) ?? 0 : 0,
+        card.R ? scoreByMesh.get(normalizeMeshName(card.R.mesh_name)) ?? 0 : 0,
+        card.C ? scoreByMesh.get(normalizeMeshName(card.C.mesh_name)) ?? 0 : 0
+      );
+    };
+
+    return getCardScore(b) - getCardScore(a);
+  });
 }
 
 /** =========================
@@ -1152,12 +1249,41 @@ export default function S3Viewer() {
     [boneList]
   );
 
+  const searchScoreByMesh = useMemo(() => {
+    const kw = q.trim();
+    const map = new Map<string, number>();
+
+    boneList.forEach((item) => {
+      const key = normalizeMeshName(item.mesh_name);
+      const score = kw ? scoreS3BoneByKeyword(item, kw) : 1;
+      map.set(key, score);
+    });
+
+    return map;
+  }, [boneList, q]);
+
   const searched = useMemo(() => {
     const kw = q.trim();
+
     if (!kw) return boneList;
 
-    return boneList.filter((x) => isS3BoneMatchedByKeyword(x, kw));
-  }, [boneList, q]);
+    return boneList
+      .map((item, index) => {
+        const score = searchScoreByMesh.get(normalizeMeshName(item.mesh_name)) ?? 0;
+
+        return {
+          item,
+          index,
+          score,
+        };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.index - b.index;
+      })
+      .map((x) => x.item);
+  }, [boneList, q, searchScoreByMesh]);
 
   const regionCards = useMemo(() => {
     const byRegion: Record<RegionKey, BoneListItem[]> = {
@@ -1182,11 +1308,11 @@ export default function S3Viewer() {
     };
 
     (Object.keys(byRegion) as RegionKey[]).forEach((rk) => {
-      result[rk] = buildCardsForRegion(byRegion[rk], rk);
+      result[rk] = buildCardsForRegion(byRegion[rk], rk, searchScoreByMesh);
     });
 
     return result;
-  }, [searched]);
+  }, [searched, searchScoreByMesh]);
 
   const availableGroups = useMemo(() => {
     return (Object.keys(regionCards) as RegionKey[]).filter((rk) => regionCards[rk].length > 0);
@@ -1657,7 +1783,7 @@ export default function S3Viewer() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋：尺骨、胸椎、脖子第三根、手腕小骨頭…"
+          placeholder="搜尋：尺骨、C3、脖子第三根、手腕小骨頭…"
           style={{
             width: '100%',
             padding: '10px 12px',
