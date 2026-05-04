@@ -4618,14 +4618,14 @@ function LLMClient() {
       });
     } else {
       actions.push({
-        label: "開啟圖片資料庫選範例學習",
+        label: "開啟X光影像範例集學習",
         path: "/bonevision?openGallery=1",
         icon: "fa-regular fa-images",
       });
     }
 
     actions.push({
-      label: "前往骨骼辨識頁面",
+      label: "上傳X光影像進行骨頭辨識",
       path: "/bonevision",
       icon: "fa-solid fa-x-ray",
     });
