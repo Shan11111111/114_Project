@@ -237,68 +237,321 @@ function BoneVisionPageInner() {
     "圖片",
     "照片",
     "範例",
+    "x光",
+    "xray",
+    "x-ray",
     "的",
     "一下",
+    "看看",
+    "可以看",
+    "給我",
   ];
 
-  const SAMPLE_SEARCH_KEYWORDS = [
-    "顱骨",
-    "胸椎",
-    "腰椎",
-    "鎖骨",
-    "肩胛骨",
-    "肱骨",
-    "尺骨",
-    "橈骨",
-    "腕骨",
-    "掌骨",
-    "指骨",
-    "肋骨",
-    "胸骨",
-    "股骨",
-    "脛骨",
-    "腓骨",
-    "上肢",
-    "下肢",
-    "手",
-    "腳",
-    "skull",
-    "humerus",
-    "humeri",
-    "ulna",
-    "radius",
-    "femur",
-    "tibia",
-    "fibula",
-    "clavicle",
-    "scapula",
-    "sternum",
-    "rib",
-    "ribs",
-  ];
+  /**
+   * 範例影像庫語意對照表
+   * key = 系統中的 16 類分類名稱
+   * values = 使用者可能輸入的俗稱、部位、英文、常見描述
+   */
+  const SAMPLE_SEMANTIC_ALIASES: Record<string, string[]> = {
+    顱骨: [
+      "顱骨",
+      "頭骨",
+      "頭顱",
+      "頭部",
+      "腦袋",
+      "頭",
+      "skull",
+      "cranial",
+      "cranium",
+    ],
 
-  const extractGallerySearchTerms = (keyword: string) => {
-    let q = normalizeKeyword(keyword);
-    if (!q) return [];
+    頸椎: [
+      "頸椎",
+      "脖子",
+      "頸部",
+      "脖子的骨頭",
+      "脖子骨頭",
+      "cervical",
+      "cervicalspine",
+      "cspine",
+      "neck",
+      "c1",
+      "c2",
+      "c3",
+      "c4",
+      "c5",
+      "c6",
+      "c7",
+      "第一頸椎",
+      "第二頸椎",
+      "第三頸椎",
+      "第四頸椎",
+      "第五頸椎",
+      "第六頸椎",
+      "第七頸椎",
+      "寰椎",
+      "樞椎",
+    ],
+
+    胸椎: [
+      "胸椎",
+      "上背",
+      "背部",
+      "背骨",
+      "胸背",
+      "thoracic",
+      "thoracicspine",
+      "tspine",
+      "t1",
+      "t2",
+      "t3",
+      "t4",
+      "t5",
+      "t6",
+      "t7",
+      "t8",
+      "t9",
+      "t10",
+      "t11",
+      "t12",
+    ],
+
+    腰椎: [
+      "腰椎",
+      "腰",
+      "腰部",
+      "下背",
+      "下背部",
+      "腰骨",
+      "lowerback",
+      "lumbar",
+      "lumbarspine",
+      "lspine",
+      "l1",
+      "l2",
+      "l3",
+      "l4",
+      "l5",
+      "第一腰椎",
+      "第二腰椎",
+      "第三腰椎",
+      "第四腰椎",
+      "第五腰椎",
+    ],
+
+    鎖骨: [
+      "鎖骨",
+      "肩膀前面",
+      "胸前上方",
+      "collarbone",
+      "clavicle",
+    ],
+
+    肩胛骨: [
+      "肩胛骨",
+      "肩胛",
+      "肩膀後面",
+      "背後肩膀",
+      "scapula",
+      "shoulderblade",
+    ],
+
+    肱骨: [
+      "肱骨",
+      "上臂",
+      "手臂上段",
+      "上手臂",
+      "humerus",
+      "humeri",
+      "upperarm",
+    ],
+
+    尺骨: [
+      "尺骨",
+      "小拇指側",
+      "小指側",
+      "前臂內側",
+      "ulna",
+      "ulnar",
+    ],
+
+    橈骨: [
+      "橈骨",
+      "拇指側",
+      "大拇指側",
+      "前臂外側",
+      "radius",
+      "radial",
+    ],
+
+    腕骨: [
+      "腕骨",
+      "手腕",
+      "手腕骨",
+      "腕部",
+      "carpal",
+      "carpals",
+      "wrist",
+    ],
+
+    掌骨: [
+      "掌骨",
+      "手掌",
+      "掌部",
+      "手掌骨",
+      "metacarpal",
+      "metacarpals",
+      "palm",
+    ],
+
+    指骨: [
+      "指骨",
+      "手指",
+      "手指骨",
+      "指頭",
+      "finger",
+      "fingers",
+      "phalanges",
+      "phalanx",
+    ],
+
+    肋骨: [
+      "肋骨",
+      "肋",
+      "胸腔旁邊",
+      "rib",
+      "ribs",
+      "costal",
+    ],
+
+    胸骨: [
+      "胸骨",
+      "胸口中間",
+      "胸前中間",
+      "sternum",
+      "breastbone",
+    ],
+
+    股骨: [
+      "股骨",
+      "大腿",
+      "大腿骨",
+      "femur",
+      "thighbone",
+      "thigh",
+    ],
+
+    脛骨: [
+      "脛骨",
+      "小腿前側",
+      "小腿內側",
+      "膝蓋下面內側",
+      "tibia",
+      "shinbone",
+      "shin",
+    ],
+
+    腓骨: [
+      "腓骨",
+      "小腿外側",
+      "膝蓋下面外側",
+      "fibula",
+      "calfbone",
+    ],
+  };
+
+  const normalizeGalleryText = (value?: string | number | null) => {
+    if (value === null || value === undefined) return "";
+
+    return String(value)
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[()（）【】\[\]{}]/g, "")
+      .replace(/[，,。.!！?？、:：;；]/g, "")
+      .trim();
+  };
+
+  const removeGalleryStopWords = (keyword: string) => {
+    let q = normalizeGalleryText(keyword);
 
     SAMPLE_SEARCH_STOP_WORDS.forEach((word) => {
-      q = q.replaceAll(normalizeKeyword(word), "");
+      const w = normalizeGalleryText(word);
+      if (w) q = q.replaceAll(w, "");
     });
 
-    const matchedTerms = SAMPLE_SEARCH_KEYWORDS
-      .map(normalizeKeyword)
-      .filter((term) => term.length >= 2 && q.includes(term));
+    return q;
+  };
 
-    if (matchedTerms.length > 0) {
-      return matchedTerms;
+  /**
+   * 把使用者輸入轉成可能的範例影像類別
+   * 例如：
+   * - 脖子第三根 => 頸椎
+   * - 下背痛想看骨頭 => 腰椎
+   * - 小指側前臂 => 尺骨
+   */
+  const resolveGallerySemanticCategories = (keyword: string): string[] => {
+    const rawQ = normalizeGalleryText(keyword);
+    const q = removeGalleryStopWords(keyword);
+
+    if (!rawQ && !q) return [];
+
+    const candidates = new Set<string>();
+
+    Object.entries(SAMPLE_SEMANTIC_ALIASES).forEach(([category, aliases]) => {
+      const normalizedCategory = normalizeGalleryText(category);
+
+      if (
+        rawQ.includes(normalizedCategory) ||
+        q.includes(normalizedCategory)
+      ) {
+        candidates.add(category);
+      }
+
+      aliases.forEach((alias) => {
+        const a = normalizeGalleryText(alias);
+        if (!a) return;
+
+        if (rawQ.includes(a) || q.includes(a) || a.includes(q)) {
+          candidates.add(category);
+        }
+      });
+    });
+
+    // 針對「第幾根」這種口語補強：如果同時有脖子/頸部，就推定頸椎
+    const hasOrdinal =
+      /第[一二三四五六七八九十\d]+/.test(keyword) ||
+      /[cctl]\d/i.test(keyword);
+
+    if (hasOrdinal) {
+      if (rawQ.includes("脖子") || rawQ.includes("頸")) {
+        candidates.add("頸椎");
+      }
+
+      if (rawQ.includes("腰") || rawQ.includes("下背")) {
+        candidates.add("腰椎");
+      }
+
+      if (rawQ.includes("胸椎") || rawQ.includes("上背") || rawQ.includes("背")) {
+        candidates.add("胸椎");
+      }
     }
 
-    return q.length >= 2 ? [q] : [];
+    return Array.from(candidates);
   };
 
   const isSampleMatchedByKeyword = (img: SampleImage, keyword: string) => {
-    const q = normalizeKeyword(keyword);
-    if (!q) return true;
+    const rawQ = normalizeGalleryText(keyword);
+    const q = removeGalleryStopWords(keyword);
+
+    if (!rawQ && !q) return true;
+
+    const category = getSampleCategoryName(img);
+    const semanticCategories = resolveGallerySemanticCategories(keyword);
+
+    // 1. 語意分類命中：例如「脖子第三根」=> 頸椎
+    if (semanticCategories.length > 0) {
+      return semanticCategories.includes(category);
+    }
 
     const nameFields = [
       cleanBoneZh(img.bone_zh),
@@ -307,23 +560,48 @@ function BoneVisionPageInner() {
       img.filename,
       img.category,
     ]
-      .map(normalizeKeyword)
+      .map(normalizeGalleryText)
       .join(" ");
 
-    const regionFields = [cleanText(img.bone_region)]
-      .map(normalizeKeyword)
+    const regionFields = [
+      cleanText(img.bone_region),
+      cleanText(img.bone_desc),
+    ]
+      .map(normalizeGalleryText)
       .join(" ");
 
-    // 1. 先比對骨頭名稱、英文名稱、檔名、分類
-    if (nameFields.includes(q)) return true;
+    // 2. 一般精準搜尋：骨名、英文、檔名、分類
+    if (nameFields.includes(rawQ) || nameFields.includes(q)) return true;
 
-    // 2. 只有使用者明確搜部位時，才比對部位
-    const regionKeywords = ["上肢", "下肢", "頭部", "胸部", "軀幹", "手", "足", "腳"];
-    const isRegionSearch = regionKeywords.some((word) =>
-      normalizeKeyword(word).includes(q) || q.includes(normalizeKeyword(word))
-    );
+    // 3. 部位語意搜尋：只有明確像部位描述時才比對，避免「尺骨」搜出整個上肢
+    const regionKeywords = [
+      "上肢",
+      "下肢",
+      "頭部",
+      "胸部",
+      "軀幹",
+      "手",
+      "手腕",
+      "手掌",
+      "手指",
+      "足",
+      "腳",
+      "小腿",
+      "大腿",
+      "肩膀",
+      "腰",
+      "背",
+      "脖子",
+    ];
 
-    if (isRegionSearch && regionFields.includes(q)) return true;
+    const isRegionSearch = regionKeywords.some((word) => {
+      const w = normalizeGalleryText(word);
+      return rawQ.includes(w) || q.includes(w);
+    });
+
+    if (isRegionSearch && (regionFields.includes(rawQ) || regionFields.includes(q))) {
+      return true;
+    }
 
     return false;
   };
@@ -1325,7 +1603,7 @@ function BoneVisionPageInner() {
                   <input
                     value={galleryKeyword}
                     onChange={(e) => setGalleryKeyword(e.target.value)}
-                    placeholder="輸入骨骼名稱、英文名稱或部位，例如：尺骨、ulna、上肢"
+                    placeholder="可搜尋骨骼中文名稱、英文名稱、部位或口語描述"
                     className={`flex-1 bg-transparent text-sm outline-none ${isDarkMode ? "placeholder:text-slate-500" : "placeholder:text-slate-400"
                       }`}
                   />
