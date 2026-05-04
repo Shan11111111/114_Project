@@ -3158,8 +3158,13 @@ function LLMClient() {
       const isPubmedOnly = ragMode === "pubmed_only";
       const isSoapOnly = ragMode === "soap_only";
 
+      const hasPendingUploadFiles = filesToUpload.some((f) => !!f.raw);
+
       const wantFile =
-        ragMode === "file_then_vector" || ragMode === "file_only";
+        hasPendingUploadFiles ||
+        ragMode === "file_then_vector" ||
+        ragMode === "file_only";
+
       const wantVector =
         ragMode === "file_then_vector" || ragMode === "vector_only";
 
@@ -3348,6 +3353,14 @@ function LLMClient() {
           if (assetSource?.snippet) {
             try {
               const plan = JSON.parse(assetSource.snippet);
+              console.log("[3D MODAL] parsed plan =", plan);
+              console.log("[3D MODAL] render items =", getRenderItems(plan));
+              console.log(
+                "[3D MODAL] broken items =",
+                getRenderItems(plan).filter((item: any) => {
+                  return !item?.asset?.file_path || !item?.asset?.mesh_name;
+                })
+              );
               if (plan?.ok === false) {
                 setRenderPlan(null);
                 setRenderModalOpen(false);
@@ -4232,6 +4245,26 @@ function LLMClient() {
 
     const normalizedText = normalize(text);
 
+    const majorFallbacks = [
+      { zh: "尺骨", en: "Ulna", meshKeywords: ["ulna"] },
+      { zh: "橈骨", en: "Radius", meshKeywords: ["radius"] },
+      { zh: "肱骨", en: "Humerus", meshKeywords: ["humerus"] },
+      { zh: "鎖骨", en: "Clavicle", meshKeywords: ["clavicle"] },
+      { zh: "肩胛骨", en: "Scapula", meshKeywords: ["scapula"] },
+      { zh: "股骨", en: "Femur", meshKeywords: ["femur"] },
+      { zh: "脛骨", en: "Tibia", meshKeywords: ["tibia"] },
+      { zh: "腓骨", en: "Fibula", meshKeywords: ["fibula"] },
+      { zh: "胸骨", en: "Sternum", meshKeywords: ["sternum"] },
+      { zh: "肋骨", en: "Ribs", meshKeywords: ["rib", "ribs"] },
+    ];
+
+    const fallbackTarget = majorFallbacks.find((x) => {
+      return (
+        normalizedText.includes(normalize(x.zh)) ||
+        normalizedText.includes(normalize(x.en))
+      );
+    });
+
     function getOrdinalFromText(rawText: string) {
       const lower = String(rawText || "").toLowerCase();
 
@@ -4450,7 +4483,18 @@ function LLMClient() {
           targetVertebraExact.group === meshGroup &&
           targetVertebraExact.number === meshNo;
 
+        const fallbackHit =
+          !!fallbackTarget &&
+          (
+            normalize(rawZh).includes(normalize(fallbackTarget.zh)) ||
+            normalize(rawEn).includes(normalize(fallbackTarget.en)) ||
+            fallbackTarget.meshKeywords.some((kw) =>
+              normalize(rawMesh).includes(normalize(kw))
+            )
+          );
+
         const basicHit =
+          fallbackHit ||
           (zh && normalizedText.includes(zh)) ||
           (en && normalizedText.includes(en)) ||
           (mesh && normalizedText.includes(mesh)) ||
@@ -4471,6 +4515,7 @@ function LLMClient() {
 
         let score = 0;
 
+        if (fallbackHit) score += 140;
         if (zh && normalizedText.includes(zh)) score += 100;
         if (en && normalizedText.includes(en)) score += 70;
         if (mesh && normalizedText.includes(mesh)) score += 70;
@@ -4672,12 +4717,28 @@ function LLMClient() {
     };
   }
 
+  function hasBoneOrImageKeyword(text: string) {
+    return /頸椎|胸椎|腰椎|脊椎|鎖骨|肩胛骨|肱骨|尺骨|橈骨|腕骨|掌骨|指骨|肋骨|胸骨|股骨|脛骨|腓骨|骨盆|薦椎|尾椎|頭骨|顱骨|骨頭|骨骼|解剖|骨折|ulna|radius|humerus|clavicle|scapula|femur|tibia|fibula|sternum|rib|ribs|cervical|thoracic|lumbar|影像庫|範例影像|x光|X光|X-ray|影像辨識|骨頭辨識|上傳影像|判讀影像/i.test(
+      text || ""
+    );
+  }
+
+  function hasExplicitModalIntent(text: string) {
+    return /3d|3D|模型|骨骼模型|立體模型|打開模型|開啟模型|顯示模型|看模型|觀察模型|跳出模型|開模型|mesh|render/i.test(
+      text || ""
+    );
+  }
+
   function renderAssistantContent(content: string) {
     const text = String(content || "");
     const lastUserText =
       [...latestMessagesRef.current].reverse().find((m) => m.role === "user")?.content || "";
 
-    const guideActions = getGuideActions(`${lastUserText}\n${text}`);
+    const contextText = `${lastUserText}\n${text}`;
+
+    const guideActions = hasBoneOrImageKeyword(contextText)
+      ? getGuideActions(contextText)
+      : [];
 
     const match =
       text.match(
@@ -5439,6 +5500,15 @@ function LLMClient() {
             if (assetSource?.snippet) {
               try {
                 const plan = JSON.parse(assetSource.snippet);
+
+                console.log("[3D MODAL] parsed plan =", plan);
+                console.log("[3D MODAL] render items =", getRenderItems(plan));
+                console.log(
+                  "[3D MODAL] broken items =",
+                  getRenderItems(plan).filter((item: any) => {
+                    return !item?.asset?.file_path || !item?.asset?.mesh_name;
+                  })
+                );
                 if (plan?.ok === false) {
                   setRenderPlan(null);
                   setRenderModalOpen(false);

@@ -277,7 +277,21 @@ def prepare_auto_fusion_answer(
     print("[AUTO_FUSION][INTENT_QUERY]", intent_query)
 
     # ====== 🔥 3D Intent Router 插入點 ======
-    if intent.get("need_3d_asset"):
+    # ====== 3D Intent Router 插入點 ======
+    # 只有使用者「明確想看 3D / 模型 / 位置」才開 modal
+    # 避免上傳文件內容剛好提到 L1、腰椎、尺骨，就自動跳 3D
+    explicit_3d_words = [
+        "3d", "3D",
+        "模型", "3D模型", "骨骼模型",
+        "立體", "觀察", "打開", "開啟", "顯示", "看", "看看", "我要看",
+        "打開模型", "開啟模型", "顯示模型","長怎樣", "看起來", "外觀",
+        "前往模型", "看模型", "看骨頭", "看位置",
+        "mesh", "render",
+    ]
+
+    has_explicit_3d_intent = any(w in user_q for w in explicit_3d_words)
+
+    if intent.get("need_3d_asset") and has_explicit_3d_intent:
         # 關鍵：3D asset 查詢要用 retrieval_query，不要只用 user_q
         assets = retrieve_3d_assets(retrieval_query, limit=6)
 
@@ -294,7 +308,16 @@ def prepare_auto_fusion_answer(
         print("[AUTO_FUSION][RENDER_SOURCE]", render_source)
     else:
         render_source = None
-        print("[AUTO_FUSION][3D_SKIP] need_3d_asset = false")
+        print(
+            "[AUTO_FUSION][3D_SKIP]",
+            {
+                "need_3d_asset": intent.get("need_3d_asset"),
+                "has_explicit_3d_intent": has_explicit_3d_intent,
+                "user_q": user_q,
+                "retrieval_query": retrieval_query,
+            },
+        )
+    # ====== END ======
     # ====== 🔥 END ======
 
     response_language = (response_language or "zh-TW").strip()

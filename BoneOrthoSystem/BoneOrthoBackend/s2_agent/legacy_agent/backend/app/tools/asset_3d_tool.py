@@ -146,6 +146,26 @@ def _query_terms(question: str) -> list[str]:
             terms.append(x)
 
     add(q)
+    
+    
+        # ✅ 長骨 / 常見大骨：補中文、英文、左右側同義詞
+    major_bone_alias = {
+        "尺骨": ["尺骨", "ulna", "Ulna", "左尺骨", "右尺骨", "left ulna", "right ulna"],
+        "橈骨": ["橈骨", "桡骨", "radius", "Radius", "左橈骨", "右橈骨", "left radius", "right radius"],
+        "肱骨": ["肱骨", "humerus", "Humerus", "左肱骨", "右肱骨", "left humerus", "right humerus"],
+        "鎖骨": ["鎖骨", "clavicle", "Clavicle", "左鎖骨", "右鎖骨", "left clavicle", "right clavicle"],
+        "肩胛骨": ["肩胛骨", "scapula", "Scapula", "左肩胛骨", "右肩胛骨", "left scapula", "right scapula"],
+        "股骨": ["股骨", "femur", "Femur", "左股骨", "右股骨", "left femur", "right femur"],
+        "脛骨": ["脛骨", "tibia", "Tibia", "左脛骨", "右脛骨", "left tibia", "right tibia"],
+        "腓骨": ["腓骨", "fibula", "Fibula", "左腓骨", "右腓骨", "left fibula", "right fibula"],
+        "胸骨": ["胸骨", "sternum", "Sternum"],
+        "肋骨": ["肋骨", "rib", "ribs", "Rib", "Ribs"],
+    }
+
+    for key, vals in major_bone_alias.items():
+        if key in q or any(v.lower() in q_lower for v in vals):
+            for v in vals:
+                add(v)
 
     # 指 / 趾互換
     if "指" in q:
@@ -368,6 +388,29 @@ def _rank_asset(row: dict[str, Any], question: str, preferred_side: str | None =
     if mesh and _normalize_text(mesh) in _normalize_text(q):
         score += 90
         
+        # ✅ 常見大骨加權：避免問「尺骨」時，因為手肘/前臂語意混到其他骨頭
+    major_bone_rank_alias = {
+        "尺骨": ["尺骨", "ulna"],
+        "橈骨": ["橈骨", "桡骨", "radius"],
+        "肱骨": ["肱骨", "humerus"],
+        "鎖骨": ["鎖骨", "clavicle"],
+        "肩胛骨": ["肩胛骨", "scapula"],
+        "股骨": ["股骨", "femur"],
+        "脛骨": ["脛骨", "tibia"],
+        "腓骨": ["腓骨", "fibula"],
+        "胸骨": ["胸骨", "sternum"],
+        "肋骨": ["肋骨", "rib", "ribs"],
+    }
+
+    for bone_zh, aliases in major_bone_rank_alias.items():
+        q_hit = bone_zh in q or any(a.lower() in q_lower for a in aliases)
+        row_hit = bone_zh in zh or any(a.lower() in all_text for a in aliases)
+
+        if q_hit and row_hit:
+            score += 160
+        elif q_hit and not row_hit:
+            score -= 80
+        
         # ✅ 脊椎 C/T/L 精準與群組加權
     target_group, target_no = _detect_vertebra_target(q)
     mesh_group, mesh_no = _parse_vertebra_mesh(mesh)
@@ -546,8 +589,16 @@ def retrieve_3d_assets(question: str, limit: int = 6) -> list[dict]:
 
             if len(out) >= limit:
                 break
-        
+
         print("[3D_ASSET][OUT]", out)
+
+        broken = [
+            x for x in out
+            if not x.get("mesh_name") or not x.get("file_path")
+        ]
+        if broken:
+            print("[3D_ASSET][BROKEN]", broken)
+
         return out
 
     except Exception as e:

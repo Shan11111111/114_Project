@@ -731,19 +731,9 @@ async def upload_file(file: UploadFile = File(...)):
             result["text"] = text
             result["summary"] = summary
 
-            try:
-                indexed = index_document(
-                    text=text,
-                    title=original or fname,
-                    source_type="upload",
-                    material_id=fname,
-                    url=public_url,
-                    conversation_id=None,
-                    user_id=None,
-                )
-                result["indexed_chunks"] = indexed
-            except Exception as ie:
-                result["index_warning"] = f"index_document failed: {ie}"
+            # 對話上傳檔案只做本輪解析，不寫入正式向量資料庫
+            result["indexed_chunks"] = 0
+            result["index_note"] = "chat upload parsed only; not indexed into vector db"
 
         except Exception as e:
             result["text"] = None
