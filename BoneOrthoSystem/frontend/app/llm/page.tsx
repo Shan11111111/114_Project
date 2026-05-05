@@ -58,6 +58,10 @@ type ChatResource = {
   snippet?: string;
   score?: number;
   material_id?: string;
+  site_name?: string;
+  is_search_entry?: boolean;
+  fetched?: boolean;
+  search_topic?: string;
 };
 
 type ChatMessage = {
@@ -1741,9 +1745,6 @@ function LLMClient() {
 
   const isExpanded = isMultiLine || pendingFiles.length > 0;
 
-  const [ragOpen, setRagOpen] = useState(false);
-  const [mobileRagOpen, setMobileRagOpen] = useState(false);
-
   //  thread清單  聊天紀錄
   const [historyThreads, setHistoryThreads] = useState<HistoryThread[]>([]);
   const [historyMessages, setHistoryMessages] = useState<HistoryMessage[]>([]);
@@ -1856,7 +1857,7 @@ function LLMClient() {
         const cSession: string | undefined = cached.sessionId;
         const cMain: ChatMessage[] | undefined = cached.messages;
 
-        if (cRag) setRagMode(cRag);
+        setRagMode("auto_fusion");
         if (Array.isArray(cThreads)) setHistoryThreads(cThreads);
         if (Array.isArray(cMsgs)) setHistoryMessages(cMsgs);
         if (typeof cSession === "string") setSessionId(cSession);
@@ -2100,8 +2101,7 @@ function LLMClient() {
             },
           ]);
           setShowToolMenu(false);
-          setRagOpen(false);
-          setMobileRagOpen(false);
+          ;
         } else {
           void newThread();
         }
@@ -2251,6 +2251,16 @@ function LLMClient() {
         page: r?.page ? String(r.page) : undefined,
         snippet: r?.snippet ? String(r.snippet) : undefined,
         material_id: r?.material_id ? String(r.material_id) : undefined,
+        site_name: r?.site_name ? String(r.site_name) : undefined,
+        is_search_entry:
+          typeof r?.is_search_entry === "boolean"
+            ? r.is_search_entry
+            : undefined,
+        fetched:
+          typeof r?.fetched === "boolean"
+            ? r.fetched
+            : undefined,
+        search_topic: r?.search_topic ? String(r.search_topic) : undefined,
         score:
           typeof r?.score === "number"
             ? r.score
@@ -2391,8 +2401,6 @@ function LLMClient() {
     setActiveView("llm");
     resetMainInputBox();
     setShowToolMenu(false);
-    setRagOpen(false);
-    setMobileRagOpen(false);
     setSeedImageUrl("");
     setSeedDetections([]);
 
@@ -2684,9 +2692,6 @@ function LLMClient() {
       setIsMobileNavOpen(false);
 
       setShowToolMenu(false);
-      setRagOpen(false);
-      setMobileRagOpen(false);
-
       setTimeout(() => inputRef.current?.focus(), 60);
       return; //直接結束
     }
@@ -2990,8 +2995,6 @@ function LLMClient() {
       const target = e.target as HTMLElement;
       if (!target.closest("[data-tool-menu-root]")) setShowToolMenu(false);
       if (!target.closest("[data-rag-dropdown-root]")) {
-        setRagOpen(false);
-        setMobileRagOpen(false);
       }
     }
     document.addEventListener("mousedown", onDown);
@@ -3246,6 +3249,25 @@ function LLMClient() {
           (wantFile && fileContextText ? `\n\n${fileContextText}` : "") +
           vectorHint;
 
+      const recentContextMessages = latestMessagesRef.current
+        .filter((m) => {
+          const text = String(m.content || "").trim();
+          if (!text) return false;
+
+          // 不要把歡迎詞送給後端
+          if (text === WELCOME_TEXT) return false;
+          if (text === i18nMessages["zh-TW"].welcomeText) return false;
+          if (text === i18nMessages["en-US"].welcomeText) return false;
+
+          return true;
+        })
+        .slice(-6)
+        .map((m) => ({
+          role: m.role,
+          type: "text",
+          content: String(m.content || "").slice(0, 2000),
+        }));
+
       const payload = {
         session_id: sid,
         user_id: uid,
@@ -3257,6 +3279,7 @@ function LLMClient() {
         locale,
         response_language: locale,
         messages: [
+          ...recentContextMessages,
           {
             role: "user",
             type: "text",
@@ -3327,6 +3350,16 @@ function LLMClient() {
               page: r?.page ? String(r.page) : undefined,
               snippet: r?.snippet ? String(r.snippet) : undefined,
               material_id: r?.material_id ? String(r.material_id) : undefined,
+              site_name: r?.site_name ? String(r.site_name) : undefined,
+              is_search_entry:
+                typeof r?.is_search_entry === "boolean"
+                  ? r.is_search_entry
+                  : undefined,
+              fetched:
+                typeof r?.fetched === "boolean"
+                  ? r.fetched
+                  : undefined,
+              search_topic: r?.search_topic ? String(r.search_topic) : undefined,
               score:
                 typeof r?.score === "number"
                   ? r.score
@@ -3660,7 +3693,6 @@ function LLMClient() {
     // 往左滑超過 80px 就關閉
     if (deltaX < -80) {
       setIsMobileNavOpen(false);
-      setMobileRagOpen(false);
     }
 
     setIsDraggingDrawer(false);
@@ -3753,6 +3785,7 @@ function LLMClient() {
 
     const isPubMed = sourceType.includes("pubmed");
     const isSoap = sourceType.includes("soap");
+    const isWeb = sourceType.includes("web");
 
     const isVector =
       sourceType.includes("vector") ||
@@ -3765,9 +3798,13 @@ function LLMClient() {
       ? "來源：PubMed 生醫文獻資料庫"
       : isSoap
         ? "來源：輔大醫院授權之去識別化醫囑紀錄表"
-        : isVector
-          ? "來源：GalaBone 衛教資料庫"
-          : "來源：GalaBone 參考資料";
+        : isWeb
+          ? r.fetched
+            ? `來源：可信醫療網站資料${r.site_name ? `（${r.site_name}）` : ""}`
+            : `來源：可信醫療網站搜尋結果${r.site_name ? `（${r.site_name}）` : ""}`
+          : isVector
+            ? "來源：GalaBone 衛教資料庫"
+            : "來源：GalaBone 參考資料";
 
 
 
@@ -3780,10 +3817,16 @@ function LLMClient() {
       !!v && /\/uploads\//i.test(v);
 
     const rawPubmedUrl = r.url || r.external_url || r.download_url;
+    const rawWebUrl = r.url || r.external_url || r.download_url;
 
     const pubmedUrl =
       isPubMed && rawPubmedUrl && !isUploadsUrl(rawPubmedUrl)
         ? toAbsUrl(rawPubmedUrl)
+        : "";
+
+    const webUrl =
+      isWeb && rawWebUrl && !isUploadsUrl(rawWebUrl)
+        ? toAbsUrl(rawWebUrl)
         : "";
 
     const resolvedViewUrl =
@@ -3888,6 +3931,12 @@ function LLMClient() {
             {isPubMed && pubmedUrl ? (
               <a href={pubmedUrl} target="_blank" rel="noreferrer">
                 查看文獻連結
+              </a>
+            ) : null}
+
+            {isWeb && webUrl ? (
+              <a href={webUrl} target="_blank" rel="noreferrer">
+                {r.fetched ? "查看原始網頁" : "開啟可信網站結果"}
               </a>
             ) : null}
 
@@ -5035,9 +5084,19 @@ function LLMClient() {
       return bScore - aScore;
     });
 
-    const highScore = deduped.filter(
-      (r) => typeof r.score === "number" && !Number.isNaN(r.score) && r.score >= 0.5
-    );
+    const highScore = deduped.filter((r) => {
+      const st = String(r.source_type || "").toLowerCase();
+
+
+      // web 是外部可信網站資料或搜尋結果，不要因為分數低於 0.5 被刷掉
+      if (st.includes("web")) return true;
+
+      return (
+        typeof r.score === "number" &&
+        !Number.isNaN(r.score) &&
+        r.score >= 0.5
+      );
+    });
 
     const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
 
@@ -5430,6 +5489,22 @@ function LLMClient() {
         bumpThreadOnMessage(threadIdAtBoot, String(question).slice(0, 80), 1);
         maybeAutoTitle(threadIdAtBoot, question);
 
+        const recentContextMessages = latestMessagesRef.current
+          .filter((m) => {
+            const text = String(m.content || "").trim();
+            if (!text) return false;
+            if (text === WELCOME_TEXT) return false;
+            if (text === i18nMessages["zh-TW"].welcomeText) return false;
+            if (text === i18nMessages["en-US"].welcomeText) return false;
+            return true;
+          })
+          .slice(-6)
+          .map((m) => ({
+            role: m.role,
+            type: "text",
+            content: String(m.content || "").slice(0, 2000),
+          }));
+
         const payload = {
           session_id: (bootSession || sessionId || "").trim(),
           user_id: (uidRef.current || userId || "guest").trim(),
@@ -5443,6 +5518,7 @@ function LLMClient() {
           response_language: locale,
 
           messages: [
+            ...recentContextMessages,
             {
               role: "user",
               type: "text",
@@ -5521,6 +5597,16 @@ function LLMClient() {
                 page: r?.page ? String(r.page) : undefined,
                 snippet: r?.snippet ? String(r.snippet) : undefined,
                 material_id: r?.material_id ? String(r.material_id) : undefined,
+                site_name: r?.site_name ? String(r.site_name) : undefined,
+                is_search_entry:
+                  typeof r?.is_search_entry === "boolean"
+                    ? r.is_search_entry
+                    : undefined,
+                fetched:
+                  typeof r?.fetched === "boolean"
+                    ? r.fetched
+                    : undefined,
+                search_topic: r?.search_topic ? String(r.search_topic) : undefined,
                 score:
                   typeof r?.score === "number"
                     ? r.score
@@ -5805,7 +5891,7 @@ function LLMClient() {
                 <h1 className="text-lg font-semibold tracking-wide">
                   GalaBone
                 </h1>
-                <p className="text-[11px] mt-1 opacity-70">Your Bone We Care</p>
+                <p className="text-[11px] mt-1 opacity-70"> </p>
               </div>
             )}
 
@@ -5841,166 +5927,21 @@ function LLMClient() {
             {!isNavCollapsed ? (
               <div className="h-full min-h-0 flex flex-col gap-2 text-sm">
                 <div className="space-y-1">
-                  <div className="px-3 pt-2">
-                    <div className="text-[13px] font-semibold opacity-85 mb-1">
-                      RAG 模式{" "}
-                      <span className="text-[11px] font-normal opacity-60">
-                        （RAG mode）
-                      </span>
-                    </div>
-
-                    <div className="pt-0">
-                      <div className="relative" data-rag-dropdown-root>
-                        <button
-                          type="button"
-                          onClick={() => setRagOpen((v) => !v)}
-                          className="w-full flex items-start justify-between rounded-xl px-3 py-2 text-[12px] border transition gap-2"
-                          style={{
-                            backgroundColor: "rgba(148,163,184,0.06)",
-                            borderColor: ragOpen
-                              ? "rgba(148,163,184,0.28)"
-                              : "rgba(148,163,184,0.18)",
-                            boxShadow: ragOpen
-                              ? "0 0 0 2px rgba(148,163,184,0.10)"
-                              : "none",
-                            color: "var(--foreground)",
-                          }}
-                        >
-                          <span
-                            className="block flex-1 text-left"
-                            style={{
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical",
-                              overflow: "hidden",
-                              lineHeight: "1.35",
-                              whiteSpace: "normal",
-                              wordBreak: "break-word",
-                              opacity: 0.9,
-                            }}
-                          >
-                            {/* {ragMode === "file_then_vector" &&
-                              "查詢上傳檔案與衛教智慧庫"} */}
-                            {/* {ragMode === "vector_only" &&
-                              "查詢衛教智慧庫"}
-                            {/* {ragMode === "file_only" &&
-                              "查詢上傳檔案"} */}
-                            {/* {ragMode === "pubmed_only" &&
-                              "查詢 PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
-                            {ragMode === "soap_only" &&
-                              "查詢已授權的輔大醫院之去識別化soap記錄"} */}
-                            {ragMode === "auto_fusion" &&
-                              "GalaBone RAG"}
-
-
-                          </span>
-
-                          <i
-                            className={`fa-solid fa-chevron-down mt-[2px] text-[11px] opacity-60 transition ${ragOpen ? "rotate-180" : ""
-                              }`}
-                          />
-                        </button>
-
-                        {ragOpen && (
-                          <div
-                            className="absolute z-50 mt-2 w-full rounded-xl overflow-hidden border"
-                            style={{
-                              maxWidth: "360px",
-                              backgroundColor: "var(--background)",
-                              borderColor: "rgba(148,163,184,0.22)",
-                              boxShadow: "0 12px 28px rgba(0,0,0,0.22)",
-                              color: "var(--foreground)",
-                            }}
-                          >
-                            {[
-                              // {
-                              //   value: "file_then_vector",
-                              //   label: "查詢上傳檔案與衛教智慧庫",
-                              // },
-                              // {
-                              //   value: "vector_only",
-                              //   label: "查詢衛教智慧庫",
-                              // },
-                              // {
-                              //   value: "file_only",
-                              //   label: "查詢上傳檔案",
-                              // },
-                              // {
-                              //   value: "pubmed_only",
-                              //   label: "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎",
-                              // },
-                              // {
-                              //   value: "soap_only",
-                              //   label: "查詢已授權的輔大醫院之去識別化soap記錄",
-                              // },
-                              {
-                                value: "auto_fusion",
-                                label: "GalaBone RAG",
-                              },
-                            ].map((opt) => {
-                              const active = ragMode === opt.value;
-
-                              return (
-                                <button
-                                  key={opt.value}
-                                  type="button"
-                                  onClick={() => {
-                                    setRagMode(opt.value as RagMode);
-                                    setRagOpen(false);
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-[13px] transition"
-                                  style={{
-                                    lineHeight: "1.5",
-                                    whiteSpace: "normal",
-                                    wordBreak: "break-word",
-                                    backgroundColor: active
-                                      ? NAV_ACTIVE_BG
-                                      : "transparent",
-                                    fontWeight: active ? 600 : 400,
-                                    color: "var(--foreground)",
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    if (active) return;
-                                    e.currentTarget.style.backgroundColor =
-                                      NAV_HOVER_BG;
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    if (active) return;
-                                    e.currentTarget.style.backgroundColor =
-                                      "transparent";
-                                  }}
-                                >
-                                  {opt.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="pt-1 pb-2 text-[11px] opacity-50">
-                        新對話將使用此 RAG 模式
-                      </div>
-                    </div>
-
-                    <div
-                      className="mt-2"
-                      style={{ borderTop: "1px solid rgba(148,163,184,0.18)" }}
-                    />
-                  </div>
-
                   <div className="mt-1">
                     <SideRow
                       iconClass="fa-regular fa-message"
                       label={t("newChat")}
                       onClick={() => newThread()}
-                    />                  </div>
+                    />
+                  </div>
+
                   <SideRow
                     iconClass="fa-solid fa-folder-tree"
                     label={t("resourceManagement")}
                     active={activeView === "assets"}
                     onClick={() => setActiveView("assets")}
                   />
+
                   <SideRow
                     iconClass="fa-regular fa-clock"
                     label={t("history")}
@@ -6061,7 +6002,6 @@ function LLMClient() {
               </div>
             )}
           </nav>
-
           <div
             className={`border-t ${isNavCollapsed ? "px-2 py-3" : "px-4 py-3"}`}
             style={{ borderColor: "rgba(148,163,184,0.20)" }}
@@ -6111,7 +6051,6 @@ function LLMClient() {
             className="absolute inset-0 bg-black/40"
             onClick={() => {
               setIsMobileNavOpen(false);
-              setMobileRagOpen(false);
             }}
           />
 
@@ -6148,7 +6087,6 @@ function LLMClient() {
                   }
                   onClick={() => {
                     setIsMobileNavOpen(false);
-                    setMobileRagOpen(false);
                   }}
                   title="返回聊天頁"
                   aria-label="返回聊天頁"
@@ -6182,7 +6120,6 @@ function LLMClient() {
                     }
                     onClick={() => {
                       setIsMobileNavOpen(false);
-                      setMobileRagOpen(false);
                     }}
                     title="關閉導覽列"
                   >
@@ -6223,84 +6160,6 @@ function LLMClient() {
                       }}
                     />
                   </div>
-
-                  <div className="px-2">
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl opacity-90">
-                      <i className="fa-solid fa-diagram-project text-[13px] opacity-80" />
-                      <div className="text-[13px] font-semibold">RAG 模式</div>
-                    </div>
-
-                    <div className="px-3 pb-1 text-[11px] opacity-55">
-                      不會建立索引
-                    </div>
-
-                    <div className="relative" data-rag-dropdown-root>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMobileRagOpen((v) => !v);
-                        }}
-                        className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-[13px] border"
-                        style={{
-                          backgroundColor: "var(--background)",
-                          borderColor: "rgba(148,163,184,0.22)",
-                          color: "var(--foreground)",
-                        }}
-                      >
-                        <span className="truncate">
-                          {ragMode === "file_then_vector" && "查詢上傳檔案與衛教智慧庫"}
-                          {ragMode === "pubmed_only" && "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎"}
-                          {ragMode === "soap_only" && "查詢已授權的輔大醫院之去識別化soap記錄"}
-                          {ragMode === "auto_fusion" &&
-                            "GalaBone RAG"}
-                        </span>
-
-                        <i
-                          className={`fa-solid fa-chevron-down text-[11px] opacity-60 transition ${mobileRagOpen ? "rotate-180" : ""}`}
-                        />
-                      </button>
-
-                      {mobileRagOpen && (
-                        <div
-                          className="absolute z-50 mt-2 w-full rounded-xl border overflow-hidden"
-                          style={{
-                            backgroundColor: "var(--background)",
-                            borderColor: "rgba(148,163,184,0.22)",
-                            boxShadow: "0 12px 28px rgba(0,0,0,0.22)",
-                          }}
-                        >
-                          {[
-                            { value: "file_then_vector", label: "查詢上傳檔案與衛教智慧庫" },
-                            { value: "pubmed_only", label: "查詢PubMed 美國國家醫學圖書館 NLM 開發的免費生醫文獻搜尋引擎" },
-                            { value: "soap_only", label: "查詢已授權的輔大醫院之去識別化soap記錄" },
-                            {
-                              value: "auto_fusion",
-                              label: "GalaBone RAG",
-                            },
-                          ].map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRagMode(opt.value as RagMode);
-                                setMobileRagOpen(false);
-                              }}
-                              className="w-full text-left px-3 py-2 text-[13px]"
-                              style={{
-                                backgroundColor:
-                                  ragMode === opt.value ? NAV_ACTIVE_BG : "transparent",
-                                color: "var(--foreground)",
-                              }}
-                            >
-                              {opt.label}
-                            </button>))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
                   <div className="pt-2">
                     <div className="flex items-center justify-between px-1 mb-2">
                       <p className="text-[11px] tracking-wide opacity-60">
