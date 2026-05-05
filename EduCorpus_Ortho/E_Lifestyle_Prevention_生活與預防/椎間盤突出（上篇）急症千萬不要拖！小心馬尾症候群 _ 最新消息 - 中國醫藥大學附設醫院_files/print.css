@@ -1,0 +1,44 @@
+﻿.display_none {
+    display: none;
+}
+/*#print {
+    background-repeat: repeat-y;
+    background-position: 50% 0;
+    -webkit-print-color-adjust: exact;
+    min-height: 842px;
+}*/
+
+
+.print_div .content > div, .print_div .content div > div {
+    display: block;
+}
+
+.print_div .news_detail_content img {
+    width: 100%;
+}
+
+.print_div .healthedu_title {
+    font-size: 24pt !important;
+    line-height: 1.5 !important;
+}
+
+.print_div .healthedu_detail_content .content * {
+    font-size: 18pt !important;
+    line-height: 1.5 !important;
+}
+
+.print_div .qrcode_img {
+    display:block!important;
+}
+
+
+@media print {
+
+
+    #oldtonew {
+        display:none!important;
+    }
+
+}
+
+

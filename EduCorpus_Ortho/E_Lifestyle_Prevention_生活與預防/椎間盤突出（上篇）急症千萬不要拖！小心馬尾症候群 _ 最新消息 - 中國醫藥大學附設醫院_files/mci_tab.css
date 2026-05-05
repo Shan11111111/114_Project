@@ -1,0 +1,89 @@
+/*2022-02-18 14:24*/
+.mcitab_cntbx > div > h3,
+.mcitab_cntbx > div > .mcitab_header {
+	display: none;
+}
+.mcitab_detail {
+	height: 0;
+	border: none;
+	overflow: hidden;
+	padding: 0 15px;
+}
+.now_view > .mcitab_detail {
+	height: auto;
+	border: 1px solid #999;
+}
+a.mcitab_focus {
+	display: block;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+	line-height: 0;
+	padding: 0;
+	margin: 0;
+	clear: none;
+	float: none;
+	position: static;
+	outline: none;
+	border: none;
+}
+a.mcitab_focus span {
+	/* display: none; */
+	display: block;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+}
+.mcitab_btnbx {
+	background-color: #ccc;
+}
+.mcitab_btnbx ul, .mcitab_btnbx li {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+.mcitab_btnbx ul {
+	letter-spacing: -0.35em;
+}
+.mcitab_btnbx li {
+	letter-spacing: normal;
+	display: inline-block;
+	vertical-align: bottom;
+}
+.mcitab_btnbx li.now_view {
+	background-color: #999;
+}
+.mcitab_btnbx li a {
+	color: #FFF;
+	text-decoration: none;
+	padding: 5px 0.5em;
+}
+/* Mobile Type */
+.mobile_type .mcitab_btnbx {
+	display: none;
+}
+.mobile_type .mcitab_cntbx > div > h3,
+.mobile_type .mcitab_cntbx > div > .mcitab_header {
+	display: block;
+	margin: 0;
+	font-weight: normal;
+	font-size: 100%;
+}
+.mobile_type .mcitab_cntbx > div > h3 > a,
+.mobile_type .mcitab_cntbx > div > .mcitab_header > a {
+	display: block;
+	background-color: #ccc;
+	color: #666;
+	border-bottom: 1px solid #999;
+	padding: 0 0.5em;
+	text-decoration: none;
+}
+.mobile_type .now_view > .mcitab_detail {
+	height: 0;
+	border: none;
+}
+.mobile_type .mbtype_view > .mcitab_detail {
+	height: auto;
+	border: 1px solid #999;
+	border-top: none;
+}

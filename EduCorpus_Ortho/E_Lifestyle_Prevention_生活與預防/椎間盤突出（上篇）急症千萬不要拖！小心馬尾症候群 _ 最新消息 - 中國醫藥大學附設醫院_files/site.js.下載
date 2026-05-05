@@ -1,0 +1,173 @@
+$(function () {
+	// 首頁上方輪播banner
+	$(".picbox1").MciPicSldr({
+		scale: 35,// 高度比例
+		arrow: false,// 左右箭頭
+		dot: false// 點狀按鈕
+	});
+
+	// 輪播Digital Imaging
+	$(".picbox2").MciPicSldr({
+		scale: 55,
+		prev: "Prev",// 左箭頭title文字
+		next: "Next",// 右箭頭title文字
+		auto: false,// 自動輪播
+		dotArrow: true// 點狀按鈕箭頭
+	});
+
+	// 首頁上方輪播banner rwd
+	$(".picbox3").MciPicSldr({
+		scale: 128,
+		arrow: false,
+		dotArrow: true
+	});
+
+	// 科室輪播banner
+	$(".picbox4").MciPicSldr({
+		scale: 60,
+		arrow: false,
+		dot: false
+	});
+
+	// 醫師內頁QRcode
+	$(".show_cnt").MciLightBox({
+		maxWidth: "640px",// 內容最大寬度
+		scale: 75
+	});
+
+	// 頁籤醫院訊息
+	$(".tabox_1").MciTab();
+
+	// 卓越醫療訊息
+	$(".tabox_2").MciTab();
+
+	/* MCI - 行動APP下載 */
+	var mobiles = new Array("android", "iPhone", "iPad", "iPod");
+	var ua = navigator.userAgent.toLowerCase();
+	//alert(ua);
+	var isMobile = false;
+	for (var i = 0; i < mobiles.length; i++) {
+		var _Now = mobiles[i].toLowerCase();
+		if (ua.indexOf(_Now) > 0) {
+			//isMobile = true;
+			isMobile = _Now;
+			if (_Now != "android") {
+				isMobile = "ios";
+			}
+			break;
+		}
+	}
+	/*console.log("--");
+	console.log(ua);
+	console.log(isMobile);
+	console.log("--");*/
+	$("a#app_download_button").on("click", function (e) {
+		e.preventDefault();
+		//var _ImgPath = $("#app_download_button > img").eq(0).attr("src").replace("app_icon_btn.jpg", "");
+        var _ImgPath = "/Content/images/CREATIDEA_img/app/";
+		console.log(_ImgPath);
+        var _LinkiOS = "https://apps.apple.com/tw/app/%E4%B8%AD%E5%9C%8B%E9%86%AB%E9%BB%9E%E9%80%9A/id834761206",
+            _linkAndroid = "https://play.google.com/store/apps/details?id=app.cmuh.org.tw&hl=zh_TW";
+		if (!isMobile) {
+			//桌機或無法辨識
+			//alert("桌機或無法辨識");
+			if ($("#appdownload_lightbox").length <= 0) {
+				var _AppQrcodeContent = "";
+				_AppQrcodeContent += "<div id='appdownload_lightbox'>";
+				_AppQrcodeContent += "	<div class='apdwnld_content_tittle'>中國醫點通</div>";
+				_AppQrcodeContent += "	<div class='apdwnld_content'>";
+				_AppQrcodeContent += "		<ul>";
+				//iOS
+				_AppQrcodeContent += "			<li>";
+				_AppQrcodeContent += "				<a href='" + _LinkiOS + "' title='download iOS app(open in new window)' target='_blank'><img src='" + _ImgPath + "app_qrcode_ios.jpg' alt='' /><div>iTunes App Store</div></a>";
+				_AppQrcodeContent += "			</li>";
+				//android
+				_AppQrcodeContent += "			<li>";
+				_AppQrcodeContent += "				<a href='" + _linkAndroid + "' title='download android app(open in new window)' target='_blank'><img src='" + _ImgPath + "app_qrcode_android.jpg' alt='' /><div>Google Play Store</div></a>";
+				_AppQrcodeContent += "			</li>";
+				_AppQrcodeContent += "		</ul>";
+				_AppQrcodeContent += "	</div>";
+				_AppQrcodeContent += "</div>";
+				$("body").append(_AppQrcodeContent);
+			}
+			$("#appdownload_lightbox").MciLightBox();
+		} else {
+			if (isMobile == "ios") {
+				//iOS
+				window.open(_LinkiOS);
+			} else {
+				//android
+				window.open(_linkAndroid);
+			}
+		}
+	});
+});
+
+// 側邊
+$(document).ready(function () {
+	$('#cmuh_share_btn').on('click', function (e) {
+		e.preventDefault();
+		$('.cmuh_share').toggleClass('win_close');
+	});
+});
+
+// 宣導專區(會影響全輪播 改寫法在INDEX)
+//$('.owl-carousel').owlCarousel({
+//	loop: true,
+//	margin: 10,
+//	nav: true,
+//	navText: ["<em class='porto-icon-left-open-big'></em>", "<em class='porto-icon-right-open-big'></em>"],
+//	dotData: true,
+//	responsive:{
+//		0:{
+//			items:2
+//		},
+//		500:{
+//			items:3
+//		},
+//		600:{
+//			items:4
+//		},
+//		1000:{
+//			items:6
+//		}
+//	}
+//});
+
+// 回頁首
+let requestAnimationFrame = window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame || window.msRequestAnimationFrame;
+
+document.addEventListener('DOMContentLoaded', function () {
+	const goTopButton = document.querySelector('[data-action="gotop"]');
+	const windowViewPortHeight = window.innerHeight; // browser viewport height
+	let isRequestingAnimationFrame = false;
+
+	if (!goTopButton) {
+		return;
+	}
+
+	goTopButton.addEventListener('click', function () {
+		window.scrollTo({
+			top: 0,
+			behavior: 'smooth'
+		});
+	});
+
+	window.addEventListener('scroll', function () {
+		if (!isRequestingAnimationFrame) {
+			requestAnimationFrame(filterGoTopButtonVisibility);
+			isRequestingAnimationFrame = true;
+		}
+	});
+
+	function filterGoTopButtonVisibility(timestamp) {
+		let windowPageYOffset = window.pageYOffset || document.documentElement.scrollTop;
+		if (windowPageYOffset > windowViewPortHeight) {
+			goTopButton.classList.add('show');
+			isRequestingAnimationFrame = false;
+		} else {
+			goTopButton.classList.remove('show');
+			requestAnimationFrame(filterGoTopButtonVisibility);
+		}
+	}
+})
