@@ -13,12 +13,16 @@ import {
   GizmoViewport,
 } from '@react-three/drei';
 import * as THREE from 'three';
-import { EffectComposer, Outline } from '@react-three/postprocessing';
+// import { EffectComposer, Outline } from '@react-three/postprocessing';
 
 
 import "./3d_mobile.css";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
+
+// 目前先停用完整 bones.glb，避免 WebGL Context Lost。
+// 之後拆成部位 GLB 後，再改成依人體部位載入對應模型。
+const ENABLE_BONE_GLB = false;
 
 /** =========================
  *  Utils
@@ -81,14 +85,248 @@ const REGION_LABEL: Record<RegionKey, string> = {
 
 function toRegionKey(region?: string | null): RegionKey {
   const r = (region ?? '').toLowerCase();
-  if (r.includes('cranial') || r.includes('facial') || r.includes('skull') || r.includes('頭顱')) return 'skull';
-  if (r.includes('spine') || r.includes('vertebra') || r.includes('脊椎')) return 'spine';
-  if (r.includes('thorax') || r.includes('rib') || r.includes('stern') || r.includes('胸') || r.includes('肋'))
+
+  if (
+    r.includes('cranial') ||
+    r.includes('facial') ||
+    r.includes('skull') ||
+    r.includes('頭顱')
+  ) {
+    return 'skull';
+  }
+
+  if (
+    r.includes('spine') ||
+    r.includes('vertebra') ||
+    r.includes('脊椎')
+  ) {
+    return 'spine';
+  }
+
+  if (
+    r.includes('thorax') ||
+    r.includes('rib') ||
+    r.includes('stern') ||
+    r.includes('胸') ||
+    r.includes('肋')
+  ) {
     return 'thorax';
-  if (r.includes('upper') || r.includes('arm') || r.includes('上肢') || r.includes('手')) return 'upper';
-  if (r.includes('lower') || r.includes('leg') || r.includes('下肢') || r.includes('足')) return 'lower';
-  if (r.includes('pelvis') || r.includes('hip') || r.includes('骨盆')) return 'pelvis';
+  }
+
+  if (
+    r.includes('upper') ||
+    r.includes('arm') ||
+    r.includes('上肢') ||
+    r.includes('手')
+  ) {
+    return 'upper';
+  }
+
+  if (
+    r.includes('lower') ||
+    r.includes('leg') ||
+    r.includes('下肢') ||
+    r.includes('足')
+  ) {
+    return 'lower';
+  }
+
+  if (
+    r.includes('pelvis') ||
+    r.includes('hip') ||
+    r.includes('骨盆')
+  ) {
+    return 'pelvis';
+  }
+
   return 'other';
+}
+
+/** =========================
+ *  Body-part GLB loading
+ *  ========================= */
+type BodyPartKey =
+  | 'full_skeleton'
+  | 'right_wrist'
+  | 'left_wrist'
+  | 'right_hand'
+  | 'left_hand'
+  | 'right_upper_limb'
+  | 'left_upper_limb'
+  | 'right_lower_limb'
+  | 'left_lower_limb'
+  | 'right_foot'
+  | 'left_foot'
+  | 'spine'
+  | 'thorax'
+  | 'pelvis'
+  | 'skull';
+
+const BODY_PART_MODEL_URL: Record<BodyPartKey, string> = {
+  // skeleton_preview.glb 是低模完整骨架總覽，不使用舊 bones.glb。
+  full_skeleton: '/models/body-parts/skeleton_preview.glb?v=1',
+
+  // ?v=4 用來強制瀏覽器與 useGLTF 重新抓最新 GLB，避免吃到舊快取。
+  right_wrist: '/models/body-parts/right_wrist.glb?v=4',
+  left_wrist: '/models/body-parts/left_wrist.glb?v=4',
+  right_hand: '/models/body-parts/right_hand.glb?v=4',
+  left_hand: '/models/body-parts/left_hand.glb?v=4',
+  right_upper_limb: '/models/body-parts/right_upper_limb.glb?v=4',
+  left_upper_limb: '/models/body-parts/left_upper_limb.glb?v=4',
+  right_lower_limb: '/models/body-parts/right_lower_limb.glb?v=4',
+  left_lower_limb: '/models/body-parts/left_lower_limb.glb?v=4',
+  right_foot: '/models/body-parts/right_foot.glb?v=4',
+  left_foot: '/models/body-parts/left_foot.glb?v=4',
+  spine: '/models/body-parts/spine.glb?v=4',
+  thorax: '/models/body-parts/thorax.glb?v=4',
+  pelvis: '/models/body-parts/pelvis.glb?v=4',
+  skull: '/models/body-parts/skull.glb?v=5',
+};
+
+const BODY_PART_LABEL: Record<BodyPartKey, { zh: string; en: string }> = {
+  full_skeleton: { zh: '完整骨架', en: 'Full Skeleton' },
+  right_wrist: { zh: '右手腕', en: 'Right Wrist' },
+  left_wrist: { zh: '左手腕', en: 'Left Wrist' },
+  right_hand: { zh: '右手', en: 'Right Hand' },
+  left_hand: { zh: '左手', en: 'Left Hand' },
+  right_upper_limb: { zh: '右上肢', en: 'Right Upper Limb' },
+  left_upper_limb: { zh: '左上肢', en: 'Left Upper Limb' },
+  right_lower_limb: { zh: '右下肢', en: 'Right Lower Limb' },
+  left_lower_limb: { zh: '左下肢', en: 'Left Lower Limb' },
+  right_foot: { zh: '右足部', en: 'Right Foot' },
+  left_foot: { zh: '左足部', en: 'Left Foot' },
+  spine: { zh: '脊椎', en: 'Spine' },
+  thorax: { zh: '胸廓', en: 'Thorax' },
+  pelvis: { zh: '骨盆', en: 'Pelvis' },
+  skull: { zh: '頭顱', en: 'Skull' },
+};
+
+const BODY_PART_BUTTONS: BodyPartKey[] = [
+  'full_skeleton',
+  'right_wrist',
+  'left_wrist',
+  'right_hand',
+  'left_hand',
+  'right_upper_limb',
+  'left_upper_limb',
+  'spine',
+  'thorax',
+  'pelvis',
+  'right_lower_limb',
+  'left_lower_limb',
+  'right_foot',
+  'left_foot',
+];
+
+const BODY_PART_VIEW_SCALE: Record<BodyPartKey, number> = {
+  full_skeleton: 0.85,
+
+  right_wrist: 3.8,
+  left_wrist: 3.8,
+
+  right_hand: 2.6,
+  left_hand: 2.6,
+
+  right_foot: 2.4,
+  left_foot: 2.4,
+
+  right_upper_limb: 1.4,
+  left_upper_limb: 1.4,
+
+  right_lower_limb: 1.35,
+  left_lower_limb: 1.35,
+
+  spine: 1.45,
+  thorax: 1.2,
+  pelvis: 1.35,
+  skull: 0.75,
+};
+
+function getBodyPartForMeshName(meshName: string, region?: string | null): BodyPartKey | null {
+  const rawNorm = normalizeMeshName(meshName);
+  const norm = normalizeSearchText(rawNorm);
+  const side = parseSide(meshName).side;
+  const r = normalizeSearchText(region);
+  const sidePrefix = side === 'L' ? 'left' : side === 'R' ? 'right' : null;
+
+  // 中軸骨：不分左右
+  if (/^c[1-7]$/i.test(rawNorm) || /^t([1-9]|1[0-2])$/i.test(rawNorm) || /^l[1-5]$/i.test(rawNorm)) return 'spine';
+  if (norm.includes('rib') || norm.includes('sternum')) return 'thorax';
+  if (norm.includes('hipbone') || norm.includes('sacrum') || norm.includes('coccyx')) return 'pelvis';
+
+  if (
+    r.includes('skull') ||
+    r.includes('cranial') ||
+    r.includes('facial') ||
+    r.includes('頭顱') ||
+    norm.includes('skull') ||
+    norm.includes('mandible') ||
+    norm.includes('maxilla') ||
+    norm.includes('frontal') ||
+    norm.includes('parietal') ||
+    norm.includes('occipital') ||
+    norm.includes('temporal') ||
+    norm.includes('sphenoid') ||
+    norm.includes('zygomatic') ||
+    norm.includes('nasal') ||
+    norm.includes('palatine') ||
+    norm.includes('vomer') ||
+    norm.includes('hyoid') ||
+    // 聽小骨 Auditory Ossicles：砧骨 Incus、錘骨 Malleus、鐙骨 Stapes
+    norm.includes('incus') ||
+    norm.includes('malleus') ||
+    norm.includes('stapes')
+  ) {
+    return 'skull';
+  }
+
+  // 足部一定要先判斷。腳趾有 Second_Middle / Third_Middle，不能被 middle 誤判為手指。
+  const isFoot = [
+    'metatarsal',
+    'hallux',
+    'second',
+    'third',
+    'fourth',
+    'fifth',
+    'cuboid',
+    'cuneiform',
+    'navicular',
+    'calcaneus',
+    'talus',
+  ].some((k) => norm.includes(k));
+  if (isFoot && sidePrefix) return `${sidePrefix}_foot` as BodyPartKey;
+
+  // 腕骨只載 wrist.glb，不再載整隻 hand.glb。
+  const isWrist = [
+    'scaphoid',
+    'lunate',
+    'triquetrum',
+    'pisiform',
+    'trapezium',
+    'trapezoid',
+    'capitate',
+    'hamate',
+  ].some((k) => norm.includes(k));
+  if (isWrist && sidePrefix) return `${sidePrefix}_wrist` as BodyPartKey;
+
+  // 掌骨與手指才載 hand.glb。
+  const isHand = [
+    'metacarpal',
+    'thumb',
+    'index',
+    'middle',
+    'ring',
+    'little',
+  ].some((k) => norm.includes(k));
+  if (isHand && sidePrefix) return `${sidePrefix}_hand` as BodyPartKey;
+
+  const isUpper = ['scapula', 'scapulae', 'clavicle', 'humeri', 'humerus', 'ulnae', 'ulna', 'radii', 'radius'].some((k) => norm.includes(k));
+  if (isUpper && sidePrefix) return `${sidePrefix}_upper_limb` as BodyPartKey;
+
+  const isLower = ['femora', 'femur', 'tibiae', 'tibia', 'fibulae', 'fibula', 'patellae', 'patella'].some((k) => norm.includes(k));
+  if (isLower && sidePrefix) return `${sidePrefix}_lower_limb` as BodyPartKey;
+
+  return null;
 }
 
 /** =========================
@@ -169,6 +407,23 @@ function expandS3SemanticTerms(keyword: string): string[] {
   // 頭顱
   if (hasAny("頭", "頭部", "頭骨", "頭顱", "腦袋", "skull")) {
     add("顱骨", "skull", "cranial", "cranium");
+  }
+
+  // 聽小骨：砧骨、錘骨、鐙骨
+  if (hasAny("聽小骨", "聽骨", "耳小骨", "ossicle", "ossicles", "auditoryossicles")) {
+    add("聽小骨", "auditoryossicles", "ossicles", "incus", "malleus", "stapes");
+  }
+
+  if (hasAny("砧骨", "incus", "anvil")) {
+    add("砧骨", "incus", "anvil", "auditoryossicles");
+  }
+
+  if (hasAny("錘骨", "槌骨", "malleus", "hammer")) {
+    add("錘骨", "槌骨", "malleus", "hammer", "auditoryossicles");
+  }
+
+  if (hasAny("鐙骨", "stapes", "stirrup")) {
+    add("鐙骨", "stapes", "stirrup", "auditoryossicles");
   }
 
   // 脊椎總類
@@ -496,6 +751,11 @@ const BASE_NAME_MAP_LOWER: Record<string, { zh: string; en: string }> = {
   [lowerKey('Trapezoid')]: { zh: '小多角骨', en: 'Trapezoid' },
   [lowerKey('Capitate')]: { zh: '頭狀骨', en: 'Capitate' },
   [lowerKey('Hamate')]: { zh: '鉤狀骨', en: 'Hamate' },
+
+  // ---- Auditory ossicles 聽小骨 ----
+  [lowerKey('Incus')]: { zh: '砧骨', en: 'Incus' },
+  [lowerKey('Malleus')]: { zh: '錘骨', en: 'Malleus' },
+  [lowerKey('Stapes')]: { zh: '鐙骨', en: 'Stapes' },
 };
 
 function lookupBaseName(baseRaw: string): { zh: string; en: string } | null {
@@ -919,6 +1179,8 @@ type SelectedMode =
   | { kind: 'mesh'; meshName: string }
   | { kind: 'series'; series: SeriesKind };
 
+type PanelMode = 'body' | 'bone';
+
 /** =========================
  *  Flatten bone-list response
  * ========================= */
@@ -982,6 +1244,81 @@ function flattenBoneListPayload(payload: any): BoneListItem[] {
   });
 }
 
+
+const S3_VIEWER_STATE_KEY = 'galabone_s3_viewer_state_v2';
+
+type StoredS3ViewerState = {
+  selectedBodyPart?: BodyPartKey | null;
+  selectedMode?: SelectedMode;
+  panelMode?: PanelMode;
+  q?: string;
+  openGroups?: RegionKey[];
+  sidebarOpen?: boolean;
+};
+
+function isBodyPartKey(value: unknown): value is BodyPartKey {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(BODY_PART_MODEL_URL, value);
+}
+
+function isPanelMode(value: unknown): value is PanelMode {
+  return value === 'body' || value === 'bone';
+}
+
+function isRegionKey(value: unknown): value is RegionKey {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(REGION_LABEL, value);
+}
+
+function isStoredSelectedMode(value: unknown): value is SelectedMode {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as any;
+
+  if (v.kind === 'none') return true;
+  if (v.kind === 'mesh') return typeof v.meshName === 'string' && v.meshName.length > 0;
+  if (v.kind === 'series') return v.series === 'cervical' || v.series === 'thoracic' || v.series === 'lumbar';
+
+  return false;
+}
+
+function readStoredS3ViewerState(): StoredS3ViewerState {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const raw = window.sessionStorage.getItem(S3_VIEWER_STATE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw) as StoredS3ViewerState;
+    const out: StoredS3ViewerState = {};
+
+    if (parsed.selectedBodyPart === null || isBodyPartKey(parsed.selectedBodyPart)) {
+      out.selectedBodyPart = parsed.selectedBodyPart;
+    }
+
+    if (isStoredSelectedMode(parsed.selectedMode)) {
+      out.selectedMode = parsed.selectedMode;
+    }
+
+    if (isPanelMode(parsed.panelMode)) {
+      out.panelMode = parsed.panelMode;
+    }
+
+    if (typeof parsed.q === 'string') {
+      out.q = parsed.q;
+    }
+
+    if (Array.isArray(parsed.openGroups)) {
+      out.openGroups = parsed.openGroups.filter(isRegionKey);
+    }
+
+    if (typeof parsed.sidebarOpen === 'boolean') {
+      out.sidebarOpen = parsed.sidebarOpen;
+    }
+
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export default function S3Viewer() {
 
   const router = useRouter();
@@ -993,7 +1330,9 @@ export default function S3Viewer() {
   const targetMesh = searchParams.get("mesh") || "";
   const targetBoneId = searchParams.get("boneId");
 
-  const [selectedMode, setSelectedMode] = useState<SelectedMode>({ kind: 'none' });
+  const [selectedMode, setSelectedMode] = useState<SelectedMode>(() => readStoredS3ViewerState().selectedMode ?? { kind: 'none' });
+  const [selectedBodyPart, setSelectedBodyPart] = useState<BodyPartKey | null>(() => readStoredS3ViewerState().selectedBodyPart ?? 'right_wrist');
+  const currentBodyPartScale = selectedBodyPart ? BODY_PART_VIEW_SCALE[selectedBodyPart] : 1.2;
 
   const selectedMeshName = selectedMode.kind === 'mesh' ? selectedMode.meshName : null;
   const selectedSeries = selectedMode.kind === 'series' ? selectedMode.series : null;
@@ -1002,9 +1341,10 @@ export default function S3Viewer() {
   const [loadingInfo, setLoadingInfo] = useState(false);
 
   const [boneList, setBoneList] = useState<BoneListItem[]>([]);
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(() => readStoredS3ViewerState().q ?? '');
+  const [panelMode, setPanelMode] = useState<PanelMode>(() => readStoredS3ViewerState().panelMode ?? 'body');
 
-  const [openGroups, setOpenGroups] = useState<RegionKey[]>([]);
+  const [openGroups, setOpenGroups] = useState<RegionKey[]>(() => readStoredS3ViewerState().openGroups ?? []);
   const openSet = useMemo(() => new Set(openGroups), [openGroups]);
 
   const meshRegistryRef = useRef<Record<string, THREE.Mesh>>({});
@@ -1013,16 +1353,36 @@ export default function S3Viewer() {
   const [registryTick, setRegistryTick] = useState(0);
 
   //抽屜式
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => readStoredS3ViewerState().sidebarOpen ?? true);
   const SIDEBAR_WIDTH = 360;
   const SIDEBAR_PEEK = 0; // 收合時完全藏起來
 
-  // ✅ 新增：Solo / Isolate 模式（只顯示某顆）
+  // Solo / Isolate 模式：null = 顯示目前部位包全部 mesh；Set = 只顯示指定 mesh。
   const [soloNormSet, setSoloNormSet] = useState<Set<string> | null>(null);
   const soloActive = soloNormSet != null;
 
+  const shouldRenderBoneModel =
+    ENABLE_BONE_GLB &&
+    (soloNormSet === null || (soloNormSet instanceof Set && soloNormSet.size > 0));
+
   const [showHint, setShowHint] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [canvasRevision, setCanvasRevision] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const payload: StoredS3ViewerState = {
+      selectedBodyPart,
+      selectedMode,
+      panelMode,
+      q,
+      openGroups,
+      sidebarOpen,
+    };
+
+    window.sessionStorage.setItem(S3_VIEWER_STATE_KEY, JSON.stringify(payload));
+  }, [selectedBodyPart, selectedMode, panelMode, q, openGroups, sidebarOpen]);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth <= 768);
@@ -1030,8 +1390,6 @@ export default function S3Viewer() {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
-
-
 
   useEffect(() => {
     (async () => {
@@ -1096,6 +1454,41 @@ export default function S3Viewer() {
     controls.update();
   }, []);
 
+  const focusOnLoadedModel = useCallback(() => {
+    const controls = controlsRef.current;
+    const camera = cameraRef.current as any;
+    if (!controls || !camera) return;
+
+    const meshes = Object.values(meshRegistryRef.current).filter(Boolean) as THREE.Mesh[];
+    if (!meshes.length) return;
+
+    const box = new THREE.Box3();
+    meshes.forEach((m) => box.expandByObject(m));
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const distanceMultiplier = selectedBodyPart === 'full_skeleton' ? 1.45 : 2.8;
+    const minDistance = selectedBodyPart === 'full_skeleton' ? 0.9 : 1.4;
+    const distance = Math.max(minDistance, maxDim * distanceMultiplier);
+
+    controls.target.copy(center);
+    camera.position.set(center.x, center.y, center.z + distance);
+    camera.near = Math.max(0.001, distance / 100);
+    camera.far = Math.max(1000, distance * 100);
+    camera.updateProjectionMatrix?.();
+    controls.update();
+  }, [selectedBodyPart]);
+
+  useEffect(() => {
+    if (!selectedBodyPart) return;
+
+    requestAnimationFrame(() => {
+      if (selectedMeshName) focusOnMesh(selectedMeshName);
+      else focusOnLoadedModel();
+    });
+  }, [selectedBodyPart, registryTick, selectedMeshName, focusOnMesh, focusOnLoadedModel]);
+
   const resetView = useCallback(() => {
     const controls = controlsRef.current;
     const camera = cameraRef.current as THREE.PerspectiveCamera | null;
@@ -1105,6 +1498,20 @@ export default function S3Viewer() {
     controls.target.set(0, 0, 0);
     controls.update();
   }, []);
+
+  const selectBodyPart = useCallback((part: BodyPartKey) => {
+    setSelectedBodyPart(part);
+    setSelectedMode({ kind: 'none' });
+    setBoneInfo(null);
+    setLoadingInfo(false);
+    setSoloNormSet(null);
+    meshRegistryRef.current = {};
+    setRegistryTick((t) => t + 1);
+
+    requestAnimationFrame(() => {
+      resetView();
+    });
+  }, [resetView]);
 
   const setView = useCallback((pos: [number, number, number], target: [number, number, number] = [0, 0, 0]) => {
     const controls = controlsRef.current;
@@ -1376,6 +1783,10 @@ export default function S3Viewer() {
       setBoneInfo(null);
       setLoadingInfo(false);
       setSelectedMode({ kind: 'series', series });
+      setSelectedBodyPart('spine');
+      meshRegistryRef.current = {};
+      setRegistryTick((t) => t + 1);
+      setSoloNormSet(new Set(seriesNorms[series]));
 
       requestAnimationFrame(() => {
         const el = document.getElementById(`card-spine-${series}`);
@@ -1399,6 +1810,13 @@ export default function S3Viewer() {
       setSoloNormSet((prev) => (prev ? new Set([normSel]) : null));
 
       const li = findListItemByMeshName(meshName);
+      const guessedPart = getBodyPartForMeshName(meshName, li?.bone_region);
+
+      if (guessedPart && guessedPart !== selectedBodyPart) {
+        setSelectedBodyPart(guessedPart);
+        meshRegistryRef.current = {};
+        setRegistryTick((t) => t + 1);
+      }
 
       if (li) {
         setBoneInfo({
@@ -1430,7 +1848,7 @@ export default function S3Viewer() {
       requestAnimationFrame(() => focusOnMesh(meshName));
       setLoadingInfo(false);
     },
-    [findListItemByMeshName, focusOnMesh]
+    [findListItemByMeshName, focusOnMesh, selectedBodyPart]
   );
 
   useEffect(() => {
@@ -1681,6 +2099,19 @@ export default function S3Viewer() {
     fontSize: 13,
   };
 
+
+  const sTabBtn = (active: boolean): React.CSSProperties => ({
+    flex: 1,
+    height: 36,
+    borderRadius: 12,
+    border: active ? '1px solid var(--accent)' : '1px solid var(--panel-border)',
+    background: active ? 'var(--panel-btn-open-bg)' : 'var(--panel-btn-bg)',
+    color: 'var(--panel-text)',
+    cursor: 'pointer',
+    fontWeight: 900,
+    fontSize: 14,
+  });
+
   const sIconBtn: React.CSSProperties = {
     width: 34,
     height: 34,
@@ -1763,27 +2194,49 @@ export default function S3Viewer() {
           }}
         >
           <div style={{ fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap' }}>
-            骨頭清單
+            {panelMode === 'body' ? '人體部位' : '骨頭清單'}
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button style={sTopToggleBtn} onClick={toggleAllGroups}>
-              {allOpen ? '一鍵收起' : '一鍵展開'}
-            </button>
+            {panelMode === 'bone' ? (
+              <button style={sTopToggleBtn} onClick={toggleAllGroups}>
+                {allOpen ? '一鍵收起' : '一鍵展開'}
+              </button>
+            ) : null}
 
             <button
               onClick={() => setSidebarOpen(false)}
-              title="收合骨頭清單"
+              title="收合面板"
               style={sIconBtn}
             >
               ×
             </button>
           </div>
         </div>
+
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            padding: 4,
+            borderRadius: 14,
+            background: 'var(--panel-btn-bg)',
+            border: '1px solid var(--panel-border)',
+            marginBottom: 12,
+          }}
+        >
+          <button type="button" style={sTabBtn(panelMode === 'body')} onClick={() => setPanelMode('body')}>
+            人體部位
+          </button>
+          <button type="button" style={sTabBtn(panelMode === 'bone')} onClick={() => setPanelMode('bone')}>
+            骨頭清單
+          </button>
+        </div>
+
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋：尺骨、C3、脖子第三根、手腕小骨頭…"
+          placeholder={panelMode === 'body' ? '搜尋：手腕、脊椎、胸廓、足部…' : '搜尋：尺骨、C3、脖子第三根、手腕小骨頭…'}
           style={{
             width: '100%',
             padding: '10px 12px',
@@ -1795,7 +2248,52 @@ export default function S3Viewer() {
             outline: 'none',
           }}
         />
-        {(Object.keys(regionCards) as RegionKey[]).map((rk) => {
+
+        {panelMode === 'body' ? (
+          <div style={{ marginBottom: 14 }}>
+            <div
+              style={{
+                fontWeight: 900,
+                fontSize: 14,
+                marginBottom: 8,
+                opacity: 0.9,
+              }}
+            >
+              人體部位
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              {BODY_PART_BUTTONS.map((part) => (
+                <button
+                  key={part}
+                  type="button"
+                  onClick={() => selectBodyPart(part)}
+                  style={sGroupBtn(selectedBodyPart === part)}
+                >
+                  <span>{BODY_PART_LABEL[part].zh}</span>
+                  <span style={{ opacity: 0.65, fontSize: 12 }}>{BODY_PART_LABEL[part].en}</span>
+                </button>
+              ))}
+            </div>
+
+            <div
+              style={{
+                marginTop: 12,
+                padding: '10px 12px',
+                borderRadius: 12,
+                border: '1px solid var(--panel-border)',
+                background: 'var(--card-bg)',
+                fontSize: 12,
+                lineHeight: 1.6,
+                opacity: 0.82,
+              }}
+            >
+              先選人體部位載入對應 GLB；要找單一骨頭時，切到「骨頭清單」搜尋。
+            </div>
+          </div>
+        ) : null}
+
+        {panelMode === 'bone' ? (Object.keys(regionCards) as RegionKey[]).map((rk) => {
           const cards = regionCards[rk];
           if (!cards.length) return null;
 
@@ -1941,7 +2439,11 @@ export default function S3Viewer() {
                                   只顯示此骨頭
                                 </button>
                               ) : (
-                                <button style={sWholeBtn} onClick={() => setSoloNormSet(null)} title="恢復顯示全部骨頭">
+                                <button
+                                  style={sWholeBtn}
+                                  onClick={() => setSoloNormSet(null)}
+                                  title="顯示目前部位包的全部骨頭"
+                                >
                                   顯示全部
                                 </button>
                               )}
@@ -1973,7 +2475,7 @@ export default function S3Viewer() {
               )}
             </div>
           );
-        })}
+        }) : null}
       </aside>
       {!sidebarOpen && (
         <button
@@ -1996,7 +2498,7 @@ export default function S3Viewer() {
             boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
             backdropFilter: 'blur(10px)',
           }}        >
-          ☰ 骨頭清單
+          ☰ 選單
         </button>
       )}
 
@@ -2093,44 +2595,58 @@ export default function S3Viewer() {
 
         </div>
         <Canvas
-          gl={{ alpha: true }}
+          key={`s3-canvas-${canvasRevision}`}
+          dpr={[1, 1.5]}
+          gl={{
+            alpha: true,
+            antialias: false,
+            powerPreference: 'default',
+            preserveDrawingBuffer: false,
+          }}
           onCreated={({ gl }) => {
             gl.setClearColor(0x000000, 0);
+
+            const canvas = gl.domElement;
+            canvas.addEventListener(
+              'webglcontextlost',
+              (event) => {
+                event.preventDefault();
+                console.warn('[S3Viewer] WebGL context lost; auto remount disabled.');
+              },
+              false
+            );
           }}
           camera={{ position: [0, 1.5, 6], fov: 45 }}
           style={{ width: '100%', height: '100%' }}
         >
           <ambientLight intensity={0.6} />
-
           <directionalLight position={[3, 5, 2]} intensity={1.2} />
           <directionalLight position={[-3, 2, -2]} intensity={0.6} />
-
           <hemisphereLight args={["#e0f2fe", "#1e293b", 0.5]} />
 
-          <group scale={[0.3, 0.3, 0.3]} position={[0, -0.1, 0]}>
-            <BoneModel
-              url="/models/bones.glb"
-              selectedNormSet={selectedNormSet}
-              visibleNormSet={soloNormSet} // ✅ 套用 Solo 顯示集合
-              onSelectMesh={onPickMeshFrom3D}
-              onRegistryReady={(r) => {
-                meshRegistryRef.current = r;
-                setRegistryTick((t) => t + 1);
-              }}
-            />
-          </group>
-
-          <EffectComposer multisampling={4}>
-            <Outline
-              selection={outlineSelection}
-              visibleEdgeColor={0x38bdf8}
-              hiddenEdgeColor={0x38bdf8}
-              edgeStrength={10}
-              width={2500}
-            />
-          </EffectComposer>
+          {selectedBodyPart ? (
+            <React.Suspense fallback={null}>
+              <group
+                key={`model-${selectedBodyPart}`}
+                scale={[currentBodyPartScale, currentBodyPartScale, currentBodyPartScale]}
+                position={[0, 0, 0]}
+              >
+                <BoneModel
+                  url={BODY_PART_MODEL_URL[selectedBodyPart]}
+                  selectedNormSet={selectedNormSet}
+                  visibleNormSet={soloNormSet}
+                  onSelectMesh={onPickMeshFrom3D}
+                  onRegistryReady={(r) => {
+                    meshRegistryRef.current = r;
+                    setRegistryTick((t) => t + 1);
+                  }}
+                />
+              </group>
+            </React.Suspense>
+          ) : null}
 
           <Controls controlsRef={controlsRef} cameraRef={cameraRef} />
+
           {!isMobile && (
             <GizmoHelper alignment="bottom-right" margin={[110, 110]}>
               <GizmoViewport
@@ -2139,6 +2655,7 @@ export default function S3Viewer() {
               />
             </GizmoHelper>
           )}
+
           <Environment preset="city" />
         </Canvas>
       </main>
