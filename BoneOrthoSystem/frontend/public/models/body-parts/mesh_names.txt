@@ -1,0 +1,875 @@
+Total mesh objects: 218
+================================================================================
+
+0001 | object.name = male_skeleton_first_anatomy_study
+     data.name   = male_skeleton_first_anatomy_study
+     collection  = Scene Collection
+
+0002 | object.name = male_skeleton_first_anatomy_study.001
+     data.name   = male_skeleton_first_anatomy_study.001
+     collection  = Scene Collection
+
+0003 | object.name = male_skeleton_first_anatomy_study.002
+     data.name   = male_skeleton_first_anatomy_study.002
+     collection  = Scene Collection
+
+0004 | object.name = male_skeleton_first_anatomy_study.003
+     data.name   = male_skeleton_first_anatomy_study.003
+     collection  = Scene Collection
+
+0005 | object.name = male_skeleton_first_anatomy_study.004
+     data.name   = male_skeleton_first_anatomy_study.004
+     collection  = Scene Collection
+
+0006 | object.name = male_skeleton_first_anatomy_study.005
+     data.name   = male_skeleton_first_anatomy_study.005
+     collection  = Scene Collection
+
+0007 | object.name = male_skeleton_first_anatomy_study.006
+     data.name   = male_skeleton_first_anatomy_study.006
+     collection  = Scene Collection
+
+0008 | object.name = male_skeleton_first_anatomy_study.007
+     data.name   = male_skeleton_first_anatomy_study.007
+     collection  = Scene Collection
+
+0009 | object.name = male_skeleton_first_anatomy_study.008
+     data.name   = male_skeleton_first_anatomy_study.008
+     collection  = Scene Collection
+
+0010 | object.name = male_skeleton_first_anatomy_study.009
+     data.name   = male_skeleton_first_anatomy_study.009
+     collection  = Scene Collection
+
+0011 | object.name = C2
+     data.name   = C2
+     collection  = Scene Collection
+
+0012 | object.name = C1
+     data.name   = C1
+     collection  = Scene Collection
+
+0013 | object.name = C3
+     data.name   = C3
+     collection  = Scene Collection
+
+0014 | object.name = C4
+     data.name   = C4
+     collection  = Scene Collection
+
+0015 | object.name = C5
+     data.name   = C5
+     collection  = Scene Collection
+
+0016 | object.name = C6
+     data.name   = C6
+     collection  = Scene Collection
+
+0017 | object.name = C7
+     data.name   = C7
+     collection  = Scene Collection
+
+0018 | object.name = T1
+     data.name   = T1
+     collection  = Scene Collection
+
+0019 | object.name = T2
+     data.name   = T2
+     collection  = Scene Collection
+
+0020 | object.name = T3
+     data.name   = T3
+     collection  = Scene Collection
+
+0021 | object.name = T4
+     data.name   = T4
+     collection  = Scene Collection
+
+0022 | object.name = T5
+     data.name   = T5
+     collection  = Scene Collection
+
+0023 | object.name = T6
+     data.name   = T6
+     collection  = Scene Collection
+
+0024 | object.name = T7
+     data.name   = T7
+     collection  = Scene Collection
+
+0025 | object.name = T8
+     data.name   = T8
+     collection  = Scene Collection
+
+0026 | object.name = T9
+     data.name   = T9
+     collection  = Scene Collection
+
+0027 | object.name = T10
+     data.name   = T10
+     collection  = Scene Collection
+
+0028 | object.name = T11
+     data.name   = T11
+     collection  = Scene Collection
+
+0029 | object.name = T12
+     data.name   = T12
+     collection  = Scene Collection
+
+0030 | object.name = L1
+     data.name   = L1
+     collection  = Scene Collection
+
+0031 | object.name = L2
+     data.name   = L2
+     collection  = Scene Collection
+
+0032 | object.name = L3
+     data.name   = L3
+     collection  = Scene Collection
+
+0033 | object.name = L5
+     data.name   = L5
+     collection  = Scene Collection
+
+0034 | object.name = L4
+     data.name   = L4
+     collection  = Scene Collection
+
+0035 | object.name = Rib1.R
+     data.name   = Rib1.R
+     collection  = Scene Collection
+
+0036 | object.name = Rib1.L
+     data.name   = Rib1.L
+     collection  = Scene Collection
+
+0037 | object.name = Sternum
+     data.name   = Sternum
+     collection  = Scene Collection
+
+0038 | object.name = Scapulae.R
+     data.name   = Scapulae.R
+     collection  = Scene Collection
+
+0039 | object.name = Scapulae.L
+     data.name   = Scapulae.L
+     collection  = Scene Collection
+
+0040 | object.name = Clavicle.R
+     data.name   = Clavicle.R
+     collection  = Scene Collection
+
+0041 | object.name = Clavicle.L
+     data.name   = Clavicle.L
+     collection  = Scene Collection
+
+0042 | object.name = Humeri.R
+     data.name   = Humeri.R
+     collection  = Scene Collection
+
+0043 | object.name = Ulnae.R
+     data.name   = Ulnae.R
+     collection  = Scene Collection
+
+0044 | object.name = Radii.R
+     data.name   = Radii.R
+     collection  = Scene Collection
+
+0045 | object.name = Humeri.L
+     data.name   = Humeri.L
+     collection  = Scene Collection
+
+0046 | object.name = Ulnae.L
+     data.name   = Ulnae.L
+     collection  = Scene Collection
+
+0047 | object.name = Radii.L
+     data.name   = Radii.L
+     collection  = Scene Collection
+
+0048 | object.name = Index_Middle.R
+     data.name   = Index_Middle.R
+     collection  = Scene Collection
+
+0049 | object.name = Index_Proximal.R
+     data.name   = Index_Proximal.R
+     collection  = Scene Collection
+
+0050 | object.name = MetacarpalII.R
+     data.name   = MetacarpalII.R
+     collection  = Scene Collection
+
+0051 | object.name = Thumb_Distal.R
+     data.name   = Thumb_Distal.R
+     collection  = Scene Collection
+
+0052 | object.name = Thumb_Proximal.R
+     data.name   = Thumb_Proximal.R
+     collection  = Scene Collection
+
+0053 | object.name = MetacarpalI.R
+     data.name   = MetacarpalI.R
+     collection  = Scene Collection
+
+0054 | object.name = Hamate.R
+     data.name   = Hamate.R
+     collection  = Scene Collection
+
+0055 | object.name = Capitate.R
+     data.name   = Capitate.R
+     collection  = Scene Collection
+
+0056 | object.name = Trapezium.R
+     data.name   = Trapezium.R
+     collection  = Scene Collection
+
+0057 | object.name = Trapezoid.R
+     data.name   = Trapezoid.R
+     collection  = Scene Collection
+
+0058 | object.name = Triquetrum.R
+     data.name   = Triquetrum.R
+     collection  = Scene Collection
+
+0059 | object.name = Pisiform.R
+     data.name   = Pisiform.R
+     collection  = Scene Collection
+
+0060 | object.name = Lunate.R
+     data.name   = Lunate.R
+     collection  = Scene Collection
+
+0061 | object.name = Scaphoid.R
+     data.name   = Scaphoid.R
+     collection  = Scene Collection
+
+0062 | object.name = Little_Distal.R
+     data.name   = Little_Distal.R
+     collection  = Scene Collection
+
+0063 | object.name = Middle_Proximal.R
+     data.name   = Middle_Proximal.R
+     collection  = Scene Collection
+
+0064 | object.name = MetacarpalIII.R
+     data.name   = MetacarpalIII.R
+     collection  = Scene Collection
+
+0065 | object.name = Ring_Middle.R
+     data.name   = Ring_Middle.R
+     collection  = Scene Collection
+
+0066 | object.name = MetacarpalIV.R
+     data.name   = MetacarpalIV.R
+     collection  = Scene Collection
+
+0067 | object.name = Little_Middle.R
+     data.name   = Little_Middle.R
+     collection  = Scene Collection
+
+0068 | object.name = Little_Proximal.R
+     data.name   = Little_Proximal.R
+     collection  = Scene Collection
+
+0069 | object.name = MetacarpalV.R
+     data.name   = MetacarpalV.R
+     collection  = Scene Collection
+
+0070 | object.name = Index_Middle.L
+     data.name   = Index_Middle.L
+     collection  = Scene Collection
+
+0071 | object.name = Index_Proximal.L
+     data.name   = Index_Proximal.L
+     collection  = Scene Collection
+
+0072 | object.name = MetacarpalII.L
+     data.name   = MetacarpalII.L
+     collection  = Scene Collection
+
+0073 | object.name = Thumb_Distal.L
+     data.name   = Thumb_Distal.L
+     collection  = Scene Collection
+
+0074 | object.name = Thumb_Proximal.L
+     data.name   = Thumb_Proximal.L
+     collection  = Scene Collection
+
+0075 | object.name = MetacarpalI.L
+     data.name   = MetacarpalI.L
+     collection  = Scene Collection
+
+0076 | object.name = Hamate.L
+     data.name   = Hamate.L
+     collection  = Scene Collection
+
+0077 | object.name = Capitate.L
+     data.name   = Capitate.L
+     collection  = Scene Collection
+
+0078 | object.name = Trapezium.L
+     data.name   = Trapezium.L
+     collection  = Scene Collection
+
+0079 | object.name = Trapezoid.L
+     data.name   = Trapezoid.L
+     collection  = Scene Collection
+
+0080 | object.name = Triquetrum.L
+     data.name   = Triquetrum.L
+     collection  = Scene Collection
+
+0081 | object.name = Pisiform.L
+     data.name   = Pisiform.L
+     collection  = Scene Collection
+
+0082 | object.name = Lunate.L
+     data.name   = Lunate.L
+     collection  = Scene Collection
+
+0083 | object.name = Scaphoid.L
+     data.name   = Scaphoid.L
+     collection  = Scene Collection
+
+0084 | object.name = Little_Distal.L
+     data.name   = Little_Distal.L
+     collection  = Scene Collection
+
+0085 | object.name = Middle_Proximal.L
+     data.name   = Middle_Proximal.L
+     collection  = Scene Collection
+
+0086 | object.name = MetacarpalIII.L
+     data.name   = MetacarpalIII.L
+     collection  = Scene Collection
+
+0087 | object.name = Ring_Middle.L
+     data.name   = Ring_Middle.L
+     collection  = Scene Collection
+
+0088 | object.name = MetacarpalIV.L
+     data.name   = MetacarpalIV.L
+     collection  = Scene Collection
+
+0089 | object.name = Little_Middle.L
+     data.name   = Little_Middle.L
+     collection  = Scene Collection
+
+0090 | object.name = Little_Proximal.L
+     data.name   = Little_Proximal.L
+     collection  = Scene Collection
+
+0091 | object.name = MetacarpalV.L
+     data.name   = MetacarpalV.L
+     collection  = Scene Collection
+
+0092 | object.name = Mandible
+     data.name   = Mandible
+     collection  = Scene Collection
+
+0093 | object.name = teeth
+     data.name   = teeth
+     collection  = Scene Collection
+
+0094 | object.name = Rib11.L
+     data.name   = Rib11.L
+     collection  = Scene Collection
+
+0095 | object.name = Ring_Distal.R
+     data.name   = Ring_Distal.R
+     collection  = Scene Collection
+
+0096 | object.name = Rib2.R
+     data.name   = Rib2.R
+     collection  = Scene Collection
+
+0097 | object.name = Rib3.R
+     data.name   = Rib3.R
+     collection  = Scene Collection
+
+0098 | object.name = Rib4.R
+     data.name   = Rib4.R
+     collection  = Scene Collection
+
+0099 | object.name = Rib5.R
+     data.name   = Rib5.R
+     collection  = Scene Collection
+
+0100 | object.name = Rib11.R
+     data.name   = Rib11.R
+     collection  = Scene Collection
+
+0101 | object.name = Rib12.R
+     data.name   = Rib12.R
+     collection  = Scene Collection
+
+0102 | object.name = Rib2.L
+     data.name   = Rib2.L
+     collection  = Scene Collection
+
+0103 | object.name = Rib3.L
+     data.name   = Rib3.L
+     collection  = Scene Collection
+
+0104 | object.name = Rib4.L
+     data.name   = Rib4.L
+     collection  = Scene Collection
+
+0105 | object.name = Rib5.L
+     data.name   = Rib5.L
+     collection  = Scene Collection
+
+0106 | object.name = Rib12.L
+     data.name   = Rib12.L
+     collection  = Scene Collection
+
+0107 | object.name = Index_Distal.R
+     data.name   = Index_Distal.R
+     collection  = Scene Collection
+
+0108 | object.name = Middle_Distal.R
+     data.name   = Middle_Distal.R
+     collection  = Scene Collection
+
+0109 | object.name = Middle_Middle.R
+     data.name   = Middle_Middle.R
+     collection  = Scene Collection
+
+0110 | object.name = Ring_Proximal.R
+     data.name   = Ring_Proximal.R
+     collection  = Scene Collection
+
+0111 | object.name = Index_Distal.L
+     data.name   = Index_Distal.L
+     collection  = Scene Collection
+
+0112 | object.name = Middle_Distal.L
+     data.name   = Middle_Distal.L
+     collection  = Scene Collection
+
+0113 | object.name = Ring_Distal.L
+     data.name   = Ring_Distal.L
+     collection  = Scene Collection
+
+0114 | object.name = Middle_Middle.L
+     data.name   = Middle_Middle.L
+     collection  = Scene Collection
+
+0115 | object.name = Ring_Proximal.L
+     data.name   = Ring_Proximal.L
+     collection  = Scene Collection
+
+0116 | object.name = Femora.R
+     data.name   = Femora.R
+     collection  = Scene Collection
+
+0117 | object.name = Tibiae.R
+     data.name   = Tibiae.R
+     collection  = Scene Collection
+
+0118 | object.name = Fibulae.R
+     data.name   = Fibulae.R
+     collection  = Scene Collection
+
+0119 | object.name = Femora.L
+     data.name   = Femora.L
+     collection  = Scene Collection
+
+0120 | object.name = Tibiae.L
+     data.name   = Tibiae.L
+     collection  = Scene Collection
+
+0121 | object.name = Fibulae.L
+     data.name   = Fibulae.L
+     collection  = Scene Collection
+
+0122 | object.name = Patellae.R
+     data.name   = Patellae.R
+     collection  = Scene Collection
+
+0123 | object.name = Patellae.L
+     data.name   = Patellae.L
+     collection  = Scene Collection
+
+0124 | object.name = MetatarsalII.R
+     data.name   = MetatarsalII.R
+     collection  = Scene Collection
+
+0125 | object.name = Second_Proximal.R
+     data.name   = Second_Proximal.R
+     collection  = Scene Collection
+
+0126 | object.name = Second_Middle.R
+     data.name   = Second_Middle.R
+     collection  = Scene Collection
+
+0127 | object.name = Second_Distal.R
+     data.name   = Second_Distal.R
+     collection  = Scene Collection
+
+0128 | object.name = MetatarsalI.R
+     data.name   = MetatarsalI.R
+     collection  = Scene Collection
+
+0129 | object.name = Hallux_Proximal.R
+     data.name   = Hallux_Proximal.R
+     collection  = Scene Collection
+
+0130 | object.name = Hallux_Distal.R
+     data.name   = Hallux_Distal.R
+     collection  = Scene Collection
+
+0131 | object.name = Cuboid.R
+     data.name   = Cuboid.R
+     collection  = Scene Collection
+
+0132 | object.name = Intermediate cuneiform.R
+     data.name   = Intermediate cuneiform.R
+     collection  = Scene Collection
+
+0133 | object.name = Navicular.R
+     data.name   = Navicular.R
+     collection  = Scene Collection
+
+0134 | object.name = Medial cuneiform.R
+     data.name   = Medial cuneiform.R
+     collection  = Scene Collection
+
+0135 | object.name = Calcaneus.R
+     data.name   = Calcaneus.R
+     collection  = Scene Collection
+
+0136 | object.name = Talus.R
+     data.name   = Talus.R
+     collection  = Scene Collection
+
+0137 | object.name = Third_Distal.R
+     data.name   = Third_Distal.R
+     collection  = Scene Collection
+
+0138 | object.name = Third_Middle.R
+     data.name   = Third_Middle.R
+     collection  = Scene Collection
+
+0139 | object.name = Third_Proximal.R
+     data.name   = Third_Proximal.R
+     collection  = Scene Collection
+
+0140 | object.name = MetatarsalIII.R
+     data.name   = MetatarsalIII.R
+     collection  = Scene Collection
+
+0141 | object.name = MetatarsalIV.R
+     data.name   = MetatarsalIV.R
+     collection  = Scene Collection
+
+0142 | object.name = Fourth_Proximal.R
+     data.name   = Fourth_Proximal.R
+     collection  = Scene Collection
+
+0143 | object.name = Fourth_Middle.R
+     data.name   = Fourth_Middle.R
+     collection  = Scene Collection
+
+0144 | object.name = Fourth_Distal.R
+     data.name   = Fourth_Distal.R
+     collection  = Scene Collection
+
+0145 | object.name = MetatarsalV.R
+     data.name   = MetatarsalV.R
+     collection  = Scene Collection
+
+0146 | object.name = fifth_Proximal.R
+     data.name   = fifth_Proximal.R
+     collection  = Scene Collection
+
+0147 | object.name = fifth_Middle.R
+     data.name   = fifth_Middle.R
+     collection  = Scene Collection
+
+0148 | object.name = fifth_Distal.R
+     data.name   = fifth_Distal.R
+     collection  = Scene Collection
+
+0149 | object.name = Lateral cuneiform.R
+     data.name   = Lateral cuneiform.R
+     collection  = Scene Collection
+
+0150 | object.name = MetatarsalII.L
+     data.name   = MetatarsalII.L
+     collection  = Scene Collection
+
+0151 | object.name = Second_Proximal.L
+     data.name   = Second_Proximal.L
+     collection  = Scene Collection
+
+0152 | object.name = Second_Middle.L
+     data.name   = Second_Middle.L
+     collection  = Scene Collection
+
+0153 | object.name = Second_Distal.L
+     data.name   = Second_Distal.L
+     collection  = Scene Collection
+
+0154 | object.name = MetatarsalI.L
+     data.name   = MetatarsalI.L
+     collection  = Scene Collection
+
+0155 | object.name = Hallux_Proximal.L
+     data.name   = Hallux_Proximal.L
+     collection  = Scene Collection
+
+0156 | object.name = Hallux_Distal.L
+     data.name   = Hallux_Distal.L
+     collection  = Scene Collection
+
+0157 | object.name = Cuboid.L
+     data.name   = Cuboid.L
+     collection  = Scene Collection
+
+0158 | object.name = Intermediate cuneiform.L
+     data.name   = Intermediate cuneiform.L
+     collection  = Scene Collection
+
+0159 | object.name = Navicular.L
+     data.name   = Navicular.L
+     collection  = Scene Collection
+
+0160 | object.name = Medial cuneiform.L
+     data.name   = Medial cuneiform.L
+     collection  = Scene Collection
+
+0161 | object.name = Calcaneus.L
+     data.name   = Calcaneus.L
+     collection  = Scene Collection
+
+0162 | object.name = Talus.L
+     data.name   = Talus.L
+     collection  = Scene Collection
+
+0163 | object.name = Third_Distal.L
+     data.name   = Third_Distal.L
+     collection  = Scene Collection
+
+0164 | object.name = Third_Middle.L
+     data.name   = Third_Middle.L
+     collection  = Scene Collection
+
+0165 | object.name = Third_Proximal.L
+     data.name   = Third_Proximal.L
+     collection  = Scene Collection
+
+0166 | object.name = MetatarsalIII.L
+     data.name   = MetatarsalIII.L
+     collection  = Scene Collection
+
+0167 | object.name = MetatarsalIV.L
+     data.name   = MetatarsalIV.L
+     collection  = Scene Collection
+
+0168 | object.name = Fourth_Proximal.L
+     data.name   = Fourth_Proximal.L
+     collection  = Scene Collection
+
+0169 | object.name = Fourth_Middle.L
+     data.name   = Fourth_Middle.L
+     collection  = Scene Collection
+
+0170 | object.name = Fourth_Distal.L
+     data.name   = Fourth_Distal.L
+     collection  = Scene Collection
+
+0171 | object.name = MetatarsalV.L
+     data.name   = MetatarsalV.L
+     collection  = Scene Collection
+
+0172 | object.name = fifth_Proximal.L
+     data.name   = fifth_Proximal.L
+     collection  = Scene Collection
+
+0173 | object.name = fifth_Middle.L
+     data.name   = fifth_Middle.L
+     collection  = Scene Collection
+
+0174 | object.name = fifth_Distal.L
+     data.name   = fifth_Distal.L
+     collection  = Scene Collection
+
+0175 | object.name = Lateral cuneiform.L
+     data.name   = Lateral cuneiform.L
+     collection  = Scene Collection
+
+0176 | object.name = Rib6.L
+     data.name   = Rib6.L
+     collection  = Scene Collection
+
+0177 | object.name = Rib7.L
+     data.name   = Rib7.L
+     collection  = Scene Collection
+
+0178 | object.name = Rib8.L
+     data.name   = Rib8.L
+     collection  = Scene Collection
+
+0179 | object.name = Rib9.L
+     data.name   = Rib9.L
+     collection  = Scene Collection
+
+0180 | object.name = Rib10.L
+     data.name   = Rib10.L
+     collection  = Scene Collection
+
+0181 | object.name = Rib6.R
+     data.name   = Rib6.R
+     collection  = Scene Collection
+
+0182 | object.name = Rib7.R
+     data.name   = Rib7.R
+     collection  = Scene Collection
+
+0183 | object.name = Rib8.R
+     data.name   = Rib8.R
+     collection  = Scene Collection
+
+0184 | object.name = Rib9.R
+     data.name   = Rib9.R
+     collection  = Scene Collection
+
+0185 | object.name = Rib10.R
+     data.name   = Rib10.R
+     collection  = Scene Collection
+
+0186 | object.name = HipBone.L
+     data.name   = HipBone.L
+     collection  = Scene Collection
+
+0187 | object.name = HipBone.R
+     data.name   = HipBone.R
+     collection  = Scene Collection
+
+0188 | object.name = Coccyx
+     data.name   = Coccyx
+     collection  = Scene Collection
+
+0189 | object.name = Sacrum
+     data.name   = Sacrum
+     collection  = Scene Collection
+
+0190 | object.name = male_skeleton_first_anatomy_study.010
+     data.name   = male_skeleton_first_anatomy_study.010
+     collection  = Scene Collection
+
+0191 | object.name = Nasal bones.R
+     data.name   = Nasal bones.R
+     collection  = Scene Collection
+
+0192 | object.name = Nasal bones.L
+     data.name   = Nasal bones.L
+     collection  = Scene Collection
+
+0193 | object.name = Frontal bone
+     data.name   = Frontal bone
+     collection  = Scene Collection
+
+0194 | object.name = Zygomatic bones.R
+     data.name   = Zygomatic bones.R
+     collection  = Scene Collection
+
+0195 | object.name = Zygomatic bones.L
+     data.name   = Zygomatic bones.L
+     collection  = Scene Collection
+
+0196 | object.name = Maxilla.R
+     data.name   = Maxilla.R
+     collection  = Scene Collection
+
+0197 | object.name = Maxilla.L
+     data.name   = Maxilla.L
+     collection  = Scene Collection
+
+0198 | object.name = Lacrimal bones.L
+     data.name   = Lacrimal bones.L
+     collection  = Scene Collection
+
+0199 | object.name = Lacrimal bones.R
+     data.name   = Lacrimal bones.R
+     collection  = Scene Collection
+
+0200 | object.name = Parietal bone.L
+     data.name   = Parietal bone.L
+     collection  = Scene Collection
+
+0201 | object.name = Parietal bone.R
+     data.name   = Parietal bone.R
+     collection  = Scene Collection
+
+0202 | object.name = Occipital bone
+     data.name   = Occipital bone
+     collection  = Scene Collection
+
+0203 | object.name = Vomer
+     data.name   = Vomer
+     collection  = Scene Collection
+
+0204 | object.name = Incus.R
+     data.name   = Incus.R
+     collection  = Scene Collection
+
+0205 | object.name = Malleus.R
+     data.name   = Malleus.R
+     collection  = Scene Collection
+
+0206 | object.name = Stapes.R
+     data.name   = Stapes.R
+     collection  = Scene Collection
+
+0207 | object.name = Temporal..L
+     data.name   = Temporal..L
+     collection  = Scene Collection
+
+0208 | object.name = Temporal.R
+     data.name   = Temporal.R
+     collection  = Scene Collection
+
+0209 | object.name = Sphenoid
+     data.name   = Sphenoid
+     collection  = Scene Collection
+
+0210 | object.name = Stapes.L
+     data.name   = Stapes.L
+     collection  = Scene Collection
+
+0211 | object.name = Malleus.L
+     data.name   = Malleus.L
+     collection  = Scene Collection
+
+0212 | object.name = Incus.L
+     data.name   = Incus.L
+     collection  = Scene Collection
+
+0213 | object.name = Hyoid
+     data.name   = Hyoid
+     collection  = Scene Collection
+
+0214 | object.name = Palatine.R
+     data.name   = Palatine.R
+     collection  = Scene Collection
+
+0215 | object.name = Palatine.L
+     data.name   = Palatine.L
+     collection  = Scene Collection
+
+0216 | object.name = Etmoide
+     data.name   = Etmoide
+     collection  = Scene Collection
+
+0217 | object.name = Inferior nasal conchae.R
+     data.name   = Inferior nasal conchae.R
+     collection  = Scene Collection
+
+0218 | object.name = Inferior nasal conchae.L
+     data.name   = Inferior nasal conchae.L
+     collection  = Scene Collection
+

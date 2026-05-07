@@ -1,0 +1,12 @@
+Unused mesh count: 10
+================================================================================
+male_skeleton_first_anatomy_study
+male_skeleton_first_anatomy_study.001
+male_skeleton_first_anatomy_study.002
+male_skeleton_first_anatomy_study.003
+male_skeleton_first_anatomy_study.004
+male_skeleton_first_anatomy_study.005
+male_skeleton_first_anatomy_study.006
+male_skeleton_first_anatomy_study.007
+male_skeleton_first_anatomy_study.008
+male_skeleton_first_anatomy_study.009
