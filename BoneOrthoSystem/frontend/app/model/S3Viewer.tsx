@@ -1,6 +1,7 @@
 // frontend/app/model/S3Viewer.tsx
 'use client';
 
+import Bone2DPanel from './Bone2DPanel';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // import { useSearchParams } from 'next/navigation';
 import { useSearchParams, useRouter } from "next/navigation";
@@ -18,7 +19,7 @@ import * as THREE from 'three';
 
 import "./3d_mobile.css";
 
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
+const API_BASE = '';
 
 // 目前先停用完整 bones.glb，避免 WebGL Context Lost。
 // 之後拆成部位 GLB 後，再改成依人體部位載入對應模型。
@@ -2594,6 +2595,35 @@ export default function S3Viewer() {
           )}
 
         </div>
+
+        {/* 右側 2D 正反面骨骼對應圖 */}
+        <div
+          className="s3-2d-panel"
+          style={{
+            position: 'absolute',
+            top: 174,
+            right: 18,
+            zIndex: 18,
+            width: 280,
+            maxHeight: 'calc(100% - 198px)',
+            pointerEvents: 'auto',
+          }}
+        >
+          <Bone2DPanel
+            selectedBoneName={
+              [
+                selectedMeshName,
+                boneInfo?.bone_zh,
+                boneInfo?.bone_en,
+                boneInfo?.bone_region,
+                boneInfo?.bone_desc,
+              ]
+                .filter(Boolean)
+                .join(' ') || null
+            }
+          />
+        </div>
+
         <Canvas
           key={`s3-canvas-${canvasRevision}`}
           dpr={[1, 1.5]}

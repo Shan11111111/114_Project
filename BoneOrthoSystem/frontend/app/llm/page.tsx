@@ -26,10 +26,10 @@ import { getUser } from "../lib/auth";
 import {
   messages as i18nMessages,
   LOCALE_LABELS,
-  getSavedLocale,
-  saveLocale,
   type AppLocale,
 } from "../lib/i18n";
+
+import { useLocale } from "../context/LocaleContext";
 
 import {
   detectSensitiveInfo,
@@ -1011,11 +1011,17 @@ function ThreadMoreMenu({
   onDelete,
   onShare,
   NAV_HOVER_BG,
+  moreLabel,
+  shareLabel,
+  deleteLabel,
 }: {
   threadId: string;
   onDelete: () => void;
   onShare: () => void;
   NAV_HOVER_BG: string;
+  moreLabel: string;
+  shareLabel: string;
+  deleteLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -1041,7 +1047,7 @@ function ThreadMoreMenu({
           setOpen((v) => !v);
         }}
         className="w-5 h-5 flex items-center justify-center rounded-md opacity-60 hover:opacity-100"
-        title="更多"
+        title={moreLabel}
         aria-label={`More actions for ${threadId}`}
       >
         <i className="fa-solid fa-ellipsis text-xs" />
@@ -1059,7 +1065,7 @@ function ThreadMoreMenu({
         >
           <MenuItem
             icon="fa-solid fa-share-nodes"
-            label="分享"
+            label={shareLabel}
             hoverBg={NAV_HOVER_BG}
             onClick={() => {
               setOpen(false);
@@ -1068,7 +1074,7 @@ function ThreadMoreMenu({
           />
           <MenuItem
             icon="fa-solid fa-trash"
-            label="刪除"
+            label={deleteLabel}
             danger
             hoverBg={NAV_HOVER_BG}
             onClick={() => {
@@ -1087,6 +1093,7 @@ function ThreadMoreMenu({
 // ============================================================
 const HistoryOverlay = memo(function HistoryOverlay({
   isOpen,
+  t,
   onClose,
   historyThreads,
   historyMessages,
@@ -1103,6 +1110,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
   renderResources,
 }: {
   isOpen: boolean;
+  t: (key: string) => string;
   onClose: () => void;
   historyThreads: HistoryThread[];
   historyMessages: HistoryMessage[];
@@ -1243,7 +1251,9 @@ const HistoryOverlay = memo(function HistoryOverlay({
             style={{ borderColor: "rgba(148,163,184,0.20)" }}
           >
             <div>
-              <div className="text-sm font-semibold">對話紀錄</div>
+              <div className="text-sm font-semibold">
+                {t("llm.chatHistory")}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -1261,7 +1271,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                   (e.currentTarget.style.backgroundColor = "transparent")
                 }
                 onClick={onClose}
-                title="關閉"
+                title={t("llm.close")}
                 aria-label="Close"
               >
                 <i className="fa-solid fa-xmark text-[14px] opacity-70" />
@@ -1289,7 +1299,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                   <input
                     ref={historyInputRef}
                     type="text"
-                    placeholder="搜尋對話紀錄"
+                    placeholder={t("llm.searchHistory")}
                     defaultValue={historyLiveValueRef.current}
                     className="flex-1 bg-transparent outline-none text-sm"
                     style={{ color: "var(--foreground)" }}
@@ -1324,7 +1334,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                       style={{ backgroundColor: "transparent" }}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={clearAll}
-                      title="清除"
+                      title={t("llm.clear")}
                       aria-label="Clear"
                     >
                       <i className="fa-solid fa-xmark text-[12px] opacity-70" />
@@ -1333,7 +1343,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                 </div>
 
                 <div className="mt-2 text-[10px] opacity-50">
-                  {isPending ? "更新中…" : " "}
+                  {isPending ? t("llm.updating") : " "}
                 </div>
               </div>
 
@@ -1342,14 +1352,13 @@ const HistoryOverlay = memo(function HistoryOverlay({
                 style={{ scrollbarGutter: "stable" as any }}
               >
                 {filteredThreads.length === 0 ? (
-                  <div className="p-4 text-sm opacity-60">沒有符合的對話</div>
+                  <div className="p-4 text-sm opacity-60">{t("llm.noMatchedChats")}</div>
                 ) : (
-                  filteredThreads.map((t) => {
-                    const active = t.id === activeThreadId;
-
+                  filteredThreads.map((thread) => {
+                    const active = thread.id === activeThreadId;
                     return (
                       <div
-                        key={t.id}
+                        key={thread.id}
                         className="w-full rounded-lg transition mb-1"
                         style={{
                           backgroundColor: active ? NAV_ACTIVE_BG : "transparent",
@@ -1368,15 +1377,15 @@ const HistoryOverlay = memo(function HistoryOverlay({
                             type="button"
                             tabIndex={-1}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => onSelectThread(t.id)}
+                            onClick={() => onSelectThread(thread.id)}
                             className="min-w-0 flex-1 text-left px-3 py-2 rounded-lg"                          >
-                            <div className="text-sm font-medium truncate">{t.title}</div>
+                            <div className="text-sm font-medium truncate">{thread.title}</div>
 
                             <div className="text-[12px] opacity-70 mt-1 line-clamp-1">
-                              {t.preview}
+                              {thread.preview}
                             </div>
                             <div className="text-[11px] opacity-50 mt-2">
-                              {t.messageCount} 則訊息
+                              {thread.messageCount} {t("llm.messages")}
                             </div>
                           </button>
 
@@ -1386,10 +1395,13 @@ const HistoryOverlay = memo(function HistoryOverlay({
                             onMouseDown={(e) => e.stopPropagation()}
                           >
                             <ThreadMoreMenu
-                              threadId={t.id}
+                              threadId={thread.id}
                               NAV_HOVER_BG={NAV_HOVER_BG}
-                              onShare={() => onShareThread(t.id)}
-                              onDelete={() => onDeleteThread(t.id)}
+                              moreLabel={t("llm.more")}
+                              shareLabel={t("llm.share")}
+                              deleteLabel={t("llm.delete")}
+                              onShare={() => onShareThread(thread.id)}
+                              onDelete={() => onDeleteThread(thread.id)}
                             />
                           </div>
                         </div>
@@ -1410,7 +1422,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                   onClick={() => onSelectThread("")}
                 >
                   <i className="fa-solid fa-angle-left" />
-                  返回列表
+                  {t("llm.backToList")}
                 </button>
               </div>
 
@@ -1449,11 +1461,11 @@ const HistoryOverlay = memo(function HistoryOverlay({
                   ) : (
                     <div
                       className="text-sm font-semibold truncate cursor-text"
-                      title="點一下可重新命名"
+                      title={t("llm.rename")}
                       onClick={beginRename}
                       onDoubleClick={beginRename}
                     >
-                      {currentThread?.title || "未選擇對話"}
+                      {currentThread?.title || t("llm.noConversationSelected")}
                     </div>
                   )}
                 </div>
@@ -1469,9 +1481,9 @@ const HistoryOverlay = memo(function HistoryOverlay({
                       (e.currentTarget.style.backgroundColor = "transparent")
                     }
                     onClick={beginRename}
-                    title="重新命名此對話"
+                    title={t("llm.renameConversation")}
                   >
-                    <i className="fa-solid fa-pen"></i> 重新命名
+                    <i className="fa-solid fa-pen"></i> {t("llm.rename")}
                   </button>
 
                   <button
@@ -1485,17 +1497,17 @@ const HistoryOverlay = memo(function HistoryOverlay({
                       (e.currentTarget.style.backgroundColor = "transparent")
                     }
                     onClick={() => onLoadThreadToMain(activeThreadId)}
-                    title="回到主畫面並繼續聊天"
+                    title={t("llm.continueChat")}
                   >
                     <i className="fa-regular fa-comment"></i>
-                    繼續聊天
+                    {t("llm.continueChat")}
                   </button>
                 </div>
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
                 {threadMessages.length === 0 ? (
-                  <div className="text-sm opacity-60">這個對話目前沒有訊息</div>
+                  <div className="text-sm opacity-60">{t("llm.noMessages")}</div>
                 ) : (
                   threadMessages.map((m) => {
                     const isUser = m.role === "user";
@@ -1533,7 +1545,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
             className="px-4 py-3 border-t text-[11px] opacity-60"
             style={{ borderColor: "rgba(148,163,184,0.20)" }}
           >
-            提示：按 ESC 可關閉
+            {t("llm.pressEscToClose")}
           </div>
         </div>
       </div>
@@ -1543,12 +1555,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
 
 function LLMClient() {
   const searchParams = useSearchParams();
-
-  const [locale, setLocale] = useState<AppLocale>("zh-TW");
-
-  useEffect(() => {
-    setLocale(getSavedLocale());
-  }, []);
+  const { locale } = useLocale();
 
   const t = useCallback(
     (key: string) =>
@@ -1558,33 +1565,6 @@ function LLMClient() {
 
   function getWelcomeText(nextLocale: AppLocale = locale) {
     return i18nMessages[nextLocale]?.welcomeText || i18nMessages["zh-TW"].welcomeText;
-  }
-
-  function changeLocale(nextLocale: AppLocale) {
-    setLocale(nextLocale);
-    saveLocale(nextLocale);
-
-    setMessages((prev) => {
-      // 只有目前畫面還是單純歡迎訊息時，才直接替換歡迎詞
-      if (
-        prev.length === 1 &&
-        prev[0]?.role === "assistant" &&
-        (
-          prev[0]?.content === WELCOME_TEXT ||
-          prev[0]?.content === i18nMessages["zh-TW"].welcomeText ||
-          prev[0]?.content === i18nMessages["en-US"].welcomeText
-        )
-      ) {
-        return [
-          {
-            ...prev[0],
-            content: i18nMessages[nextLocale].welcomeText,
-          },
-        ];
-      }
-
-      return prev;
-    });
   }
 
   const urlBone = searchParams.get("bone") || "";
@@ -1707,6 +1687,28 @@ function LLMClient() {
       content: i18nMessages["zh-TW"].welcomeText,
     },
   ]);
+  useEffect(() => {
+    setMessages((prev) => {
+      if (
+        prev.length === 1 &&
+        prev[0]?.role === "assistant" &&
+        (
+          prev[0]?.content === WELCOME_TEXT ||
+          prev[0]?.content === i18nMessages["zh-TW"].welcomeText ||
+          prev[0]?.content === i18nMessages["en-US"].welcomeText
+        )
+      ) {
+        return [
+          {
+            ...prev[0],
+            content: i18nMessages[locale].welcomeText,
+          },
+        ];
+      }
+
+      return prev;
+    });
+  }, [locale]);
 
   //  儲存最新 messages 到 ref（避免在 streaming 回應時因 state 更新導致的 closure 問題）
   const latestMessagesRef = useRef<ChatMessage[]>([]);
@@ -3714,7 +3716,7 @@ function LLMClient() {
       >
         <ToolMenuItem
           iconClass="fa-solid fa-cloud-arrow-up"
-          label={t("uploadFile")}
+          label={t("llm.uploadFile")}
           onClick={() => {
             setShowToolMenu(false);
             handleUploadClick();
@@ -3723,12 +3725,12 @@ function LLMClient() {
         <ToolMenuDivider />
         <ToolMenuItem
           iconClass="fa-solid fa-file-pdf"
-          label={t("exportPdf")}
+          label={t("llm.exportPdf")}
           onClick={() => handleExport("pdf")}
         />
         <ToolMenuItem
           iconClass="fa-solid fa-file-powerpoint"
-          label={t("exportPpt")}
+          label={t("llm.exportPpt")}
           onClick={() => handleExport("pptx")}
         />
       </div>
@@ -5260,6 +5262,9 @@ function LLMClient() {
             <ThreadMoreMenu
               threadId={threadId}
               NAV_HOVER_BG={NAV_HOVER_BG}
+              moreLabel={t("llm.more")}
+              shareLabel={t("llm.share")}
+              deleteLabel={t("llm.delete")}
               onShare={() => shareThread(threadId)}
               onDelete={() => deleteThread(threadId)}
             />
@@ -5834,6 +5839,7 @@ function LLMClient() {
 
       <HistoryOverlay
         isOpen={isHistoryOpen}
+        t={t}
         onClose={() => {
           setIsHistoryOpen(false);
           setHistoryPreviewThreadId("");
@@ -5930,21 +5936,21 @@ function LLMClient() {
                   <div className="mt-1">
                     <SideRow
                       iconClass="fa-regular fa-message"
-                      label={t("newChat")}
+                      label={t("llm.newChat")}
                       onClick={() => newThread()}
                     />
                   </div>
 
                   <SideRow
                     iconClass="fa-solid fa-folder-tree"
-                    label={t("resourceManagement")}
+                    label={t("llm.resourceManagement")}
                     active={activeView === "assets"}
                     onClick={() => setActiveView("assets")}
                   />
 
                   <SideRow
                     iconClass="fa-regular fa-clock"
-                    label={t("history")}
+                    label={t("llm.history")}
                     active={isHistoryOpen}
                     onClick={() => openHistory()}
                   />
@@ -5953,15 +5959,14 @@ function LLMClient() {
                 <div className="min-h-0 flex-1 flex flex-col">
                   <div className="flex items-center justify-between px-1 mb-2">
                     <p className="text-[11px] tracking-wide opacity-60">
-                      最近對話
-                    </p>
-                    <button
+                      {t("llm.recentChats")}
+                    </p>                    <button
                       type="button"
                       className="text-[11px] opacity-60 hover:opacity-90 transition"
                       onClick={() => openHistory()}
-                      title="搜尋與管理對話"
+                      title={t("llm.searchAndManageChats")}
                     >
-                      搜尋
+                      {t("llm.search")}
                     </button>
                   </div>
 
@@ -5983,19 +5988,19 @@ function LLMClient() {
               <div className="flex flex-col items-center gap-3 pt-2">
                 <SideIconButton
                   iconClass="fa-regular fa-message"
-                  label={t("newChat")}
+                  label={t("llm.newChat")}
                   onClick={() => newThread()}
                 />
 
                 <SideIconButton
                   iconClass="fa-solid fa-folder-tree"
-                  label={t("resourceManagement")}
+                  label={t("llm.resourceManagement")}
                   active={activeView === "assets"}
                   onClick={() => setActiveView("assets")}
                 />
                 <SideIconButton
                   iconClass="fa-regular fa-clock"
-                  label={t("history")}
+                  label={t("llm.history")}
                   active={isHistoryOpen}
                   onClick={() => openHistory()}
                 />
@@ -6008,7 +6013,7 @@ function LLMClient() {
           >
             {isNavCollapsed ? (
               <div className="flex justify-center">
-                <SideIconButton iconClass="fa-solid fa-gear" label={t("settings")} />
+                <SideIconButton iconClass="fa-solid fa-gear" label={t("llm.settings")} />
               </div>
             ) : (
               <div className="space-y-2">
@@ -6020,24 +6025,9 @@ function LLMClient() {
                     className="fa-solid fa-gear text-[11px] opacity-80 leading-none"
                     style={{ lineHeight: 1 }}
                   />
-                  <span>{t("settings")}</span>
+                  <span>{t("llm.settings")}</span>
                 </button>
 
-                <select
-                  value={locale}
-                  onChange={(e) => changeLocale(e.target.value as AppLocale)}
-                  className="w-full rounded-lg border px-2 py-1 text-xs bg-transparent"
-                  style={{
-                    borderColor: "rgba(148,163,184,0.25)",
-                    color: "var(--foreground)",
-                  }}
-                >
-                  {Object.entries(LOCALE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
               </div>
             )}
           </div>
@@ -6133,7 +6123,7 @@ function LLMClient() {
                   <div className="space-y-1">
                     <SideRow
                       iconClass="fa-regular fa-message"
-                      label={t("newChat")}
+                      label={t("llm.newChat")}
                       onClick={() => {
                         newThread();
                         setIsMobileNavOpen(false);
@@ -6142,7 +6132,7 @@ function LLMClient() {
 
                     <SideRow
                       iconClass="fa-solid fa-folder-tree"
-                      label={t("resourceManagement")}
+                      label={t("llm.resourceManagement")}
                       active={activeView === "assets"}
                       onClick={() => {
                         setActiveView("assets");
@@ -6152,7 +6142,7 @@ function LLMClient() {
 
                     <SideRow
                       iconClass="fa-regular fa-clock"
-                      label={t("history")}
+                      label={t("llm.history")}
                       active={isHistoryOpen}
                       onClick={() => {
                         setIsMobileNavOpen(false);
@@ -6163,7 +6153,7 @@ function LLMClient() {
                   <div className="pt-2">
                     <div className="flex items-center justify-between px-1 mb-2">
                       <p className="text-[11px] tracking-wide opacity-60">
-                        {t("recentChats")}
+                        {t("llm.recentChats")}
                       </p>
                       <button
                         type="button"
@@ -6173,7 +6163,7 @@ function LLMClient() {
                           openHistory();
                         }}
                       >
-                        {t("search")}
+                        {t("llm.search")}
                       </button>
                     </div>
 
@@ -6203,7 +6193,7 @@ function LLMClient() {
                   className="w-full flex items-center gap-2 text-[12px] opacity-75 hover:opacity-100 transition"
                 >
                   <i className="fa-solid fa-gear text-[12px] opacity-80" />
-                  <span>{t("settings")}</span>
+                  <span>{t("llm.settings")}</span>
                 </button>
               </div>
             </aside>
@@ -6215,7 +6205,7 @@ function LLMClient() {
       {/* Main */}
       <div className="flex-1 min-h-0 flex flex-col px-6 py-6 gap-4 overflow-hidden llm-main-shell">
         {activeView === "assets" ? (
-          <PlaceholderView title={t("resourceManagement")} />
+          <PlaceholderView title={t("llm.resourceManagement")} />
         ) : (
           <section className="flex-1 min-h-0 flex flex-col relative">
             <div className="flex items-center justify-between mb-2 text-xs opacity-70 px-1" />
@@ -6354,7 +6344,7 @@ function LLMClient() {
                                     }}
                                   >
                                     <i className="fa-solid fa-sliders text-[11px] opacity-75" />
-                                    <span>{t("tools")}</span>
+                                    <span>{t("llm.tools")}</span>
                                     <span className="text-[10px]">
                                       {showToolMenu ? "▴" : "▾"}
                                     </span>
@@ -6370,7 +6360,7 @@ function LLMClient() {
                                   requestAnimationFrame(() => autoResizeTextarea());
                                 }}
                                 onKeyDown={handleKeyDown}
-                                placeholder={t("askPlaceholder")}
+                                placeholder={t("llm.askPlaceholder")}
                                 rows={1}
                                 className={`custom-scroll bg-transparent resize-none border-none outline-none text-sm leading-relaxed overflow-hidden placeholder:text-slate-500 ${isExpanded ? "w-full" : "flex-1"
                                   }`}
@@ -6442,7 +6432,7 @@ function LLMClient() {
                                     }}
                                   >
                                     <i className="fa-solid fa-sliders text-[11px] opacity-75" />
-                                    <span>{t("tools")}</span>
+                                    <span>{t("llm.tools")}</span>
                                     <span className="text-[10px]">
                                       {showToolMenu ? "▴" : "▾"}
                                     </span>

@@ -992,8 +992,145 @@ html.dark .mobile-user-card {
     height: 38px !important;
   }
 }
+/* =========================
+   Navbar Language Toggle
+========================= */
 
+/* =========================
+   Minimal Language Switch
+========================= */
 
+.lang-switch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+
+  margin-right: 18px;
+}
+
+.lang-switch-item {
+  position: relative;
+  background: transparent;
+  border: none;
+  outline: none;
+
+  padding: 0 2px;
+  margin: 0;
+
+  cursor: pointer;
+
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+
+  color: rgba(51, 65, 85, 0.72);
+
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.lang-switch-divider {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.28;
+
+  margin: 0 2px;
+
+  user-select: none;
+  pointer-events: none;
+}
+
+.lang-switch-item.active::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: -7px;
+
+  height: 2px;
+  border-radius: 999px;
+  background: #06b6d4;
+}
+
+.lang-switch-divider {
+  font-size: 13px;
+  font-weight: 600;
+
+  opacity: 0.3;
+
+  user-select: none;
+  pointer-events: none;
+}
+
+/* =========================
+   Dark Mode
+========================= */
+
+html.dark .lang-switch-item {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+html.dark .lang-switch-item:hover {
+  color: #67e8f9;
+}
+
+html.dark .lang-switch-item.active {
+  color: #ffffff;
+}
+
+html.dark .lang-switch-item.active::after {
+  background: #22d3ee;
+}
+
+/* =========================
+   Mobile
+========================= */
+
+@media (max-width: 768px) {
+  .lang-switch {
+    gap: 8px;
+  }
+
+  .lang-switch-item {
+    font-size: 13px;
+  }
+}
+/* Dark Mode */
+html.dark .lang-toggle {
+  background: rgba(15, 23, 42, 0.72);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #e5e7eb;
+
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+html.dark .lang-toggle:hover {
+  background: rgba(8, 47, 73, 0.72);
+  border-color: rgba(34, 211, 238, 0.48);
+  color: #ffffff;
+
+  box-shadow:
+    0 0 20px rgba(34, 211, 238, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .lang-toggle {
+    height: 36px;
+    min-width: 68px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .lang-toggle-icon {
+    font-size: 12px;
+  }
+}
 
 /* ============================
    其他全局樣式(教材管理)
@@ -1353,6 +1490,10 @@ html.dark .materials-table-card input:focus {
   border-color: #22d3ee !important;
 }
 
+
+
+
+
 /* ============================
    Materials Mobile Only
    只改手機版，不影響電腦版
@@ -1661,6 +1802,12 @@ html.dark .materials-table-card input:focus {
     text-align: center !important;
   }
 
+
+
+
+
+
+
   /* ============================
    只修搜尋清空 X 按鈕
    不影響右邊搜尋按鈕
@@ -1700,4 +1847,5 @@ html.dark .materials-table-card input:focus {
   html.dark .materials-table-card button[title="清空搜尋"] svg {
     color: #e5e7eb !important;
   }
+
 }

@@ -6,7 +6,20 @@ import json
 import re
 import hashlib
 from shared.vector_client import VectorStore, is_gibberish
-from qdrant_client.http.models import FieldSchema, FieldType, Nested, NestedKey, PayloadIndexParams
+try:
+    from qdrant_client.http.models import (
+        FieldSchema,
+        FieldType,
+        Nested,
+        NestedKey,
+        PayloadIndexParams,
+    )
+except ImportError:
+    FieldSchema = None
+    FieldType = None
+    Nested = None
+    NestedKey = None
+    PayloadIndexParams = None
 
 # ----------------------------
 # Load .env (BoneOrthoBackend/.env)
@@ -159,6 +172,10 @@ def ensure_payload_indexes(
     """
     為指定 collection 建立常用的 payload index，加快 filter + 搜尋。
     """
+    if FieldSchema is None or FieldType is None:
+        print("⚠️ qdrant_client 版本不支援 FieldSchema/FieldType，略過 payload index 建立")
+        return
+
     qdrant = vs.qdrant
 
     # 1. 基礎 keyword 索引

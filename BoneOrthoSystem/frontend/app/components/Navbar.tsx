@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { getUser } from "../lib/auth";
 import { logoutUser } from "../lib/auth_api";
 import { usePathname, useRouter } from "next/navigation";
+import { useLocale } from "../context/LocaleContext";
+import { messages } from "../lib/i18n";
 
 export default function Navbar() {
   const [dark, setDark] = useState(false);
@@ -12,26 +14,17 @@ export default function Navbar() {
   const [user, setUserState] = useState<any>(null);
   const [open, setOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [lang, setLang] = useState<"zh" | "en">("zh");
 
   const router = useRouter();
   const pathname = usePathname();
   const menuRef = useRef<HTMLDivElement | null>(null);
-
+  const { locale, toggleLocale } = useLocale();
+  const t = messages[locale];
 
 
   useEffect(() => {
     const isDark = document.documentElement.classList.contains("dark");
     setDark(isDark);
-
-    const savedLang = localStorage.getItem("siteLang");
-
-    if (savedLang === "en") {
-      setLang("en");
-    } else {
-      setLang("zh");
-      localStorage.setItem("siteLang", "zh");
-    }
 
     setUserState(getUser());
     setMounted(true);
@@ -58,12 +51,6 @@ export default function Navbar() {
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, []);
 
-  const toggleLang = () => {
-    const nextLang = lang === "zh" ? "en" : "zh";
-    setLang(nextLang);
-    localStorage.setItem("siteLang", nextLang);
-  };
-
   const toggleTheme = () => {
     const newDark = !dark;
     setDark(newDark);
@@ -88,7 +75,7 @@ export default function Navbar() {
   const isManager = mounted && role === "manager";
   const canAccessMaterials = mounted && (role === "teacher" || role === "manager");
   const avatarText = (user?.username?.[0] || user?.email?.[0] || "U").toUpperCase();
-  const safeLang = mounted ? lang : "zh";
+  const safeLang = locale === "zh-TW" ? "zh" : "en";
 
   return (
     <>
@@ -115,44 +102,60 @@ export default function Navbar() {
         </Link>
 
         {/* 桌機版導覽 */}
-        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-5 text-[13px]">
-          <Link href="/" className="hover-link">
-            <b>{safeLang === "zh" ? "首頁" : "Home"}</b>
-          </Link>
-          <Link href="/bonevision" className="hover-link">
-            <b>{safeLang === "zh" ? "骨骼辨識" : "Bone Detection"}</b>
-          </Link>
-          <Link href="/llm" className="hover-link">
-            <b>{safeLang === "zh" ? "骨骼知識庫" : "Bone Knowledge"}</b>
-          </Link>
+        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-7 text-[14px] whitespace-nowrap">          <Link href="/" className="hover-link">
+          <b>{t["nav.home"]}</b>
+        </Link>
+
           <Link href="/model" className="hover-link">
-            <b>{safeLang === "zh" ? "3D 骨骼模型" : "3D Bone Model"}</b>
+            <b>{t["nav.boneModel3d"]}</b>
+          </Link>
+
+          <Link href="/bonevision" className="hover-link">
+            <b>{t["nav.boneDetection"]}</b>
+          </Link>
+
+          <Link href="/llm" className="hover-link">
+            <b>{t["nav.boneKnowledge"]}</b>
           </Link>
 
           {mounted && canAccessMaterials && (
             <Link href="/llm/materials" className="hover-link">
-              <b>{safeLang === "zh" ? "教材管理" : "Materials"}</b>
+              <b>{t["nav.materials"]}</b>
             </Link>
           )}
 
           {mounted && isManager && (
             <Link href="/admin/users" className="hover-link">
-              <b>{safeLang === "zh" ? "帳號管理" : "Account"}</b>
+              <b>{t["nav.accountManagement"]}</b>
             </Link>
           )}
         </div>
 
         <div ref={menuRef} className="navbar-actions flex items-center gap-3 relative">
-          <button
-            type="button"
-            onClick={toggleLang}
-            aria-label={safeLang === "zh" ? "切換英文" : "Switch to Chinese"}
-            className="hidden md:inline-flex h-8 items-center rounded-full border border-slate-200 bg-white/70 px-3 text-[12px] font-bold tracking-wide text-slate-600 shadow-sm backdrop-blur-md transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:border-cyan-400/60 dark:hover:bg-cyan-950/40 dark:hover:text-cyan-200"
-          >
-            <i className="fa-solid fa-language mr-1.5 text-[12px]" />
-            {safeLang === "zh" ? "EN" : "中"}
-          </button>
+          <div className="lang-switch hidden md:flex items-center">
+            <button
+              type="button"
+              onClick={() => locale !== "zh-TW" && toggleLocale()}
+              aria-label={t["nav.switchToChinese"]}
+              className={`lang-switch-item ${locale === "zh-TW" ? "active" : ""
+                }`}
+            >
+              中
+            </button>
 
+            <span className="lang-switch-divider">/</span>
+
+            <button
+              type="button"
+              onClick={() => locale !== "en-US" && toggleLocale()}
+              aria-label={t["nav.switchToEnglish"]}
+              className={`lang-switch-item ${locale === "en-US" ? "active" : ""
+                }`}
+            >
+              EN
+            </button>
+          </div>
+          
           {mounted && (
             <button
               onClick={toggleTheme}
@@ -219,10 +222,9 @@ export default function Navbar() {
             <i className={`fa-solid ${mobileMenuOpen ? "fa-xmark" : "fa-bars-staggered"}`} />
             {!mobileMenuOpen && (
               <span className="navbar-hamburger-text">
-                {safeLang === "zh" ? "選單" : "Menu"}
+                {t["nav.menu"]}
               </span>
             )}
-
           </button>
 
           {/* 桌機版帳號下拉 */}
@@ -300,7 +302,6 @@ export default function Navbar() {
       )}
 
       {/* 手機版滑出選單 */}
-      {/* 手機版滑出選單 */}
       <div className={`mobile-menu-panel md:hidden ${mobileMenuOpen ? "open" : ""}`}>
         <div className="mobile-menu-links">
           {!user && (
@@ -309,7 +310,7 @@ export default function Navbar() {
               className="mobile-menu-link"
               onClick={() => setMobileMenuOpen(false)}
             >
-              {safeLang === "zh" ? "登入 / 註冊" : "Login / Register"}
+              {t["nav.loginRegister"]}
             </Link>
           )}
 
@@ -317,9 +318,10 @@ export default function Navbar() {
             <div className="mobile-user-card">
               <div className="mobile-user-head">
                 <div className="mobile-user-avatar">{avatarText}</div>
+
                 <div className="mobile-user-meta">
                   <div className="mobile-user-name">
-                    {user.username || (safeLang === "zh" ? "未命名使用者" : "Unnamed User")}
+                    {user.username || t["nav.unnamedUser"]}
                   </div>
                   <div className="mobile-user-email">{user.email}</div>
                 </div>
@@ -333,38 +335,30 @@ export default function Navbar() {
                     router.push("/auth");
                   }}
                 >
-                  {safeLang === "zh" ? "帳戶中心" : "Account Center"}
+                  {t["nav.accountCenter"]}
                 </button>
 
                 <button type="button" onClick={onLogout}>
-                  {safeLang === "zh" ? "登出" : "Logout"}
+                  {t["nav.logout"]}
                 </button>
               </div>
             </div>
           )}
 
           <Link href="/" className="mobile-menu-link" onClick={() => setMobileMenuOpen(false)}>
-            {safeLang === "zh" ? "首頁" : "Home"}
+            {t["nav.home"]}
           </Link>
 
-          <Link
-            href="/bonevision"
-            className="mobile-menu-link"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            {safeLang === "zh" ? "骨骼辨識" : "Bone Detection"}
+          <Link href="/bonevision" className="mobile-menu-link" onClick={() => setMobileMenuOpen(false)}>
+            {t["nav.boneDetection"]}
           </Link>
 
           <Link href="/llm" className="mobile-menu-link" onClick={() => setMobileMenuOpen(false)}>
-            {safeLang === "zh" ? "骨骼知識庫" : "Bone Knowledge"}
+            {t["nav.boneKnowledge"]}
           </Link>
 
-          <Link
-            href="/model"
-            className="mobile-menu-link"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            {safeLang === "zh" ? "3D 模型" : "3D Model"}
+          <Link href="/model" className="mobile-menu-link" onClick={() => setMobileMenuOpen(false)}>
+            {t["nav.boneModel3d"]}
           </Link>
 
           {canAccessMaterials && (
@@ -373,7 +367,7 @@ export default function Navbar() {
               className="mobile-menu-link"
               onClick={() => setMobileMenuOpen(false)}
             >
-              {safeLang === "zh" ? "教材管理" : "Materials"}
+              {t["nav.materials"]}
             </Link>
           )}
 
@@ -383,10 +377,10 @@ export default function Navbar() {
               className="mobile-menu-link"
               onClick={() => setMobileMenuOpen(false)}
             >
-              {safeLang === "zh" ? "帳號管理" : "Account"}
+              {t["nav.accountManagement"]}
             </Link>
           )}
         </div>
-      </div>    </>
-  );
+      </div>
+    </>);
 }
