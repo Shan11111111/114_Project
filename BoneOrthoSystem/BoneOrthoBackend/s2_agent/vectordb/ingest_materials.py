@@ -6,6 +6,7 @@ import json
 import re
 import hashlib
 from shared.vector_client import VectorStore, is_gibberish
+from qdrant_client.http.models import FieldSchema, FieldType, Nested, NestedKey, PayloadIndexParams
 
 # ----------------------------
 # Load .env (BoneOrthoBackend/.env)
@@ -150,6 +151,93 @@ def _split_paragraph(text: str, config: Dict[str, Any]) -> List[str]:
         return cleaned
 
     return [x for x in final_parts if len(x.strip()) >= min_len]
+
+def ensure_payload_indexes(
+    vs: VectorStore,
+    collection_name: str,
+):
+    """
+    為指定 collection 建立常用的 payload index，加快 filter + 搜尋。
+    """
+    qdrant = vs.qdrant
+
+    # 1. 基礎 keyword 索引
+    for field, field_type in [
+        ("material_id", FieldType.KEYWORD),
+        ("language", FieldType.KEYWORD),
+        ("type", FieldType.KEYWORD),
+        ("bone_id", FieldType.INT),
+        ("bone_small_id", FieldType.INT),
+    ]:
+        try:
+            qdrant.create_payload_index(
+                collection_name=collection_name,
+                field_name=field,
+                field_schema=FieldSchema(type=field_type),
+            )
+            print(f"✅ Payload index created: {collection_name}.{field} ({field_type})")
+        except Exception as e:
+            print(f"⚠️ Payload index {field} may already exist or failed: {e}")
+
+    # 2. 連號、頁碼等整數 index
+    for field in ["page", "slide", "chunk_index"]:
+        try:
+            qdrant.create_payload_index(
+                collection_name=collection_name,
+                field_name=field,
+                field_schema=FieldSchema(type=FieldType.INT),
+            )
+            print(f"✅ Payload index created: {collection_name}.{field} (INT)")
+        except Exception as e:
+            print(f"⚠️ Payload index {field} may already exist or failed: {e}")
+
+    # 3. tags: list of str, 建 KEYWORD 索引
+    try:
+        qdrant.create_payload_index(
+            collection_name=collection_name,
+            field_name="tags",
+            field_schema=FieldSchema(type=FieldType.KEYWORD),
+        )
+        print(f"✅ Payload index created: {collection_name}.tags")
+    except Exception as e:
+        print(f"⚠️ Payload index tags may already exist or failed: {e}")
+
+    # 4. title 文字 prefix index（可選，吃記憶體，可先註解掉）
+    try:
+        qdrant.create_payload_index(
+            collection_name=collection_name,
+            field_name="title",
+            field_schema=FieldSchema(
+                type=FieldType.TEXT,
+                tokenizer="prefix",
+                min_token_len=2,
+                max_token_len=128,
+                lowercase=True,
+            )
+        )
+        print(f"✅ Payload text index created: {collection_name}.title (prefix)")
+    except Exception as e:
+        print(f"⚠️ Payload text index title may already exist or failed: {e}")
+
+
+def index_all_materials() -> None:
+    vs = VectorStore()
+    vs.ensure_collection()
+
+    # 1. 建立 payload indexes，只需一次
+    ensure_payload_indexes(vs, vs.collection_name)
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT MaterialId FROM agent.TeachingMaterial")
+        ids = [str(row[0]) for row in cur.fetchall()]
+
+    # 這一段只跑一次即可，除非你有「重索引」需求
+    for mid in ids:
+        try:
+            index_material(mid)
+        except Exception as e:
+            print(f"❌ index failed: MaterialId={mid}, err={e}")
 
 
 def _resolve_config(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -542,7 +630,18 @@ def index_material(material_id: str) -> None:
 
     vs.upsert_docs(docs)
     print(f"✅ 材料 {material_id_str} 已寫入向量庫，共 {len(docs)} chunks")
+    
+    
+    
+    
 def index_all_materials() -> None:
+    
+    vs = VectorStore()
+    vs.ensure_collection()  # 會建立 collection
+
+    # 1. 建立 payload indexes，只需一次
+    ensure_payload_indexes(vs, vs.collection_name)
+
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("SELECT MaterialId FROM agent.TeachingMaterial")

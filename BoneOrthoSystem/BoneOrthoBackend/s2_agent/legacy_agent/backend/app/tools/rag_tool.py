@@ -1,5 +1,5 @@
 # rag_tool.py - Retrieval-Augmented Generation (RAG) helper functions for the BoneOrthoAgent.
-#s2_agent/legacy_agent/backend/app/tools/rag_tool.py
+# s2_agent/legacy_agent/backend/app/tools/rag_tool.py
 from __future__ import annotations
 
 import os
@@ -15,6 +15,7 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 
 from .doc_tool import retrieve as doc_retrieve, is_enabled as doc_rag_enabled
 
+from qdrant_client.http import models
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
@@ -38,8 +39,26 @@ _GUID_RE = re.compile(
 )
 
 FOLLOWUP_HINTS = [
-    "那", "那個", "這個", "這種", "上述", "剛剛", "前面", "前述", "因此", "所以",
-    "然後", "接著", "它", "他", "她", "其", "該", "會嗎", "怎麼辦", "怎麼治療",
+    "那",
+    "那個",
+    "這個",
+    "這種",
+    "上述",
+    "剛剛",
+    "前面",
+    "前述",
+    "因此",
+    "所以",
+    "然後",
+    "接著",
+    "它",
+    "他",
+    "她",
+    "其",
+    "該",
+    "會嗎",
+    "怎麼辦",
+    "怎麼治療",
 ]
 
 INTENT_KEYWORDS = {
@@ -54,6 +73,16 @@ INTENT_KEYWORDS = {
     "upload_analysis": ["這份檔案", "這個檔案", "這張圖", "這份報告", "這個圖片"],
 }
 
+INTENT_KEYWORDS.update(
+    {
+        "anatomy": ["位置", "在哪", "構造", "解剖", "連接", "關節", "附近"],
+        "function": ["功能", "作用", "負責", "支撐", "保護", "活動"],
+        "image_learning": ["X光怎麼看", "影像", "判讀", "怎麼辨認", "怎麼看出來"],
+        "model_learning": ["模型", "3D", "立體", "旋轉", "看位置", "顯示骨頭"],
+        "memory": ["怎麼記", "口訣", "容易混淆", "差在哪", "怎麼分"],
+    }
+)
+
 TOPIC_HINTS = [
     "骨質疏鬆", "骨鬆", "骨質疏松",
     "血友病",
@@ -61,10 +90,38 @@ TOPIC_HINTS = [
     "糖尿病", "糖尿",
     "退化性關節炎", "關節炎", "關節退化",
     "高血壓", "血壓高",
-    "骨折", "肋骨骨折", "脛骨骨折", "腕骨",
+    "骨折", "肋骨骨折", "脛骨骨折",
     "骨密度", "DXA",
     "痛風", "高尿酸", "尿酸",
+
+    "頭顱骨", "額骨", "頂骨", "顳骨", "枕骨", "蝶骨", "篩骨",
+    "聽小骨", "錘骨", "砧骨", "鐙骨",
+    "脊椎", "頸椎", "胸椎", "腰椎", "薦椎", "尾椎",
+    "鎖骨", "肩胛骨", "肱骨", "橈骨", "尺骨",
+    "腕骨", "掌骨", "指骨",
+    "肋骨", "胸骨",
+    "髖骨", "股骨", "髕骨", "脛骨", "腓骨",
+    "跗骨", "蹠骨", "趾骨",
 ]
+
+
+# 你可以按你自己的 material 設計，這裡只作示範，之後可再調整
+TOPIC_FILTERS = {
+    "骨質疏鬆": {"must_tags": ["topic:osteoporosis"]},
+    "骨鬆": {"must_tags": ["topic:osteoporosis"]},
+    "血友病": {"must_tags": ["topic:hemophilia"]},
+    "退化性關節炎": {"must_tags": ["topic:oa"]},
+    "關節炎": {"must_tags": ["topic:oa"]},
+    "糖尿病": {"must_tags": ["topic:diabetes"]},
+    "痛風": {"must_tags": ["topic:gout"]},
+    "骨折": {"must_tags": ["topic:fracture"]},
+    "骨密度": {"must_tags": ["topic:bmd"]},
+}
+
+
+def _topic_filter_kwargs(dialog_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    topic = str((dialog_state or {}).get("current_topic") or "").strip()
+    return dict(TOPIC_FILTERS.get(topic, {}))
 
 
 def _dbg(*args: Any) -> None:
@@ -158,7 +215,9 @@ def _embed(text: str) -> List[float]:
     return list(_embed_cached(text))
 
 
-def _get_session_messages(session: dict | None, keep_last: int = 12) -> List[Dict[str, Any]]:
+def _get_session_messages(
+    session: dict | None, keep_last: int = 12
+) -> List[Dict[str, Any]]:
     if not session:
         return []
 
@@ -182,12 +241,14 @@ def _get_session_messages(session: dict | None, keep_last: int = 12) -> List[Dic
         if role not in {"user", "assistant"}:
             continue
 
-        out.append({
-            "role": role,
-            "content": str(content or "").strip(),
-            "type": msg_type,
-            "url": url,
-        })
+        out.append(
+            {
+                "role": role,
+                "content": str(content or "").strip(),
+                "type": msg_type,
+                "url": url,
+            }
+        )
 
     return out
 
@@ -231,7 +292,9 @@ def _build_dialog_state(user_q: str, session: dict | None) -> Dict[str, Any]:
     msgs = _get_session_messages(session, keep_last=6)
 
     recent_user = [m["content"] for m in msgs if m["role"] == "user" and m["content"]]
-    recent_assistant = [m["content"] for m in msgs if m["role"] == "assistant" and m["content"]]
+    recent_assistant = [
+        m["content"] for m in msgs if m["role"] == "assistant" and m["content"]
+    ]
 
     current_intent = _infer_intent(user_q)
     current_topic = _infer_topic_from_text(user_q)
@@ -257,7 +320,9 @@ def _build_dialog_state(user_q: str, session: dict | None) -> Dict[str, Any]:
     for t in recent_user[-4:]:
         intent = _infer_intent(t)
         topic = _infer_topic_from_text(t)
-        frag = " / ".join([x for x in [topic, intent if intent != "general" else ""] if x]).strip()
+        frag = " / ".join(
+            [x for x in [topic, intent if intent != "general" else ""] if x]
+        ).strip()
         if frag and frag not in recent_points:
             recent_points.append(frag)
 
@@ -285,6 +350,11 @@ def _build_retrieval_query(
 
     intent_map = {
         "definition": "定義 介紹 說明",
+        "anatomy": "位置 解剖 構造 關節 連接",
+        "function": "功能 作用 支撐 保護 活動",
+        "image_learning": "X光 影像 判讀 辨認 特徵",
+        "model_learning": "3D 模型 位置 立體 解剖",
+        "memory": "記憶 口訣 差異 比較 容易混淆",
         "symptom": "症狀 臨床表現 徵象",
         "cause": "原因 成因 危險因子",
         "risk": "高風險 危險因子 好發族群",
@@ -360,7 +430,9 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
     )
 
     page = payload.get("page") or payload.get("pageno") or payload.get("page_no")
-    chunk = payload.get("chunk") or payload.get("chunk_id") or payload.get("chunk_index")
+    chunk = (
+        payload.get("chunk") or payload.get("chunk_id") or payload.get("chunk_index")
+    )
 
     raw_material_id = payload.get("material_id")
     material_id = str(raw_material_id).strip() if raw_material_id is not None else None
@@ -374,9 +446,16 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         or ""
     ).strip()
 
-    source_type = str(
-        payload.get("source_type") or payload.get("kind") or payload.get("type") or "qdrant"
-    ).strip().lower()
+    source_type = (
+        str(
+            payload.get("source_type")
+            or payload.get("kind")
+            or payload.get("type")
+            or "qdrant"
+        )
+        .strip()
+        .lower()
+    )
 
     if source_type == "upload":
         base_view_path = None
@@ -387,11 +466,17 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         base_download_path = f"/s2/llm/materials/{safe_material_id}/download"
         external_url = raw_url if _is_https_url(raw_url) else None
     else:
-        base_view_path = raw_url if raw_url and not re.search(r"/uploads/", raw_url, re.I) else None
-        base_download_path = raw_url if raw_url and not re.search(r"/uploads/", raw_url, re.I) else None
+        base_view_path = (
+            raw_url if raw_url and not re.search(r"/uploads/", raw_url, re.I) else None
+        )
+        base_download_path = (
+            raw_url if raw_url and not re.search(r"/uploads/", raw_url, re.I) else None
+        )
         external_url = raw_url if _is_https_url(raw_url) else None
 
-    raw_snippet = payload.get("snippet") or payload.get("text") or payload.get("content") or ""
+    raw_snippet = (
+        payload.get("snippet") or payload.get("text") or payload.get("content") or ""
+    )
     snippet = ""
 
     if isinstance(raw_snippet, str):
@@ -399,8 +484,18 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
         text = re.sub(r"^(?:[\d\.\-\+\(\)\/%\sA-Za-z]{1,120})", "", text).strip()
 
         candidates = [
-            "骨質疏鬆", "骨鬆", "骨質", "骨值疏鬆", "骨質疏松", "骨質密度",
-            "診斷", "治療", "預防", "症狀", "檢測", "DXA",
+            "骨質疏鬆",
+            "骨鬆",
+            "骨質",
+            "骨值疏鬆",
+            "骨質疏松",
+            "骨質密度",
+            "診斷",
+            "治療",
+            "預防",
+            "症狀",
+            "檢測",
+            "DXA",
         ]
 
         cut_pos = None
@@ -433,40 +528,202 @@ def _payload_to_source(payload: Dict[str, Any], score: float) -> Dict[str, Any]:
     }
 
 
-def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
+def _build_qdrant_filter(
+    *,
+    material_id: str | None = None,
+    language: str | None = None,
+    doc_type: str | None = None,
+    bone_id: str | int | None = None,
+    bone_small_id: str | int | None = None,
+    must_tags: Optional[List[str]] = None,
+    exclude_tags: Optional[List[str]] = None,
+) -> Optional[models.Filter]:
+    must = []
+    must_not = []
+
+    if material_id:
+        must.append(
+            models.FieldCondition(
+                key="material_id",
+                match=models.MatchValue(value=str(material_id)),
+            )
+        )
+
+    if language:
+        must.append(
+            models.FieldCondition(
+                key="language",
+                match=models.MatchValue(value=str(language)),
+            )
+        )
+
+    if doc_type:
+        must.append(
+            models.FieldCondition(
+                key="type",
+                match=models.MatchValue(value=str(doc_type)),
+            )
+        )
+
+    if bone_id is not None:
+        must.append(
+            models.FieldCondition(
+                key="bone_id",
+                match=models.MatchValue(value=bone_id),
+            )
+        )
+
+    if bone_small_id is not None:
+        must.append(
+            models.FieldCondition(
+                key="bone_small_id",
+                match=models.MatchValue(value=bone_small_id),
+            )
+        )
+
+    for tag in must_tags or []:
+        must.append(
+            models.FieldCondition(
+                key="tags",
+                match=models.MatchValue(value=str(tag)),
+            )
+        )
+
+    for tag in exclude_tags or []:
+        must_not.append(
+            models.FieldCondition(
+                key="tags",
+                match=models.MatchValue(value=str(tag)),
+            )
+        )
+
+    if not must and not must_not:
+        return None
+
+    return models.Filter(
+        must=must or None,
+        must_not=must_not or None,
+    )
+
+
+def _rerank_sources(
+    sources: List[Dict[str, Any]],
+    *,
+    dialog_state: Optional[Dict[str, Any]] = None,
+    query: str = "",
+) -> List[Dict[str, Any]]:
+    topic = str((dialog_state or {}).get("current_topic") or "").strip()
+    intent = str((dialog_state or {}).get("current_intent") or "").strip()
+    q = str(query or "").strip()
+
+    intent_keywords = {
+        "definition": ["定義", "介紹", "說明"],
+        "symptom": ["症狀", "徵象", "表現"],
+        "cause": ["原因", "成因", "導致"],
+        "risk": ["風險", "好發", "危險因子"],
+        "exam": ["檢查", "診斷", "DXA", "骨密度", "X光"],
+        "treatment": ["治療", "藥物", "手術", "處置"],
+        "prevention": ["預防", "保健"],
+        "comparison": ["比較", "差異", "不同"],
+    }
+
+    for s in sources:
+        base = float(s.get("score") or 0.0)
+        bonus = 0.0
+
+        title = str(s.get("title") or s.get("display_title") or "")
+        snippet = str(s.get("snippet") or "")
+
+        if topic and topic in title:
+            bonus += 0.06
+        if topic and topic in snippet:
+            bonus += 0.04
+
+        if q:
+            for token in q.split():
+                if token and token in title:
+                    bonus += 0.01
+                elif token and token in snippet:
+                    bonus += 0.005
+
+        for kw in intent_keywords.get(intent, []):
+            if kw in snippet:
+                bonus += 0.02
+
+        page = s.get("page")
+        if isinstance(page, int) and page <= 3:
+            bonus += 0.01
+
+        s["_rerank_score"] = base + bonus
+
+    sources.sort(
+        key=lambda x: x.get("_rerank_score", x.get("score", 0.0)), reverse=True
+    )
+    return sources
+
+
+def retrieve_sources(
+    query: str,
+    top_k: int = TOP_K,
+    *,
+    dialog_state: Optional[Dict[str, Any]] = None,
+    material_id: str | None = None,
+    language: str | None = None,
+    doc_type: str | None = None,
+    bone_id: str | int | None = None,
+    bone_small_id: str | int | None = None,
+    must_tags: Optional[List[str]] = None,
+    exclude_tags: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     vec = _embed(query)
     _print_embed_cache_info()
 
     if not vec:
         return []
 
+    query_filter = _build_qdrant_filter(
+        material_id=material_id,
+        language=language,
+        doc_type=doc_type,
+        bone_id=bone_id,
+        bone_small_id=bone_small_id,
+        must_tags=must_tags,
+        exclude_tags=exclude_tags,
+    )
+
     try:
-        fetch_k = max(top_k * 3, top_k)
+        fetch_k = max(top_k * 4, top_k)
 
         if hasattr(qdrant, "search"):
             hits = qdrant.search(
                 collection_name=QDRANT_COLLECTION,
                 query_vector=vec,
+                query_filter=query_filter,
                 limit=fetch_k,
                 with_payload=True,
                 with_vectors=False,
+                score_threshold=MIN_RAG_SCORE,
             )
         elif hasattr(qdrant, "query_points"):
             try:
                 resp = qdrant.query_points(
                     collection_name=QDRANT_COLLECTION,
-                    query_vector=vec,
+                    query=vec,
+                    query_filter=query_filter,
                     limit=fetch_k,
                     with_payload=True,
                     with_vectors=False,
+                    score_threshold=MIN_RAG_SCORE,
                 )
-            except Exception:
+            except TypeError:
                 resp = qdrant.query_points(
                     collection_name=QDRANT_COLLECTION,
-                    query=vec,
+                    query_vector=vec,
+                    query_filter=query_filter,
                     limit=fetch_k,
                     with_payload=True,
                     with_vectors=False,
+                    score_threshold=MIN_RAG_SCORE,
                 )
             hits = getattr(resp, "points", resp)
         else:
@@ -487,7 +744,11 @@ def retrieve_sources(query: str, top_k: int = TOP_K) -> List[Dict[str, Any]]:
         payload = h.payload or {}
         raw_sources.append(_payload_to_source(payload, score))
 
-    raw_sources.sort(key=lambda x: x.get("score") or 0, reverse=True)
+    raw_sources = _rerank_sources(
+        raw_sources,
+        dialog_state=dialog_state,
+        query=query,
+    )
 
     deduped: List[Dict[str, Any]] = []
     seen = set()
@@ -524,7 +785,14 @@ def _is_material_source(s: Dict[str, Any]) -> bool:
 
     raw_material_id = s.get("material_id")
 
-    if source_type in {"material", "teaching_material", "db_material", "doc_index", "qdrant", "url"}:
+    if source_type in {
+        "material",
+        "teaching_material",
+        "db_material",
+        "doc_index",
+        "qdrant",
+        "url",
+    }:
         return True
 
     if raw_material_id:
@@ -561,7 +829,9 @@ def _normalize_doc_sources(doc_sources: List[Dict[str, Any]]) -> List[Dict[str, 
             snippet += "…"
 
         raw_material_id = s.get("material_id")
-        material_id = str(raw_material_id).strip() if raw_material_id is not None else None
+        material_id = (
+            str(raw_material_id).strip() if raw_material_id is not None else None
+        )
         safe_material_id = material_id if _is_guid_like(material_id) else None
 
         raw_url = str(
@@ -636,17 +906,19 @@ def _build_hybrid_context_lines(
 def _answer_system_prompt(hybrid: bool) -> str:
     if hybrid:
         return (
-            "你是骨科衛教/判讀輔助的助手。\n"
+            "你是 GalaBone 骨骼學習助教。你的任務是協助使用者理解骨頭名稱、位置、功能、解剖關係、影像辨識特徵與相關臨床意義。\n"
+            "若問題涉及診斷、治療或用藥，才補充醫療注意事項，且不得直接取代醫師判斷。\n"
             "你只能根據提供的檢索片段回答。\n"
             "若上傳檔案內容不足，請再結合知識庫片段補充；若整體片段仍不足，必須明確說資料不足，不要自行腦補。\n"
             "請優先理解使用者這一輪真正需求，並根據『對話狀態摘要』判斷目前主題與追問對象。\n"
             "不要在正文中輸出 source、來源編號、score、頁碼或參考資料清單。\n"
         )
     return (
-        "你是骨科衛教/判讀輔助的助手。\n"
-        "你只能根據提供的檢索片段回答，不足就明確說資料不足，不要自行腦補。\n"
-        "回答要清楚、專業、口語化，且要讓使用者感覺你有理解他現在真正想問的重點。\n"
-        "若使用者問題像是追問，請優先根據『對話狀態摘要』理解主題、代名詞與需求類型。\n"
+        "你是 GalaBone 骨骼學習助教。你的任務是協助使用者理解骨頭名稱、位置、功能、解剖關係、影像辨識特徵與相關臨床意義。\n"
+        "若問題涉及診斷、治療或用藥，才補充醫療注意事項，且不得直接取代醫師判斷。\n"
+        "你只能根據提供的檢索片段回答。\n"
+        "若上傳檔案內容不足，請再結合知識庫片段補充；若整體片段仍不足，必須明確說資料不足，不要自行腦補。\n"
+        "請優先理解使用者這一輪真正需求，並根據『對話狀態摘要』判斷目前主題與追問對象。\n"
         "不要在正文中輸出 source、來源編號、score、頁碼或參考資料清單。\n"
     )
 
@@ -723,6 +995,7 @@ def _call_llm(
     )[0]
     return ans.strip()
 
+
 def _call_llm_stream(
     system: str,
     prompt: str,
@@ -755,6 +1028,7 @@ def _call_llm_stream(
     t_end = time.perf_counter()
     _dbg(f"[TIME] llm_stream_total={(t_end - t_start):.3f}s")
 
+
 def prepare_answer_with_doc_rag(
     user_q: str,
     session: dict | None = None,
@@ -772,8 +1046,19 @@ def prepare_answer_with_doc_rag(
     doc_sources_raw: List[Dict[str, Any]] = []
     vector_sources: List[Dict[str, Any]] = []
 
+    # 用 topic 補 filter 關鍵字
+    filter_kwargs = _topic_filter_kwargs(state)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        future_vector = executor.submit(retrieve_sources, retrieval_query, TOP_K)
+        future_vector = executor.submit(
+            retrieve_sources,
+            retrieval_query,
+            TOP_K,
+            dialog_state=state,
+            language="zh",
+            exclude_tags=["bad_chunk", "gibberish", "low_quality"],
+            **filter_kwargs,
+        )
 
         future_doc = None
         if doc_rag_enabled() and has_fresh_uploads:
@@ -782,7 +1067,14 @@ def prepare_answer_with_doc_rag(
         try:
             vector_sources = future_vector.result()
             if not vector_sources and retrieval_query != user_q:
-                vector_sources = retrieve_sources(user_q, top_k=TOP_K)
+                vector_sources = retrieve_sources(
+                    user_q,
+                    top_k=TOP_K,
+                    dialog_state=state,
+                    language="zh",
+                    exclude_tags=["bad_chunk", "gibberish", "low_quality"],
+                    **filter_kwargs,
+                )
         except Exception as e:
             _dbg(f"❌ vector_rag retrieve error: {e}")
             vector_sources = []
@@ -845,8 +1137,18 @@ def answer_with_rag(
     retrieval_query = _build_retrieval_query(user_q, session, state)
 
     t0 = time.perf_counter()
-    # 單一來源檢索維持原樣
-    sources = retrieve_sources(retrieval_query)
+
+    # 用 topic 補 filter 關鍵字
+    filter_kwargs = _topic_filter_kwargs(state)
+
+    sources = retrieve_sources(
+        retrieval_query,
+        top_k=TOP_K,
+        dialog_state=state,
+        language="zh",  # 依你實際 payload 的 language 值調整，例如 "zh" 或 "zh-TW"
+        exclude_tags=["bad_chunk", "gibberish", "low_quality"],
+        **filter_kwargs,
+    )
     t1 = time.perf_counter()
 
     _dbg("✅ NEW RAG FILE LOADED")
@@ -854,7 +1156,14 @@ def answer_with_rag(
     _dbg("DEBUG dialog_state =", state)
 
     if not sources and retrieval_query != user_q:
-        sources = retrieve_sources(user_q)
+        sources = retrieve_sources(
+            user_q,
+            top_k=TOP_K,
+            dialog_state=state,
+            language="zh",
+            exclude_tags=["bad_chunk", "gibberish", "low_quality"],
+            **filter_kwargs,
+        )
         _dbg("DEBUG fallback retrieval_query =", user_q)
 
     if not sources:
@@ -888,6 +1197,57 @@ def answer_with_rag(
     return ans, sources
 
 
+def prepare_quiz_with_evidence(
+    user_q: str,
+    evidence: List[Evidence],
+    response_language: str = "zh-TW",
+) -> Tuple[str, str, List[Dict[str, Any]]]:
+    """
+    用你已經查到的 evidence，去產生一份測驗題目（或學習卡）。
+    """
+    user_q = (user_q or "").strip()
+    if not user_q:
+        raise ValueError("empty question")
+
+    raw_resources: List[Dict[str, Any]] = []
+
+    # 用你已經查到的 Evidence 轉成 prompt
+    context = format_evidence_for_prompt(evidence)
+
+    system = (
+        "你是 GalaBone 骨骼學習助教。你的任務是協助使用者理解骨頭名稱、位置、功能、解剖關係、影像辨識特徵與相關臨床意義。\n"
+        "若問題涉及診斷、治療或用藥，才補充醫療注意事項，且不得直接取代醫師判斷。\n"
+        "你的工作是：用已經查到的資料出測驗題目或學習卡，而不是回答問題。\n"
+        f"請用 {response_language} 回答。\n"
+        "你會收到多來源 RAG 檢索資料，來源可能包含（來源：GalaBone 衛教資料庫）、（來源：PubMed 文獻）、（來源：輔大醫院授權之去識別化醫囑紀錄表），這些都是題目來源。\n"
+    )
+
+    if "測試" in user_q or "測驗" in user_q or "quiz" in user_q.lower():
+        prompt = (
+            f"【使用者問題】\n{user_q}\n\n"
+            f"【多來源檢索資料（題目來源）】\n{context}\n\n"
+            "請用這些資料，幫我出一份測驗題目，請依下列規則：\n"
+            "1. 題目類型：選擇題、簡答題、判斷題皆可，但盡量用選擇題與簡答題。\n"
+            "2. 題數：請出 5 題。\n"
+            "3. 題目要貼近你已經查到的內容，不要捏造沒有的資料。\n"
+            "4. 題目後面請附上「答案」與「簡短解釋」（用你已查到的資料來解釋，不要自己寫）。\n"
+            "5. 題目與答案請用 Markdown 格式，標題為：# 測驗題目\n"
+        )
+    else:
+        prompt = (
+            f"【使用者問題】\n{user_q}\n\n"
+            f"【多來源檢索資料（題目來源）】\n{context}\n\n"
+            "請用這些資料，幫我做成一份學習卡，每張卡片 200 字以內，用於記憶與理解。\n"
+            "請依下列規則：\n"
+            "1. 卡片數量：請做 5 張卡片。\n"
+            "2. 卡片內容：用你已經查到的資料，不要捏造。\n"
+            "3. 用 Markdown 觀點，每張卡片用 `### 卡片 {n}` 開頭。\n"
+            "4. 卡片要易於記憶、易於理解，用口語化中文。\n"
+        )
+
+    return system, prompt, raw_resources
+
+
 def answer_with_doc_rag(
     user_q: str,
     session: dict | None = None,
@@ -907,34 +1267,37 @@ def answer_with_doc_rag(
 
     t0 = time.perf_counter()
 
-    # 優化重點：使用 ThreadPoolExecutor 併發執行兩個檢索
+    filter_kwargs = _topic_filter_kwargs(state)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        # 1. 提交向量知識庫檢索
-        future_vector = executor.submit(retrieve_sources, retrieval_query, TOP_K)
-        
-        # 2. 提交文件檢索 (如果啟用且有上傳)
+        future_vector = executor.submit(
+            retrieve_sources,
+            retrieval_query,
+            TOP_K,
+            dialog_state=state,
+            language="zh",
+            exclude_tags=["bad_chunk", "gibberish", "low_quality"],
+            **filter_kwargs,
+        )
+
         future_doc = None
         if doc_rag_enabled() and has_fresh_uploads:
             future_doc = executor.submit(doc_retrieve, retrieval_query, TOP_K)
-        
-        # 3. 收集結果
+
         try:
             vector_sources = future_vector.result()
-            # 如果第一次沒中，嘗試用原始問題 fallback (此處同步處理以求穩定)
             if not vector_sources and retrieval_query != user_q:
-                vector_sources = retrieve_sources(user_q, top_k=TOP_K)
+                vector_sources = retrieve_sources(
+                    user_q,
+                    top_k=TOP_K,
+                    dialog_state=state,
+                    language="zh",
+                    exclude_tags=["bad_chunk", "gibberish", "low_quality"],
+                    **filter_kwargs,
+                )
         except Exception as e:
             _dbg(f"❌ vector_rag retrieve error: {e}")
-            vector_sources = []
-
-        if future_doc:
-            try:
-                doc_sources_raw = future_doc.result()
-                if not doc_sources_raw and retrieval_query != user_q:
-                    doc_sources_raw = doc_retrieve(user_q, top_k=TOP_K)
-            except Exception as e:
-                _dbg(f"❌ doc_rag retrieve error: {e}")
-                doc_sources_raw = []
+            doc_sources_raw = []
 
     t1 = time.perf_counter()
 

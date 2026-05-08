@@ -96,10 +96,13 @@ def _rewrite_to_soap_query(user_question: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        "You are a clinical SOAP search query assistant. "
-                        "Convert the user's question into a concise English search query "
-                        "for matching SOAP note content in CSV data. "
-                        "Output query text only. No explanation."
+                        "You are a clinical SOAP retrieval query assistant for an orthopedic learning system. "
+                        "Convert the user's question into a concise keyword query for searching de-identified SOAP notes in CSV data. "
+                        "Focus on orthopedic and bone-related terms, symptoms, anatomical region, imaging findings, diagnosis, treatment, medication, follow-up, and rehabilitation. "
+                        "Preserve important medical entities such as osteoporosis, fracture, spine, lumbar, cervical, knee, hip, radius, ulna, femur, tibia, pain, X-ray, DXA, surgery, medication, assessment, and plan. "
+                        "If the user asks about a patient/case/SOAP record, include terms likely to appear in Subjective, Objective, Assessment, and Plan. "
+                        "Output 3 to 8 concise English keywords separated by spaces. "
+                        "Do not output explanation, punctuation-heavy text, or full sentences."
                     ),
                 },
                 {"role": "user", "content": q},
@@ -227,20 +230,34 @@ def answer_with_soap_csv(
     context = _build_soap_context(rows)
 
     system_prompt = (
-        "你是一位臨床 SOAP 紀錄助理。"
-        "只能根據提供的 SOAP CSV 內容回答。"
-        "不要捏造未出現的病史、檢查結果或治療。"
-        "如果證據有限，要明確說明。"
-        "請用繁體中文，先給結論，再給重點整理，最後不要列出來源。"
-        "如果使用者問的是目前療法，請優先整理 Assessment 與 Plan。"
-    )
+    "你是 GalaBone 的去識別化 SOAP 個案學習助教。"
+    "你只能根據提供的 SOAP CSV 內容回答，不可捏造未出現的病史、檢查、診斷、藥物或治療。"
+    "請把 SOAP 視為個案學習資料，而不是完整診斷依據。"
+    "分析時請依照 S/O/A/P 分工："
+    "Subjective 代表主觀症狀與主訴；"
+    "Objective 代表檢查、影像或客觀發現；"
+    "Assessment 代表醫師評估或診斷方向；"
+    "Plan 代表治療、用藥、追蹤或處置。"
+    "如果內容與骨骼、關節、影像、藥物或復健相關，請用學生能理解的方式說明其學習意義。"
+    "如果證據有限或 SOAP 缺少關鍵欄位，必須明確說明不足之處。"
+    "請用繁體中文回答，結構固定為："
+    "1) 個案摘要；"
+    "2) SOAP 重點整理；"
+    "3) 骨骼/骨科學習重點；"
+    "4) 注意事項。"
+    "不可把 SOAP 個案直接當成通用醫療結論，也不可取代醫師判斷。"
+)
 
     user_prompt = (
-        f"使用者問題：\n{q}\n\n"
-        f"SOAP 檢索查詢式：\n{soap_query}\n\n"
-        f"以下是 SOAP CSV 檢索結果：\n{context}\n\n"
-        "請根據以上內容回答，並在文末不要列出參考來源。"
-    )
+    f"使用者問題：\n{q}\n\n"
+    f"SOAP 檢索查詢式：\n{soap_query}\n\n"
+    f"以下是去識別化 SOAP CSV 檢索結果：\n{context}\n\n"
+    "請根據以上 SOAP 內容回答。"
+    "若使用者是在問治療或用藥，請優先整理 Assessment 與 Plan；"
+    "若使用者是在問症狀或病程，請優先整理 Subjective；"
+    "若使用者是在問影像或檢查，請優先整理 Objective。"
+    "最後請補充這筆個案對骨骼學習的意義。"
+)
 
     resp = _client.chat.completions.create(
         model=CHAT_MODEL,

@@ -37,66 +37,75 @@ def clean_soap_text(text: str) -> str:
     return text
 
 def route_sources(query: str) -> List[str]:
+    """
+    三工具路由版本：
+    - vector：骨骼教材 / 衛教資料 / 解剖學習
+    - pubmed：研究文獻 / 治療 / 用藥 / 指引 / 臨床證據
+    - soap：去識別化個案紀錄 / 主訴 / 檢查 / Assessment / Plan
+    - web：先停用，不進入 auto_fusion
+    """
     q = (query or "").lower()
     sources = set()
 
-    # 使用者明確要「其他網站 / 外部網站」
-    # 你的規則：其他網站 = PubMed + web
-    # 不要加 vector / soap，避免跑出教材或 SOAP
-    external_site_intent = any(k in q for k in [
-        "其他網站", "查其他網站", "再查其他網站",
-        "外部網站", "外部資料", "網站資料",
-        "查網站", "網路資料", "可信網站",
-        "官方網站", "醫院網站",
-        "mayo", "cleveland", "aaos", "orthoinfo",
-        "medlineplus", "衛福部", "國健署",
-    ])
-
-    if external_site_intent:
-        return ["pubmed", "web"]
-
+    # 1) SOAP：個案、病歷、主訴、檢查、處置、S/O/A/P
     if any(k in q for k in [
-        "骨頭", "骨骼", "位置", "功能", "解剖", "介紹", "衛教",
-        "什麼是", "是什麼", "在哪", "構造", "骨質疏鬆", "骨鬆", "骨折"
-    ]):
-        sources.add("vector")
-
-    if any(k in q for k in [
-        "病人", "個案", "主訴", "病史", "檢查", "處置",
-        "soap", "s:", "o:", "a:", "p:", "病歷", "就診"
+        "病人", "個案", "案例", "主訴", "病史", "病歷", "就診",
+        "soap", "s:", "o:", "a:", "p:",
+        "subjective", "objective", "assessment", "plan",
+        "檢查結果", "處置", "用藥紀錄", "醫囑", "追蹤",
+        "這個病人", "這位病人", "患者",
     ]):
         sources.add("soap")
 
+    # 2) PubMed：研究、文獻、治療證據、用藥、指引
     if any(k in q for k in [
-        "研究", "文獻", "pubmed", "paper", "藥物", "副作用",
-        "治療指引", "臨床試驗", "guideline", "用藥", "治療"
+        "研究", "文獻", "pubmed", "paper", "論文",
+        "臨床試驗", "systematic review", "meta-analysis",
+        "guideline", "治療指引", "指南",
+        "藥物", "用藥", "副作用", "療效", "證據",
+        "治療", "診斷", "風險", "預後",
     ]):
         sources.add("pubmed")
 
+    # 3) Vector：骨骼學習、解剖、位置、功能、影像辨識、衛教
     if any(k in q for k in [
-        "網站", "網路", "官方", "可信",
-        "衛福部", "國健署", "醫院網站",
-        "mayo", "cleveland", "aaos", "orthoinfo",
-        "medlineplus", "nih", "ncbi",
-        "clinical guideline",
+        "骨頭", "骨骼", "骨", "位置", "功能", "解剖", "構造",
+        "介紹", "說明", "衛教", "什麼是", "是什麼", "在哪",
+        "x光", "影像", "判讀", "辨認", "怎麼看",
+        "怎麼記", "口訣", "差異", "比較", "不同",
+        "骨質疏鬆", "骨鬆", "骨折",
+        "頭顱骨", "脊椎", "頸椎", "胸椎", "腰椎",
+        "鎖骨", "肩胛骨", "肱骨", "橈骨", "尺骨",
+        "股骨", "脛骨", "腓骨", "髕骨", "肋骨",
     ]):
-        sources.add("web")
+        sources.add("vector")
 
-    # 常見跨來源問題：教材 + 文獻一起看
-    if any(k in q for k in ["骨質疏鬆", "骨鬆", "骨折", "治療", "診斷", "風險", "用藥"]):
+    # 4) 常見跨來源策略
+    # 疾病 / 治療 / 用藥：教材 + 文獻
+    if any(k in q for k in [
+        "骨質疏鬆", "骨鬆", "骨折", "治療", "診斷",
+        "風險", "用藥", "藥物", "副作用", "預後",
+    ]):
         sources.update(["vector", "pubmed"])
 
-    # 一般追問：走教材 + PubMed
-    # 注意：不要把「其他」放這裡，因為「其他網站」上面已經處理了
-    if any(k in q for k in ["還有嗎", "還有沒有", "更多", "處理方法", "怎麼辦"]):
-        sources.update(["vector", "pubmed"])
+    # 個案 + 醫療判斷：SOAP + 教材；有治療/用藥/證據再加 PubMed
+    if "soap" in sources or any(k in q for k in ["病人", "個案", "患者", "病歷", "就診"]):
+        sources.add("vector")
+        if any(k in q for k in ["治療", "用藥", "藥物", "副作用", "證據", "指引", "診斷"]):
+            sources.add("pubmed")
 
-    # 只有「其他治療 / 其他方法」這類才走 vector + pubmed
-    if "其他" in q and not any(k in q for k in ["其他網站", "外部網站", "網站"]):
-        sources.update(["vector", "pubmed"])
+    # 5) 使用者說「其他網站」時，先不要查 web，改成 PubMed
+    if any(k in q for k in [
+        "其他網站", "外部網站", "網站資料", "網路資料", "可信網站",
+        "官方網站", "查網站", "再查其他網站",
+    ]):
+        sources.add("pubmed")
 
     if not sources:
         sources.add("vector")
+
+    # 保險：目前 web 停用
+    sources.discard("web")
 
     return list(sources)
 
@@ -207,7 +216,7 @@ def normalize_soap_sources(items: List[Dict[str, Any]]) -> List[Evidence]:
         
         out.append({
             "source_type": "soap",
-            "title": "輔大醫院授權之去識別化醫囑紀錄表",
+            "title": f"輔大醫院授權之去識別化醫囑紀錄表（個案 {len(out) + 1}）",
             "content": text,
             "snippet": text[:300],
             "score": float(item.get("score") or 0.8),
@@ -304,6 +313,125 @@ def format_evidence_for_prompt(items: List[Evidence]) -> str:
 
     return "\n\n".join(blocks)
 
+def is_quiz_or_card_request(user_q: str) -> str:
+    """
+    回傳：
+    - quiz：使用者要測驗 / 題目
+    - card：使用者要學習卡 / 複習卡
+    - ""：一般問答
+    """
+    q = (user_q or "").strip().lower()
+
+    quiz_words = [
+        "出題", "題目", "測驗", "測試", "考我", "練習題",
+        "選擇題", "簡答題", "判斷題", "quiz", "exam", "test",
+    ]
+
+    card_words = [
+        "學習卡", "複習卡", "記憶卡", "flashcard", "flashcards",
+        "幫我整理成卡片", "做成卡片",
+    ]
+
+    if any(w in q for w in quiz_words):
+        return "quiz"
+
+    if any(w in q for w in card_words):
+        return "card"
+
+    return ""
+
+
+def build_learning_prompt_from_evidence(
+    *,
+    user_q: str,
+    history_summary: str,
+    context: str,
+    language_rule: str,
+    mode: str,
+) -> Tuple[str, str]:
+    """
+    根據已檢索 evidence 產生：
+    - 一般骨骼學習回答
+    - 測驗題目
+    - 學習卡
+    """
+
+    base_system = (
+    "你是 GalaBone 骨骼學習助教。你的任務是把三類資料整合成適合學習的回答：\n"
+    "1) GalaBone 衛教資料庫：用於骨頭名稱、位置、功能、解剖關係、影像辨識與基礎衛教。\n"
+    "2) PubMed 文獻：用於研究證據、治療、用藥、副作用、診斷方法、臨床指引或風險/預後。\n"
+    "3) 去識別化 SOAP 個案紀錄：用於個案觀察、主訴、檢查、Assessment、Plan 與臨床情境學習。\n"
+    f"{language_rule}\n"
+    "回答或出題都必須根據實際檢索資料，不得捏造資料中沒有的內容。\n"
+    "整合資料時請遵守：教材資料負責建立基礎理解；PubMed 負責補充研究證據；SOAP 只作為去識別化個案範例，不可直接當成通用醫療結論。\n"
+    "若問題涉及診斷、治療、用藥或個案判讀，請補充醫療注意事項，但不得直接取代醫師判斷。\n"
+    "若回答中第一次出現重要骨科、影像、藥物或檢查名詞，請補上英文專有名詞。\n"
+    "來源名稱只能使用：（來源：GalaBone 衛教資料庫）、（來源：PubMed 文獻）、（來源：輔大醫院授權之去識別化醫囑紀錄表）。\n"
+    "不可自作主張把所有內容都標成同一來源，必須依實際 evidence 標註。\n"
+)
+
+    if mode == "quiz":
+        system = (
+            base_system
+            + "你的本輪任務不是一般回答，而是根據檢索資料幫學生設計骨骼學習測驗。\n"
+            + "題目必須能測出學生是否理解骨頭位置、功能、解剖關係、影像辨識或臨床意義。\n"
+        )
+
+        prompt = (
+            f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
+            f"【使用者需求】\n{user_q}\n\n"
+            f"【多來源檢索資料】\n{context}\n\n"
+            "請根據檢索資料設計測驗題目，規則如下：\n"
+            "1) 請出 5 題。\n"
+            "2) 題型混合：至少 3 題選擇題、1 題判斷題、1 題簡答題。\n"
+            "3) 題目要貼近骨頭學習情境，例如位置、功能、相鄰構造、影像辨識、臨床意義。\n"
+            "4) 每題都要附上答案與簡短解析。\n"
+            "5) 解析必須根據檢索資料，不可自行腦補。\n"
+            "6) 若資料不足以支持某題，請不要出那題，改出較保守的基礎理解題。\n"
+            "7) 請用 Markdown 輸出，標題為：# 骨骼學習測驗\n"
+        )
+
+        return system, prompt
+
+    if mode == "card":
+        system = (
+            base_system
+            + "你的本輪任務不是一般回答，而是根據檢索資料幫學生設計骨骼學習卡。\n"
+            + "學習卡要幫助學生快速複習骨頭名稱、位置、功能、辨認方式與臨床意義。\n"
+        )
+
+        prompt = (
+            f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
+            f"【使用者需求】\n{user_q}\n\n"
+            f"【多來源檢索資料】\n{context}\n\n"
+            "請根據檢索資料製作 5 張學習卡，規則如下：\n"
+            "1) 每張卡片用 `### 卡片 {n}` 開頭。\n"
+            "2) 每張卡片包含：學習重點、記憶提示、容易混淆處。\n"
+            "3) 每張卡片 200 字以內。\n"
+            "4) 必須貼近骨頭學習，不要只寫泛用衛教。\n"
+            "5) 不可捏造檢索資料沒有的內容。\n"
+        )
+
+        return system, prompt
+
+    system = (
+        base_system
+        + "你的本輪任務是根據檢索資料回答使用者問題，並協助其建立骨骼學習理解。\n"
+    )
+
+    prompt = (
+        f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
+        f"【使用者問題】\n{user_q}\n\n"
+        f"【多來源檢索資料】\n{context}\n\n"
+        "請輸出：\n"
+        "1) 綜合回答：直接回應使用者問題核心，優先說明骨頭名稱、位置、功能、解剖關係、影像辨識特徵或臨床意義。\n"
+        "2) 骨骼學習重點：用 3～5 點整理，讓學生知道該怎麼記、怎麼分辨。\n"
+        "3) 注意事項：若涉及診斷、治療、用藥或個案判讀，請提醒資料限制與醫師判斷必要性。\n"
+        "4) 延伸學習問題：設計 2～3 個具體問題，每題獨立成一行，格式固定為：- 問題文字\n"
+        "不要輸出 raw evidence、score、chunk、內部來源編號。\n"
+    )
+
+    return system, prompt
 
 def is_external_site_followup(user_q: str) -> bool:
     q = (user_q or "").lower()
@@ -693,27 +821,9 @@ def prepare_auto_fusion_answer(
         except Exception as e:
             print("auto_fusion pubmed failed:", e)
                 
+    # web tool 目前先停用，專注 vector / PubMed / SOAP 三工具
     if "web" in selected_sources:
-        try:
-            web_query = retrieval_query
-
-            if is_external_site_followup(user_q):
-                picked = pick_external_search_query(user_q, retrieval_query, session, state)
-                if picked:
-                    web_query = picked
-                else:
-                    print("[AUTO_FUSION][WEB_QUERY_SKIP] no valid previous topic")
-                    web_query = ""
-
-            print("[AUTO_FUSION][WEB_QUERY]", web_query)
-
-            web_raw = []
-            if web_query:
-                web_raw = retrieve_web_sources(web_query, max_results=3)
-
-            evidence.extend(normalize_web_sources(web_raw))
-        except Exception as e:
-            print("auto_fusion web failed:", e)
+        print("[AUTO_FUSION][WEB_DISABLED] web tool is disabled for now.")
 
     if "soap" in selected_sources:
         try:
@@ -738,109 +848,124 @@ def prepare_auto_fusion_answer(
         if render_source:
             raw_resources.insert(0, render_source)
 
-        # ✅ 有查到 3D 模型，但沒有查到文字型 RAG 資料
+        #  有查到 3D 模型，但沒有查到文字型 RAG 資料
         if render_source:
+            learning_mode = is_quiz_or_card_request(user_q)
+
             system = (
-                "你是骨科衛教/判讀輔助助手。\n"
+                "你是 GalaBone 骨骼學習助教。你的任務是協助使用者理解骨頭名稱、位置、功能、解剖關係、影像辨識特徵與相關臨床意義。\n"
                 f"{language_rule}\n"
                 "目前系統已成功查到與使用者問題相關的 3D 骨骼模型資源，"
-                "但 vector、PubMed、SOAP 等文字型 RAG 資料不足。\n"
-                "回答時不可說『沒有查到資料』或『沒有 3D 模型資訊』，"
-                "而是要明確說明：已找到可供觀察的 3D 模型，但缺少可支持深入衛教或臨床判讀的文字資料。\n"
-                "請根據已找到的 3D 模型資訊，協助使用者理解可觀察的骨頭位置與用途；"
-                "若需要醫療判斷，仍需提醒使用者補充影像、診斷或由專業醫師評估。\n"
+                "但沒有找到足夠的文字型 RAG 證據，例如: 衛教資料(vector)、PubMed 文獻(PubMed)、輔大醫院授權之去識別化醫囑紀錄表(soap)。\n"
+                "回答時不可說『完全沒有資料』或『沒有 3D 模型資訊』，"
+                "而是要明確說明：已找到可供觀察的 3D 模型，但缺少可支持深入衛教、文獻或個案分析的文字資料。\n"
+                "請根據已找到的 3D 模型資訊，協助使用者理解可觀察的骨頭位置、左右側、相鄰構造與學習用途。\n"
+                "若涉及診斷、治療或用藥，必須提醒不可取代醫師判斷。\n"
             )
 
+            if learning_mode == "quiz":
+                prompt = (
+                    f"【使用者原始需求】\n{user_q}\n\n"
+                    f"【系統推定查詢語意】\n{fallback_query}\n\n"
+                    f"【3D 模型資源】\n{render_source.get('snippet') or render_source}\n\n"
+                    "目前只有 3D 模型資源，文字型 RAG 證據不足。\n"
+                    "請根據 3D 模型資訊設計 3 題保守的骨骼觀察題：\n"
+                    "1) 題目要聚焦在骨頭位置、外觀、左右側或相鄰構造。\n"
+                    "2) 每題附答案與簡短解析。\n"
+                    "3) 不可捏造模型資訊以外的疾病或治療內容。\n"
+                    "4) 標題為：# 3D 骨骼模型觀察題\n"
+                )
+            elif learning_mode == "card":
+                prompt = (
+                    f"【使用者原始需求】\n{user_q}\n\n"
+                    f"【系統推定查詢語意】\n{fallback_query}\n\n"
+                    f"【3D 模型資源】\n{render_source.get('snippet') or render_source}\n\n"
+                    "目前只有 3D 模型資源，文字型 RAG 證據不足。\n"
+                    "請製作 3 張 3D 骨骼觀察學習卡：\n"
+                    "1) 每張卡片用 `### 卡片 {n}` 開頭。\n"
+                    "2) 每張包含：觀察重點、記憶提示、容易混淆處。\n"
+                    "3) 不可捏造模型資訊以外的疾病或治療內容。\n"
+                )
+            else:
+                prompt = (
+                    f"【使用者原始問題】\n{user_q}\n\n"
+                    f"【系統推定查詢語意】\n{fallback_query}\n\n"
+                    f"【3D 模型資源】\n{render_source.get('snippet') or render_source}\n\n"
+                    "目前狀態：\n"
+                    "- 已找到相關 3D 骨骼模型資源，可提供前端開啟 modal 或跳轉 3D 模型頁。\n"
+                    "- 但沒有找到足夠的文字型 RAG 證據，例如衛教資料、PubMed 文獻、SOAP 去識別化紀錄或可信網站資料。\n\n"
+                    "請輸出：\n"
+                    "1) 先說明已找到可觀察的 3D 模型，不要說完全沒查到。\n"
+                    "2) 說明模型可用來觀察哪個骨頭、哪個部位、左右側或相鄰構造。\n"
+                    "3) 補充一般性的骨骼學習方向，但要說明文字資料不足，不能當成診斷結論。\n"
+                    "4) 延伸學習問題：請設計 2～3 個與本主題相關的問題，每題獨立成一行，格式固定為：- 問題文字\n"
+                )
+
+            return system, prompt, raw_resources
+        
+        
+        # ❌ 沒有文字 evidence，也沒有 3D 模型
+        learning_mode = is_quiz_or_card_request(user_q)
+
+        system = (
+            "你是 GalaBone 骨骼學習助教。\n"
+            f"{language_rule}\n"
+            "目前沒有檢索到足夠資料，也沒有找到可用的 3D 模型資源。\n"
+            "你可以提供非常保守的骨骼學習方向，但必須明確說明這不是根據本次檢索資料得出的結論。\n"
+            "不可捏造文獻、教材、個案、診斷或模型資訊。\n"
+            "若涉及診斷、治療或用藥，必須提醒不可取代醫師判斷。\n"
+        )
+
+        if learning_mode == "quiz":
+            prompt = (
+                f"【使用者原始需求】\n{user_q}\n\n"
+                f"【系統推定查詢語意】\n{fallback_query}\n\n"
+                "目前沒有檢索到足夠文字資料，也沒有找到 3D 模型資源。\n"
+                "請保守設計 3 題基礎骨骼學習題：\n"
+                "1) 開頭先說明：目前資料不足，以下題目僅作基礎複習。\n"
+                "2) 題目必須是一般骨骼學習方向，不可假裝有文獻、教材或模型依據。\n"
+                "3) 每題附答案與簡短解析。\n"
+                "4) 標題為：# 基礎骨骼學習題\n"
+            )
+        elif learning_mode == "card":
+            prompt = (
+                f"【使用者原始需求】\n{user_q}\n\n"
+                f"【系統推定查詢語意】\n{fallback_query}\n\n"
+                "目前沒有檢索到足夠文字資料，也沒有找到 3D 模型資源。\n"
+                "請保守製作 3 張基礎骨骼學習卡：\n"
+                "1) 開頭先說明：目前資料不足，以下卡片僅作基礎複習。\n"
+                "2) 不可假裝有文獻、教材、個案或模型依據。\n"
+                "3) 每張卡片用 `### 卡片 {n}` 開頭。\n"
+                "4) 每張卡片包含：學習重點、記憶提示、容易混淆處。\n"
+            )
+        else:
             prompt = (
                 f"【使用者原始問題】\n{user_q}\n\n"
                 f"【系統推定查詢語意】\n{fallback_query}\n\n"
-                f"【3D 模型資源】\n{render_source.get('snippet') or render_source}\n\n"
-                "目前狀態：\n"
-                "- 已找到相關 3D 骨骼模型資源，可提供前端開啟 modal 或跳轉 3D 模型頁。\n"
-                "- 但沒有找到足夠的文字型 RAG 證據，例如衛教資料、PubMed 文獻或 SOAP 去識別化紀錄。\n\n"
-                "請輸出：\n"
-                "1) 先說明已找到可觀察的 3D 模型，不要說完全沒查到。\n"
-                "2) 說明這些模型可用來觀察哪個骨頭、哪個部位或左右側。\n"
-                "3) 補充一般性的骨骼學習方向，但要說明文字資料不足，不能當成診斷結論。\n"
-                "4) 延伸學習問題：請設計 2～3 個與本主題相關的問題，每題獨立成一行，格式固定為：- 問題文字\n"
+                "目前沒有檢索到足夠文字資料，也沒有找到 3D 模型資源。\n"
+                "請用保守方式回答：\n"
+                "1) 先明確說明資料不足。\n"
+                "2) 提供一般性骨骼學習方向。\n"
+                "3) 若涉及醫療判斷，提醒需要專業醫師評估。\n"
+                "4) 建議使用者補充更明確的骨頭名稱、部位、影像結果、診斷或上傳文件。\n"
             )
 
-            return system, prompt, raw_resources
-
-        # ❌ 真的連 3D 模型也沒有、文字 RAG 也沒有
-        system = (
-            "你是骨科衛教/判讀輔助助手。\n"
-            f"{language_rule}\n"
-            "目前檢索資料不足時，可以提供一般性衛教方向，"
-            "但必須明確說明這不是根據本次檢索資料得出的結論，且不可捏造文獻或個案資料。"
-            "提出延伸學習問題：請設計 2～3 個與本主題相關的問題，每題獨立成一行，格式固定為：- 問題文字\n"
-        )
-
-        prompt = (
-            f"【使用者原始問題】\n{user_q}\n\n"
-            f"【系統推定查詢語意】\n{fallback_query}\n\n"
-            "目前沒有檢索到足夠資料。\n"
-            "請用保守方式回答：\n"
-            "1) 先說明資料不足\n"
-            "2) 提供一般性骨科衛教方向\n"
-            "3) 提醒需要專業醫師判斷\n"
-            "4) 建議使用者補充更明確的部位、診斷、影像結果或上傳文件\n"
-        )
-
         return system, prompt, raw_resources
-        
 
     history_summary = _build_history_summary(user_q, session, state)
     context = format_evidence_for_prompt(evidence)
 
-    system = (
-        "你是 GalaBone 專業骨科衛教專家。你的目標是基於『權威醫學指引』與『病患個人數據』進行分析。\n"
-        f"{language_rule}\n"
-        "【回答規則】\n"
-    "1. 強制引用：回答的每一項關鍵建議，必須在結尾標註資料來源（例如：根據《2025 退行性腰椎滑脱症診療指南》...）。\n"
-    "2. 證據層級：優先引用醫學指南、臨床研究文獻（PubMed）、最後才是衛教常識。\n"
-    "3. 結構化回覆：\n"
-    "   - 【醫學機轉分析】：直接說明該部位解剖結構與病變之間的關聯。\n"
-    "   - 【臨床依據】：引用檢索到的文獻支持你的說法。\n"
-    "   - 【醫病溝通建議】：針對病患現有的病歷摘要，給出具體的行為建議。\n"
-    "4. 若檢索資料中有衝突，請明確指出哪些來源支持哪種觀點。\n"
-    "5. 禁止回答模糊不清、沒有根據的空話。\n"
-    "【專業守則】若涉及醫學診斷結論，必須語氣審慎，但不能因為怕而不敢給出醫學上的解釋。\n"
-        "你會收到多來源 RAG 檢索資料，來源可能包含 vector、soap、pubmed、web。\n"
-        "請優先根據檢索資料回答，不要捏造資料中沒有的內容。\n"
-        "回答前必須先判斷使用者真正想問的是：診斷判斷、治療方式、知識解釋、風險/預後，或資料解讀。\n"
-        "禁止只提供泛用醫療常識，必須根據使用者問題語意與檢索內容進行針對性回答。\n"
-        "若使用者問『他有病是不是』『是不是有問題』『正常嗎』這類診斷判斷問題，請先說明目前資料能不能支持判斷；不能確定時，要說明缺少哪些資訊，不可直接下診斷。\n"
-        "SOAP 只能作為去識別化個案紀錄參考，不可直接當成通用醫療結論。\n"
-        "PubMed 可作為研究文獻依據，但要用一般使用者能理解的方式說明。\n"
-        "若不同來源觀點不同，請說明差異。\n"
-        
-        "你不只是回答問題，也要協助使用者學習與理解，請適度引導延伸思考。\n"
-        "若回答中出現骨科、影像、藥物或檢查相關概念，必須在該中文名詞第一次出現時直接補上英文專有名詞，不可省略。\n"
-        "當問題涉及臨床決策、治療影響或風險評估時，必須進一步說明『因此臨床上會如何調整處置或治療策略』，不可只停留在知識描述。\n"
-        "若問題為『如何評估』『如何影響』『怎麼決定』，請優先提供臨床判斷流程或決策邏輯。\n"
-        "RAG 檢索資料來源名稱必須寫出來，只能使用：（來源：GalaBone 衛教資料庫）、（來源：PubMed 文獻）、（來源：輔大醫院授權之去識別化醫囑紀錄表）、（來源：可信醫療網站資料）。\n"
-"若來源類型為 web，代表系統已嘗試從可信醫療網站搜尋並擷取頁面文字；"
-"若該筆 web evidence 的內容明確且 fetched=True，可作為可信衛教來源輔助說明，"
-"但仍不可取代醫師診斷或臨床指引。\n"
-"請依據實際使用的檢索資料標註來源，不可隨意標註，也不可全部標成同一來源。\n"
+    learning_mode = is_quiz_or_card_request(user_q)
+
+    system, prompt = build_learning_prompt_from_evidence(
+        user_q=user_q,
+        history_summary=history_summary,
+        context=context,
+        language_rule=language_rule,
+        mode=learning_mode,
     )
 
-    prompt = (
-        f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
-        f"【使用者問題】\n{user_q}\n\n"
-        f"【多來源檢索資料】\n{context}\n\n"
-        "回答時，請根據不同來源內容分別引用，例如：\n"
 
-"不可全部只標註同一來源。\n"
-"請輸出：\n"
-"1) 綜合回答（需直接回應問題核心，不可只提供通用知識）\n"
-"2) 判讀/衛教重點（如使用者未要求列點，可簡短帶過）\n"
-"3) 注意事項（不確定就明確說不確定；若不需要可簡短帶過）\n"
-"4) 延伸學習問題：請設計 2～3 個與本主題相關的進階問題，幫助使用者深入理解，問題需具體且具學習價值。\n"
-"每題必須獨立成一行，格式固定為：- 問題文字\n"
-"問題不要加編號，不要加來源，不要加解釋。\n"
-    )
 
     # 回傳給前端的 sources 要保留 content/snippet，讓 _build_resources 可以顯示
     raw_resources: List[Dict[str, Any]] = []
