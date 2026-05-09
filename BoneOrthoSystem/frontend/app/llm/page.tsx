@@ -257,16 +257,89 @@ function safeJsonParse<T = any>(raw: string): T | null {
   }
 }
 
+function extractJsonObject(raw: string) {
+  let text = String(raw || "").trim();
+  if (!text) return "";
+
+  text = text
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+
+  if (start >= 0 && end > start) {
+    return text.slice(start, end + 1).trim();
+  }
+
+  return text;
+}
+
+function splitQuizContent(raw: string) {
+  const text = String(raw || "");
+  if (!text.trim()) {
+    return {
+      before: "",
+      jsonText: "",
+      after: "",
+    };
+  }
+
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+
+  if (fenceMatch && fenceMatch.index != null) {
+    const before = text.slice(0, fenceMatch.index).trim();
+    const jsonText = String(fenceMatch[1] || "").trim();
+    const after = text.slice(fenceMatch.index + fenceMatch[0].length).trim();
+
+    return {
+      before,
+      jsonText,
+      after,
+    };
+  }
+
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+
+  if (start >= 0 && end > start) {
+    return {
+      before: text.slice(0, start).trim(),
+      jsonText: text.slice(start, end + 1).trim(),
+      after: text.slice(end + 1).trim(),
+    };
+  }
+
+  return {
+    before: text,
+    jsonText: "",
+    after: "",
+  };
+}
+
 function tryParseQuiz(content: string): QuizData | null {
-  const raw = String(content || "").trim();
+  const raw = extractJsonObject(String(content || "").trim());
   if (!raw) return null;
 
   const data = safeJsonParse<any>(raw);
-  if (!data || data.mode !== "quiz" || !Array.isArray(data.questions)) {
+  if (!data) return null;
+
+  const rawQuestions = Array.isArray(data.questions)
+    ? data.questions
+    : Array.isArray(data.quiz)
+      ? data.quiz
+      : [];
+
+  if (data.mode !== "quiz" && !Array.isArray(data.quiz)) {
     return null;
   }
 
-  const questions: QuizQuestion[] = data.questions
+  if (!Array.isArray(rawQuestions)) {
+    return null;
+  }
+
+  const questions: QuizQuestion[] = rawQuestions
     .map((q: any, index: number) => {
       const rawOptions = Array.isArray(q.options)
         ? q.options
@@ -274,16 +347,38 @@ function tryParseQuiz(content: string): QuizData | null {
           ? q.optons
           : [];
 
-      const options = rawOptions.map((opt: any) => ({
-        key: String(opt.key ?? opt.y ?? opt.label ?? "").trim(),
-        text: String(opt.text ?? opt.value ?? "").trim(),
-      })).filter((opt: any) => opt.key && opt.text);
+      const options = rawOptions
+        .map((opt: any, optIndex: number) => {
+          if (typeof opt === "string") {
+            const text = opt.trim();
+            const m = text.match(/^([A-Z])[\.\、\)]?\s*(.+)$/i);
+
+            if (m) {
+              return {
+                key: m[1].toUpperCase(),
+                text: m[2].trim(),
+              };
+            }
+
+            return {
+              key: String.fromCharCode(65 + optIndex),
+              text,
+            };
+          }
+
+          return {
+            key: String(opt.key ?? opt.y ?? opt.label ?? "").trim(),
+            text: String(opt.text ?? opt.value ?? "").trim(),
+          };
+        })
+        .filter((opt: any) => opt.key && opt.text);
 
       return {
         id: String(q.id || `q${index + 1}`),
-        type: q.type === "true_false" || q.type === "short_answer"
-          ? q.type
-          : "single_choice",
+        type:
+          q.type === "true_false" || q.type === "short_answer"
+            ? q.type
+            : "single_choice",
         question: String(q.question || "").trim(),
         options,
         answer: String(q.answer || "").trim(),
@@ -306,15 +401,17 @@ function looksLikeQuizJson(content: string) {
   const raw = String(content || "").trim();
   if (!raw) return false;
 
+  const lower = raw.toLowerCase();
+
   return (
-    raw.startsWith("{") &&
-    (
-      raw.includes('"mode"') ||
-      raw.includes('"quiz"') ||
-      raw.includes('"questions"') ||
-      raw.includes('"question"') ||
-      raw.includes('"answer"')
-    )
+    lower.includes("```json") ||
+    lower.includes('"mode"') ||
+    lower.includes('"quiz"') ||
+    lower.includes('"questions"') ||
+    lower.includes('"question"') ||
+    lower.includes('"options"') ||
+    lower.includes('"answer"') ||
+    lower.includes('"explanation"')
   );
 }
 
@@ -1619,20 +1716,37 @@ function MessageContent({
   fallback?: React.ReactNode;
   onRequestNewQuiz?: () => void;
 }) {
-  const quiz = !isUser ? tryParseQuiz(content) : null;
+  if (!isUser) {
+    const parts = splitQuizContent(content);
+    const quiz = parts.jsonText ? tryParseQuiz(parts.jsonText) : tryParseQuiz(content);
 
-  if (quiz) {
-    return (
-      <QuizCard
-        quiz={quiz}
-        onRequestNewQuiz={onRequestNewQuiz}
-      />
-    );
-  }
+    if (quiz) {
+      return (
+        <div className="space-y-3">
+          {parts.before && (
+            <div className="whitespace-pre-wrap break-words">
+              {cleanInlineMarkdown(parts.before)}
+            </div>
+          )}
 
-  // 串流中的 quiz JSON 還沒完整，先不要把 raw JSON 打出來
-  if (!isUser && looksLikeQuizJson(content)) {
-    return <QuizGeneratingCard />;
+          <QuizCard
+            quiz={quiz}
+            onRequestNewQuiz={onRequestNewQuiz}
+          />
+
+          {parts.after && (
+            <div className="whitespace-pre-wrap break-words">
+              {cleanInlineMarkdown(parts.after)}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 串流中的 quiz JSON 還沒完整，先不要把 raw JSON 打出來
+    if (looksLikeQuizJson(content)) {
+      return <QuizGeneratingCard />;
+    }
   }
 
   if (fallback) {
@@ -2268,6 +2382,22 @@ function LLMClient() {
     latestMessagesRef.current = messages;
   }, [messages]);
 
+  const pendingQuizResourcesRef = useRef<ChatResource[] | null>(null);
+
+  function getLastNonEmptyResources(excludeMessageId?: number) {
+    const found = [...latestMessagesRef.current]
+      .reverse()
+      .find((m) => {
+        if (excludeMessageId && m.id === excludeMessageId) return false;
+        return (
+          m.role === "assistant" &&
+          Array.isArray(m.resources) &&
+          m.resources.length > 0
+        );
+      });
+
+    return found?.resources || [];
+  }
 
   //  主輸入框：受控（中文/英文）
   const [draftText, setDraftText] = useState("");
@@ -3988,11 +4118,29 @@ function LLMClient() {
           );
           const finalText = bot?.content || "";
 
+          const fallbackQuizResources =
+            pendingQuizResourcesRef.current && pendingQuizResourcesRef.current.length > 0
+              ? pendingQuizResourcesRef.current
+              : getLastNonEmptyResources(assistantMessageId);
+
+          const finalResources =
+            Array.isArray(streamedResources) && streamedResources.length > 0
+              ? streamedResources
+              : fallbackQuizResources;
+
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, resources: finalResources }
+                : msg
+            )
+          );
+
           pushHistoryMessage(
             finalThreadId,
             "assistant",
             finalText,
-            streamedResources
+            finalResources
           );
 
           bumpThreadOnMessage(
@@ -4000,6 +4148,8 @@ function LLMClient() {
             finalText.slice(0, 80),
             1
           );
+
+          pendingQuizResourcesRef.current = null;
         },
         onError: (evt) => {
           throw new Error(evt?.message || "串流失敗");
@@ -5426,18 +5576,29 @@ function LLMClient() {
     ].join("\n");
   }
 
-  function QuizGuideButton({ answerText }: { answerText: string }) {
+  function QuizGuideButton({
+    answerText,
+    resources,
+  }: {
+    answerText: string;
+    resources?: ChatResource[];
+  }) {
     return (
       <button
         type="button"
         disabled={loading}
-        onClick={() =>
+        onClick={() => {
+          pendingQuizResourcesRef.current =
+            Array.isArray(resources) && resources.length > 0
+              ? resources
+              : getLastNonEmptyResources();
+
           reallySendMessage(
             undefined,
             buildQuizPromptFromAssistantAnswer(answerText),
             "block"
-          )
-        }
+          );
+        }}
         className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80 disabled:opacity-50"
         style={{
           borderColor: "rgba(59,130,246,0.35)",
@@ -5447,14 +5608,16 @@ function LLMClient() {
         <span className="inline-flex items-center gap-1.5">
           <i className="fa-solid fa-clipboard-question text-[10px] opacity-70" />
           <span>
-            {locale === "en-US" ? "Create a quiz from this answer" : "根據這則回答出小測驗"}
+            {locale === "en-US"
+              ? "Create a quiz from this answer"
+              : "根據這則回答出小測驗"}
           </span>
         </span>
       </button>
     );
   }
 
-  function renderAssistantContent(content: string) {
+  function renderAssistantContent(content: string, resources?: ChatResource[]) {
     const text = String(content || "");
     const lastUserText =
       [...latestMessagesRef.current].reverse().find((m) => m.role === "user")?.content || "";
@@ -5486,7 +5649,7 @@ function LLMClient() {
           {renderPrettyLearningText(text)}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <QuizGuideButton answerText={text} />
+            <QuizGuideButton answerText={text} resources={resources} />
 
             {guideActions.map((a) => {
               const pretty = getPrettyActionText(a);
@@ -5569,7 +5732,7 @@ function LLMClient() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <QuizGuideButton answerText={mainText || text} />
+            <QuizGuideButton answerText={mainText || text} resources={resources} />
           </div>
         </div>
 
@@ -6887,25 +7050,51 @@ function LLMClient() {
                                 wordBreak: "break-word",
                               }}
                             >
-                              {isUser ? (
-                                msg.content
-                              ) : (
-                                <MessageContent
-                                  content={msg.content}
-                                  isUser={isUser}
-                                  fallback={renderAssistantContent(msg.content)}
-                                  onRequestNewQuiz={() =>
-                                    reallySendMessage(
-                                      undefined,
-                                      locale === "en-US"
-                                        ? "Please create another new quiz based on the previous topic. Do not repeat the previous questions."
-                                        : "請針對上一輪主題再出一組新的骨骼學習測驗，題目不要和剛才重複。",
-                                      "block"
-                                    )
-                                  }
-                                />
-                              )}
-                              {!isUser && renderResources(msg.resources)}
+                              {(() => {
+                                const quizParts = !isUser ? splitQuizContent(msg.content) : null;
+                                const quizData = !isUser
+                                  ? quizParts?.jsonText
+                                    ? tryParseQuiz(quizParts.jsonText)
+                                    : tryParseQuiz(msg.content)
+                                  : null;
+
+                                const displayResources =
+                                  !isUser && Array.isArray(msg.resources) && msg.resources.length > 0
+                                    ? msg.resources
+                                    : !isUser && quizData
+                                      ? getLastNonEmptyResources(msg.id)
+                                      : [];
+
+                                return (
+                                  <>
+                                    {isUser ? (
+                                      msg.content
+                                    ) : (
+                                      <MessageContent
+                                        content={msg.content}
+                                        isUser={isUser}
+                                        fallback={renderAssistantContent(msg.content, displayResources)}
+                                        onRequestNewQuiz={() => {
+                                          pendingQuizResourcesRef.current =
+                                            Array.isArray(displayResources) && displayResources.length > 0
+                                              ? displayResources
+                                              : getLastNonEmptyResources(msg.id);
+
+                                          reallySendMessage(
+                                            undefined,
+                                            locale === "en-US"
+                                              ? "Please create another new quiz based on the previous topic. Do not repeat the previous questions."
+                                              : "請針對上一輪主題再出一組新的骨骼學習測驗，題目不要和剛才重複。",
+                                            "block"
+                                          );
+                                        }}
+                                      />
+                                    )}
+
+                                    {!isUser && renderResources(displayResources)}
+                                  </>
+                                );
+                              })()}
                             </div>
                             {renderMessageFiles(msg.files)}
                           </div>

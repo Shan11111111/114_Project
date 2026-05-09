@@ -321,9 +321,9 @@ def is_persona_chat_request(user_q: str) -> bool:
     q = (user_q or "").strip().lower()
 
     persona_words = [
-        "小罐頭",
-        "bone寶",
-        "bone 宝",
+        # "小罐頭",
+        # "bone寶",
+        # "bone 宝",
         "你是誰",
         "你是什麼",
         "你叫什麼",
@@ -491,6 +491,10 @@ def build_learning_prompt_from_evidence(
             "7) 每題都要有 explanation。\n"
             "8) 解析必須根據檢索資料，不可自行腦補。\n"
             "9) 如果資料不足以支持某題，請改出較保守的基礎理解題。\n"
+            "10) 最外層第一個字元必須是 {，最後一個字元必須是 }。\n"
+"11) 不要使用 Markdown 標題，例如 ### 題目 1。\n"
+"12) 不要在 JSON 前後加任何說明、鼓勵文字或結語。\n"
+"13) 若無法產生完整 5 題，也必須回傳合法 JSON，不可改成 Markdown。\n"
         )
 
         return system, prompt
@@ -881,7 +885,14 @@ def prepare_auto_fusion_answer(
             "即使使用者輸入英文，也請維持繁體中文回答，除非系統指定 response_language 為 en-US。"
         )
         # 角色閒聊 / 小罐頭設定：不要硬走 RAG
-    if is_persona_chat_request(user_q):
+        # 先判斷是不是學習任務。
+    # 例如「小罐頭幫我出題」同時有小罐頭 + 出題，
+    # 這種應該走 quiz，不應該被 persona 分流吃掉。
+    early_learning_mode = is_quiz_or_card_request(user_q)
+
+    # 角色閒聊 / 小罐頭設定：不要硬走 RAG
+    # 只有「不是出題 / 不是學習卡」時，才進 persona。
+    if not early_learning_mode and is_persona_chat_request(user_q):
         system, prompt = build_persona_chat_prompt(user_q, language_rule)
         return system, prompt, []
     
@@ -980,16 +991,41 @@ def prepare_auto_fusion_answer(
 
             if learning_mode == "quiz":
                 prompt = (
-                    f"【使用者原始需求】\n{user_q}\n\n"
-                    f"【系統推定查詢語意】\n{fallback_query}\n\n"
-                    f"【3D 模型資源】\n{render_source.get('snippet') or render_source}\n\n"
-                    "目前只有 3D 模型資源，文字型 RAG 證據不足。\n"
-                    "請根據 3D 模型資訊設計 3 題保守的骨骼觀察題：\n"
-                    "1) 題目要聚焦在骨頭位置、外觀、左右側或相鄰構造。\n"
-                    "2) 每題附答案與簡短解析。\n"
-                    "3) 不可捏造模型資訊以外的疾病或治療內容。\n"
-                    "4) 標題為：# 3D 骨骼模型觀察題\n"
-                )
+    f"【使用者原始需求】\n{user_q}\n\n"
+    f"【系統推定查詢語意】\n{fallback_query}\n\n"
+    f"【3D 模型資源】\n{render_source.get('snippet') or render_source}\n\n"
+    "目前只有 3D 模型資源，文字型 RAG 證據不足。\n"
+    "請根據 3D 模型資訊設計 3 題保守的骨骼觀察題。\n"
+    "請只輸出合法 JSON，不要輸出 Markdown，不要加 ```，不要加任何 JSON 外的說明文字。\n"
+    "JSON 格式必須完全符合以下 schema：\n"
+    "{\n"
+    '  "mode": "quiz",\n'
+    '  "title": "3D 骨骼模型觀察題",\n'
+    '  "questions": [\n'
+    "    {\n"
+    '      "id": "q1",\n'
+    '      "type": "single_choice",\n'
+    '      "question": "題目文字",\n'
+    '      "options": [\n'
+    '        {"key": "A", "text": "選項 A"},\n'
+    '        {"key": "B", "text": "選項 B"},\n'
+    '        {"key": "C", "text": "選項 C"},\n'
+    '        {"key": "D", "text": "選項 D"}\n'
+    "      ],\n"
+    '      "answer": "A",\n'
+    '      "explanation": "解析文字",\n'
+    '      "source_hint": "3D 模型資源"\n'
+    "    }\n"
+    "  ]\n"
+    "}\n\n"
+    "規則：\n"
+    "1) 請出 3 題。\n"
+    "2) 題目要聚焦在骨頭位置、外觀、左右側或相鄰構造。\n"
+    "3) single_choice 必須有 A/B/C/D 四個選項，answer 必須是 A/B/C/D 其中一個。\n"
+    "4) 每題都要有 explanation。\n"
+    "5) 不可捏造模型資訊以外的疾病或治療內容。\n"
+    "6) 最外層第一個字元必須是 {，最後一個字元必須是 }。\n"
+)
             elif learning_mode == "card":
                 prompt = (
                     f"【使用者原始需求】\n{user_q}\n\n"
@@ -1032,15 +1068,40 @@ def prepare_auto_fusion_answer(
 
         if learning_mode == "quiz":
             prompt = (
-                f"【使用者原始需求】\n{user_q}\n\n"
-                f"【系統推定查詢語意】\n{fallback_query}\n\n"
-                "目前沒有檢索到足夠文字資料，也沒有找到 3D 模型資源。\n"
-                "請保守設計 3 題基礎骨骼學習題：\n"
-                "1) 開頭先說明：目前資料不足，以下題目僅作基礎複習。\n"
-                "2) 題目必須是一般骨骼學習方向，不可假裝有文獻、教材或模型依據。\n"
-                "3) 每題附答案與簡短解析。\n"
-                "4) 標題為：# 基礎骨骼學習題\n"
-            )
+    f"【使用者原始需求】\n{user_q}\n\n"
+    f"【系統推定查詢語意】\n{fallback_query}\n\n"
+    "目前沒有檢索到足夠文字資料，也沒有找到 3D 模型資源。\n"
+    "請保守設計 3 題基礎骨骼學習題。\n"
+    "請只輸出合法 JSON，不要輸出 Markdown，不要加 ```，不要加任何 JSON 外的說明文字。\n"
+    "JSON 格式必須完全符合以下 schema：\n"
+    "{\n"
+    '  "mode": "quiz",\n'
+    '  "title": "基礎骨骼學習題",\n'
+    '  "questions": [\n'
+    "    {\n"
+    '      "id": "q1",\n'
+    '      "type": "single_choice",\n'
+    '      "question": "題目文字",\n'
+    '      "options": [\n'
+    '        {"key": "A", "text": "選項 A"},\n'
+    '        {"key": "B", "text": "選項 B"},\n'
+    '        {"key": "C", "text": "選項 C"},\n'
+    '        {"key": "D", "text": "選項 D"}\n'
+    "      ],\n"
+    '      "answer": "A",\n'
+    '      "explanation": "解析文字",\n'
+    '      "source_hint": "基礎骨骼學習"\n'
+    "    }\n"
+    "  ]\n"
+    "}\n\n"
+    "規則：\n"
+    "1) 請出 3 題。\n"
+    "2) 開頭不要額外說明資料不足，資料不足請寫在 explanation 或 source_hint 裡。\n"
+    "3) 題目必須是一般骨骼學習方向，不可假裝有文獻、教材或模型依據。\n"
+    "4) single_choice 必須有 A/B/C/D 四個選項，answer 必須是 A/B/C/D 其中一個。\n"
+    "5) 每題都要有 explanation。\n"
+    "6) 最外層第一個字元必須是 {，最後一個字元必須是 }。\n"
+)
         elif learning_mode == "card":
             prompt = (
                 f"【使用者原始需求】\n{user_q}\n\n"
