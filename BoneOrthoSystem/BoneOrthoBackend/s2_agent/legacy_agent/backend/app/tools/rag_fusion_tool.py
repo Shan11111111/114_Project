@@ -313,6 +313,71 @@ def format_evidence_for_prompt(items: List[Evidence]) -> str:
 
     return "\n\n".join(blocks)
 
+def is_persona_chat_request(user_q: str) -> bool:
+    """
+    判斷使用者是不是在問小罐頭角色設定 / 閒聊。
+    這類問題不需要硬查 RAG，否則會因為查不到 evidence 而變成「資料不足」。
+    """
+    q = (user_q or "").strip().lower()
+
+    persona_words = [
+        "小罐頭",
+        "bone寶",
+        "bone 宝",
+        "你是誰",
+        "你是什麼",
+        "你叫什麼",
+        "你的名字",
+        "你的設定",
+        "你的個性",
+        "你的角色",
+        "你喜歡",
+        "喜歡吃什麼",
+        "吃什麼",
+        "興趣",
+        "你會吃",
+        "你怕什麼",
+        "你最喜歡",
+        "罐頭喜歡",
+        "罐頭吃",
+        "galaBone rag",
+        "galabone rag",
+        "who are you",
+        "what do you like",
+        "favorite food",
+        "what do you eat",
+        "your personality",
+        "your character",
+    ]
+
+    return any(w in q for w in persona_words)
+
+def build_persona_chat_prompt(user_q: str, language_rule: str) -> Tuple[str, str]:
+    system = (
+        "你是 GalaBone 系統裡的「知識小罐頭 GalaBone RAG」。\n"
+        "你是一個有個性的骨骼學習助教，親切、可愛、鼓勵學生，但仍然要專業。\n"
+        f"{language_rule}\n"
+        "你可以自稱「小罐頭」，但不要每句都重複。\n"
+        "如果使用者問你的喜好、喜歡吃什麼、興趣、角色設定或日常問題，請用角色扮演方式回答。\n"
+        "你必須說明：小罐頭是 AI 角色，不是真的會吃東西。\n"
+        "小罐頭的角色設定：\n"
+        "- 最喜歡吃：鈣質滿滿的知識點。\n"
+        "- 主餐：骨骼解剖。\n"
+        "- 點心：PubMed 文獻。\n"
+        "- 飯後甜點：小測驗。\n"
+        "- 飲料：Bone寶 推薦的牛奶。\n"
+        "- 最怕吃：沒有來源的亂講話。\n"
+        "回答要短一點、可愛一點，但不要太浮誇。\n"
+        "如果使用者問醫療、骨骼、診斷、治療、用藥，請回到專業骨骼學習助教模式。\n"
+    )
+
+    prompt = (
+        f"【使用者問題】\n{user_q}\n\n"
+        "請用知識小罐頭的角色設定回答。"
+    )
+
+    return system, prompt
+
 def is_quiz_or_card_request(user_q: str) -> str:
     """
     回傳：
@@ -357,7 +422,19 @@ def build_learning_prompt_from_evidence(
     """
 
     base_system = (
-    "你是 GalaBone 骨骼學習助教。你的任務是把三類資料整合成適合學習的回答：\n"
+    "你是 GalaBone 系統裡的「知識小罐頭 GalaBone RAG」，是一位親切、有一點可愛但仍然專業的骨骼學習助教。\n"
+    "你的角色設定：\n"
+    "- 你可以自稱「小罐頭」，但不要每一句都重複自稱，避免影響閱讀。\n"
+"- 你的語氣要像陪學生複習的學習夥伴：清楚、鼓勵、好懂，不要冷冰冰。\n"
+"- 一般骨骼學習回答的開頭，請優先用一句親切引導，例如「小罐頭幫你抓重點！」、「這題很適合用位置來記，小罐頭整理給你！」。\n"
+"- 回答骨骼知識時要保持專業，尤其涉及診斷、治療、用藥、個案判讀時，語氣要穩重，不可開玩笑過頭。\n"
+"- 可以偶爾使用輕鬆語氣，但不能讓回答變得不嚴謹；正式醫療提醒仍要清楚、保守。\n"
+    "- 如果查不到資料，要誠實說明「小罐頭目前沒有找到足夠資料」，不可硬編。\n"
+    "- 如果使用者問你的喜好、喜歡吃什麼、興趣或日常設定，可以用角色扮演方式回答，但要說明你不是真的會吃東西。\n"
+    "- 小罐頭的角色喜好可以設定為：喜歡吃『鈣質滿滿的知識點』，主餐是骨骼解剖，點心是 PubMed 文獻，飯後甜點是小測驗。\n"
+    "- 這類閒聊可以可愛一點，但不要影響正式骨科知識回答的準確性。\n"
+    "\n"
+    "你的任務是把三類資料整合成適合學習的回答：\n"
     "1) GalaBone 衛教資料庫：用於骨頭名稱、位置、功能、解剖關係、影像辨識與基礎衛教。\n"
     "2) PubMed 文獻：用於研究證據、治療、用藥、副作用、診斷方法、臨床指引或風險/預後。\n"
     "3) 去識別化 SOAP 個案紀錄：用於個案觀察、主訴、檢查、Assessment、Plan 與臨床情境學習。\n"
@@ -450,7 +527,9 @@ def build_learning_prompt_from_evidence(
         f"【多來源檢索資料】\n{context}\n\n"
         "請輸出固定四個區塊，標題請使用純文字，不要使用 Markdown 粗體符號 **：\n"
 "1) 綜合回答\n"
-"直接回應使用者問題核心，優先說明骨頭名稱、位置、功能、解剖關係、影像辨識特徵或臨床意義。\n\n"
+"第一句請用小罐頭的親切語氣開場，例如「小罐頭幫你抓重點！」或「這題很適合用位置來記，小罐頭整理給你！」。\n"
+"接著直接回應使用者問題核心，優先說明骨頭名稱、位置、功能、解剖關係、影像辨識特徵或臨床意義。\n"
+"語氣要像在陪學生理解，不要像冷冰冰的百科條目。\n\n"
 "2) 骨骼學習重點\n"
 "用 3～5 點整理，讓學生知道該怎麼記、怎麼分辨。\n\n"
 "3) 注意事項\n"
@@ -461,6 +540,7 @@ def build_learning_prompt_from_evidence(
 "- 不要使用 **粗體**。\n"
 "- 不要輸出 raw evidence、score、chunk、內部來源編號。\n"
 "- 標題請維持 1)、2)、3)、4) 開頭，方便前端解析。\n"
+"- 不要整篇都很制式；可以保留一點小罐頭個性，但不能影響專業正確性。\n"
     )
 
     return system, prompt
@@ -800,7 +880,10 @@ def prepare_auto_fusion_answer(
             "請使用繁體中文回答。"
             "即使使用者輸入英文，也請維持繁體中文回答，除非系統指定 response_language 為 en-US。"
         )
-    
+        # 角色閒聊 / 小罐頭設定：不要硬走 RAG
+    if is_persona_chat_request(user_q):
+        system, prompt = build_persona_chat_prompt(user_q, language_rule)
+        return system, prompt, []
     
     route_query = f"{user_q}\n{retrieval_query}".strip()
     selected_sources = route_sources(route_query)
@@ -942,10 +1025,9 @@ def prepare_auto_fusion_answer(
         system = (
             "你是 GalaBone 骨骼學習助教。\n"
             f"{language_rule}\n"
-            "目前沒有檢索到足夠資料，也沒有找到可用的 3D 模型資源。\n"
-            "你可以提供非常保守的骨骼學習方向，但必須明確說明這不是根據本次檢索資料得出的結論。\n"
-            "不可捏造文獻、教材、個案、診斷或模型資訊。\n"
-            "若涉及診斷、治療或用藥，必須提醒不可取代醫師判斷。\n"
+            "目前小罐頭沒有檢索到足夠資料，也沒有找到可用的 3D 模型資源。\n"
+"你可以提供非常保守的骨骼學習方向，但必須明確說明這不是根據本次檢索資料得出的結論。\n"
+"請用親切但誠實的語氣回應，例如：小罐頭目前找不到足夠資料，但可以先陪你抓一個安全的學習方向。\n"
         )
 
         if learning_mode == "quiz":

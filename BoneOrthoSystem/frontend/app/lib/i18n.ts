@@ -12,12 +12,12 @@ export const messages: Record<AppLocale, Record<string, string>> = {
     "common.language": "語言",
 
     "nav.home": "首頁",
-    "nav.boneDetection": "骨骼辨識",
-    "nav.boneKnowledge": "骨骼知識庫",
+    "nav.boneDetection": "進階X光骨骼辨識",
+    "nav.boneKnowledge": "知識小罐頭",
     "nav.boneModel3d": "3D 骨骼模型",
     "nav.materials": "教材管理",
     "nav.accountManagement": "帳號管理",
-    "nav.accountCenter": "帳戶中心",
+    "nav.accountCenter": "帳號登入面板",
     "nav.loginRegister": "登入 / 註冊",
     "nav.logout": "登出",
     "nav.menu": "選單",
@@ -27,21 +27,21 @@ export const messages: Record<AppLocale, Record<string, string>> = {
 
     /* LLM */
 
-    "llm.newChat": "新對話",
-    "llm.history": "對話紀錄",
-    "llm.historyTitle": "對話紀錄",
+    "llm.newChat": "開啟新的對話回憶",
+    "llm.history": "和小罐頭的對話紀錄",
+    "llm.historyTitle": "我們的對話紀錄",
     "llm.recentChats": "最近對話",
     "llm.search": "搜尋",
     "llm.searchHistory": "搜尋對話紀錄",
     "llm.searchAndManageChats": "搜尋與管理對話",
     "llm.settings": "設定",
-    "llm.resourceManagement": "資源管理",
+    "llm.resourceManagement": "(未來) 資源管理",
     "llm.ragMode": "RAG 模式",
     "llm.askPlaceholder": "提出任何問題⋯",
     "llm.tools": "工具",
-    "llm.uploadFile": "上傳檔案",
-    "llm.exportPdf": "匯出 PDF",
-    "llm.exportPpt": "匯出 PPT",
+    "llm.uploadFile": "上傳檔案拿摘要",
+    "llm.exportPdf": "專屬聊天回憶 PDF",
+    "llm.exportPpt": "專屬聊天回憶 PPT",
     "llm.thinking": "正在思考中…",
     "llm.reference": "參考資料",
     "llm.relatedFeatures": "相關功能",
@@ -63,17 +63,34 @@ export const messages: Record<AppLocale, Record<string, string>> = {
     "llm.backToList": "返回列表",
     "llm.pressEscToClose": "提示：按 ESC 可關閉",
     "llm.language": "語言",
-    "welcomeText": `嗨，我是 GalaBone LLM 知識小助手。
+    "welcomeText": `我聽 Bone寶 說，你是我們系統的新住民！
+我是知識小罐頭 GalaBone RAG，很高興認識你。
 
-我們的目標是成為骨科醫護的好幫手，幫你快速理解醫療報告、病歷記錄，甚至是 X 光影像裡的骨頭狀況。
-依據：各大醫院刊登衛教之文件、PubMed 文獻、以及我們團隊整理的骨科專業資料庫。
+小罐頭想陪你在 206 根骨骼學習上走得更開心。你可以問我骨骼相關的小知識，也可以上傳文字型檔案，例如 PDF、CSV，我會幫你快速整理摘要，不用再被長長的文件追著跑。
 
-使用說明：
-1. 你可以直接輸入醫療報告裡的文字，或是病歷記錄的內容，我會盡力幫你解釋。
-2. 如果你有 X 光影像的分析結果，也可以輸入給我。
-3. GalaBone 的回覆僅供學習與輔助理解，醫療決策仍應諮詢專業醫護人員。
-4. 請勿輸入任何敏感個資或真實姓名。
-5. 如果你有任何建議或回饋，歡迎告訴我們。`,
+小罐頭也可以幫你出小測驗，看看你對骨骼位置、功能、分類、影像判讀或臨床注意事項理解到哪裡。
+
+小罐頭不會亂講話回你。我的回答會盡量依據：
+1. 各大醫院刊登的衛教文件
+2. PubMed 文獻
+3. 輔大醫院授權的去識別化臨床醫囑表
+4. GalaBone 團隊整理的骨科知識資料庫
+
+如果沒有找到相關資訊，小罐頭會老實說找不到，不會硬凹。
+
+使用小罐頭的說明：
+0. 事前準備：請先依據需求選擇語言，中文或英文。
+1. 你可以問我骨骼相關知識，我會用比較好懂的方式解釋給你聽。
+2. 你可以點擊左下角工具箱，上傳 PDF、CSV 等文字型檔案，小罐頭可以幫你快速抓摘要與重點。
+3. 你可以請小罐頭幫你出題，檢查你對骨骼知識的理解程度。
+4. 小罐頭會根據你的問題提供功能按鈕，例如小測驗、查看 3D 模型、延伸學習問題、範例影像庫等。
+5. 小罐頭和 Bone寶 會記得你的對話內容，方便你持續學習和複習，也可以查看對話紀錄回顧之前學過的內容。
+6. 左下角工具箱也偷偷放了聊天回憶的 PDF 和 PPT 匯出功能，讓你可以保存對話紀錄，之後複習或分享。
+7. 小罐頭會盡力提供正確資訊，但有時候可能找不到資料或無法回答，這時候請不要生氣，小罐頭也很無奈啊。
+
+小罐頭想和你約兩個小約定：
+1. 請勿輸入任何他人的敏感個資或真實姓名，小罐頭只想記住你的學習脈絡就好。
+2. 小罐頭是用來學習和輔助說明的，醫療決策還是要和醫療專業人員討論後再做出喔。`,
   },
 
   "en-US": {
