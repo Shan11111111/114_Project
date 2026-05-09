@@ -72,6 +72,22 @@ type ChatMessage = {
   resources?: ChatResource[];
 };
 
+type QuizQuestion = {
+  id: string;
+  type: "single_choice" | "true_false" | "short_answer";
+  question: string;
+  options?: { key: string; text: string }[];
+  answer: string;
+  explanation: string;
+  source_hint?: string;
+};
+
+type QuizData = {
+  mode: "quiz";
+  title: string;
+  questions: QuizQuestion[];
+};
+
 type ViewKey = "llm" | "assets";
 
 type HistoryThread = {
@@ -240,6 +256,88 @@ function safeJsonParse<T = any>(raw: string): T | null {
     return null;
   }
 }
+
+function tryParseQuiz(content: string): QuizData | null {
+  const raw = String(content || "").trim();
+  if (!raw) return null;
+
+  const data = safeJsonParse<any>(raw);
+  if (!data || data.mode !== "quiz" || !Array.isArray(data.questions)) {
+    return null;
+  }
+
+  const questions: QuizQuestion[] = data.questions
+    .map((q: any, index: number) => {
+      const rawOptions = Array.isArray(q.options)
+        ? q.options
+        : Array.isArray(q.optons)
+          ? q.optons
+          : [];
+
+      const options = rawOptions.map((opt: any) => ({
+        key: String(opt.key ?? opt.y ?? opt.label ?? "").trim(),
+        text: String(opt.text ?? opt.value ?? "").trim(),
+      })).filter((opt: any) => opt.key && opt.text);
+
+      return {
+        id: String(q.id || `q${index + 1}`),
+        type: q.type === "true_false" || q.type === "short_answer"
+          ? q.type
+          : "single_choice",
+        question: String(q.question || "").trim(),
+        options,
+        answer: String(q.answer || "").trim(),
+        explanation: String(q.explanation || "").trim(),
+        source_hint: q.source_hint ? String(q.source_hint) : undefined,
+      };
+    })
+    .filter((q: QuizQuestion) => q.question && q.answer);
+
+  if (questions.length === 0) return null;
+
+  return {
+    mode: "quiz",
+    title: String(data.title || "骨骼學習測驗"),
+    questions,
+  };
+}
+
+function looksLikeQuizJson(content: string) {
+  const raw = String(content || "").trim();
+  if (!raw) return false;
+
+  return (
+    raw.startsWith("{") &&
+    (
+      raw.includes('"mode"') ||
+      raw.includes('"quiz"') ||
+      raw.includes('"questions"') ||
+      raw.includes('"question"') ||
+      raw.includes('"answer"')
+    )
+  );
+}
+
+function QuizGeneratingCard() {
+  return (
+    <div
+      className="rounded-2xl border px-4 py-3 text-sm"
+      style={{
+        borderColor: "rgba(148,163,184,0.25)",
+        backgroundColor: "rgba(148,163,184,0.08)",
+      }}
+    >
+      <div className="font-semibold">正在產生骨骼學習測驗…</div>
+      <div className="mt-1 text-xs opacity-60">
+        題目整理中，完成後會自動轉成可點選的測驗卡。
+      </div>
+    </div>
+  );
+}
+
+
+
+
 
 function toAbsUrl(maybeUrl?: string) {
   if (!maybeUrl) return "";
@@ -1088,6 +1186,462 @@ function ThreadMoreMenu({
   );
 }
 
+
+function QuizCard({
+  quiz,
+  onRequestNewQuiz,
+}: {
+  quiz: QuizData;
+  onRequestNewQuiz?: () => void;
+}) {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+  const [showEncourageToast, setShowEncourageToast] = useState(false);
+
+  const totalQuestions = Math.max(quiz.questions.length, 1);
+
+  const score = quiz.questions.reduce((sum, q, index) => {
+    const qid = q.id || `q${index + 1}`;
+    const userAns = (answers[qid] || "").trim().toLowerCase();
+    const correct = String(q.answer || "").trim().toLowerCase();
+    return sum + (userAns === correct ? 1 : 0);
+  }, 0);
+
+  const accuracy = Math.round((score / totalQuestions) * 100);
+
+  function getEncourageText(rate: number) {
+    if (rate === 100) {
+      return "太棒了，竟然全部答對！骨頭知識直接滿血復活 🦴";
+    }
+
+    if (rate >= 70) {
+      return "差一點！還是很棒，已經掌握大部分重點了！";
+    }
+
+    if (rate >= 40) {
+      return "別灰心！繼續嘗試，下一輪一定更穩。";
+    }
+
+    return "別灰心，繼續嘗試！先把錯題解析看懂就很賺。";
+  }
+
+  function getEncourageColor(rate: number) {
+    if (rate === 100) {
+      return {
+        bg: "rgba(34,197,94,0.12)",
+        border: "rgba(34,197,94,0.28)",
+        text: "#16a34a",
+      };
+    }
+
+    if (rate >= 70) {
+      return {
+        bg: "rgba(59,130,246,0.12)",
+        border: "rgba(59,130,246,0.28)",
+        text: "#2563eb",
+      };
+    }
+
+    if (rate >= 40) {
+      return {
+        bg: "rgba(245,158,11,0.12)",
+        border: "rgba(245,158,11,0.30)",
+        text: "#d97706",
+      };
+    }
+
+    return {
+      bg: "rgba(239,68,68,0.10)",
+      border: "rgba(239,68,68,0.25)",
+      text: "#ef4444",
+    };
+  }
+
+  const encourageText = getEncourageText(accuracy);
+  const encourageColor = getEncourageColor(accuracy);
+
+  useEffect(() => {
+    if (!submitted) {
+      setShowEncourageToast(false);
+      return;
+    }
+
+    setShowEncourageToast(true);
+
+    const timer = window.setTimeout(() => {
+      setShowEncourageToast(false);
+    }, 2600);
+
+    return () => window.clearTimeout(timer);
+  }, [submitted, accuracy]);
+
+  return (
+    <div
+      className="relative rounded-2xl border px-4 py-3 space-y-4"
+      style={{
+        borderColor: "rgba(148,163,184,0.25)",
+        backgroundColor: "rgba(148,163,184,0.08)",
+      }}
+    >
+      {submitted && showEncourageToast && (
+        <div
+          className="absolute right-4 top-4 z-20 max-w-[260px] rounded-2xl border px-4 py-3 text-xs shadow-xl animate-bounce"
+          style={{
+            borderColor: encourageColor.border,
+            backgroundColor: "rgba(255,255,255,0.92)",
+            color: encourageColor.text,
+          }}
+        >
+          <div className="font-bold">答題完成！</div>
+          <div className="mt-1 leading-relaxed">{encourageText}</div>
+        </div>
+      )}
+
+      <div>
+        <div className="text-sm font-bold">
+          {quiz.title || "骨骼學習測驗"}
+        </div>
+
+        {submitted && (
+          <div
+            className="mt-3 rounded-2xl border px-4 py-3"
+            style={{
+              borderColor: encourageColor.border,
+              backgroundColor: encourageColor.bg,
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-bold">
+                  答對率：{accuracy}%
+                </div>
+                <div className="mt-1 text-xs opacity-75">
+                  得分：{score} / {quiz.questions.length}
+                </div>
+              </div>
+
+              <div
+                className="rounded-full px-3 py-1 text-xs font-semibold"
+                style={{
+                  color: encourageColor.text,
+                  backgroundColor: "rgba(255,255,255,0.45)",
+                }}
+              >
+                {accuracy === 100
+                  ? "完美掌握"
+                  : accuracy >= 70
+                    ? "差一點滿分"
+                    : accuracy >= 40
+                      ? "繼續加油"
+                      : "再試一次"}
+              </div>
+            </div>
+
+            <div
+              className="mt-2 text-xs leading-relaxed font-medium"
+              style={{ color: encourageColor.text }}
+            >
+              {encourageText}
+            </div>
+
+            <div
+              className="mt-3 h-2 w-full overflow-hidden rounded-full"
+              style={{ backgroundColor: "rgba(148,163,184,0.20)" }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${accuracy}%`,
+                  backgroundColor: encourageColor.text,
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {quiz.questions.map((q, index) => {
+        const qid = q.id || `q${index + 1}`;
+        const userAnswer = answers[qid] || "";
+        const isCorrect =
+          submitted &&
+          userAnswer.trim().toLowerCase() ===
+          String(q.answer || "").trim().toLowerCase();
+
+        return (
+          <div
+            key={qid}
+            className="rounded-xl border px-3 py-3 space-y-2"
+            style={{
+              borderColor: "rgba(148,163,184,0.20)",
+              backgroundColor: "rgba(255,255,255,0.05)",
+            }}
+          >
+            <div className="text-sm font-semibold">
+              {index + 1}. {q.question}
+            </div>
+
+            {q.type === "single_choice" && Array.isArray(q.options) && (
+              <div className="space-y-2">
+                {q.options.map((opt) => {
+                  const active = userAnswer === opt.key;
+
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      disabled={submitted}
+                      onClick={() =>
+                        setAnswers((prev) => ({
+                          ...prev,
+                          [qid]: opt.key,
+                        }))
+                      }
+                      className="w-full text-left rounded-lg px-3 py-2 text-sm border transition"
+                      style={{
+                        borderColor: active
+                          ? "rgba(59,130,246,0.85)"
+                          : "rgba(148,163,184,0.25)",
+                        backgroundColor: active
+                          ? "rgba(59,130,246,0.18)"
+                          : "rgba(255,255,255,0.04)",
+                      }}
+                    >
+                      {opt.key}. {opt.text}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {q.type === "true_false" && (
+              <div className="flex gap-2">
+                {(q.options?.length
+                  ? q.options
+                  : [
+                    { key: "O", text: "正確" },
+                    { key: "X", text: "錯誤" },
+                  ]
+                ).map((opt) => {
+                  const active = userAnswer === opt.key;
+
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      disabled={submitted}
+                      onClick={() =>
+                        setAnswers((prev) => ({
+                          ...prev,
+                          [qid]: opt.key,
+                        }))
+                      }
+                      className="rounded-lg px-4 py-2 text-sm border"
+                      style={{
+                        borderColor: active
+                          ? "rgba(59,130,246,0.85)"
+                          : "rgba(148,163,184,0.25)",
+                        backgroundColor: active
+                          ? "rgba(59,130,246,0.18)"
+                          : "rgba(255,255,255,0.04)",
+                      }}
+                    >
+                      {opt.key}. {opt.text}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {q.type === "short_answer" && (
+              <input
+                disabled={submitted}
+                value={userAnswer}
+                onChange={(e) =>
+                  setAnswers((prev) => ({
+                    ...prev,
+                    [qid]: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border px-3 py-2 text-sm bg-transparent outline-none"
+                style={{
+                  borderColor: "rgba(148,163,184,0.25)",
+                  color: "var(--foreground)",
+                }}
+                placeholder="輸入你的答案"
+              />
+            )}
+
+            {submitted && (
+              <div
+                className="rounded-lg px-3 py-2 text-xs leading-relaxed"
+                style={{
+                  backgroundColor: isCorrect
+                    ? "rgba(34,197,94,0.10)"
+                    : "rgba(239,68,68,0.10)",
+                }}
+              >
+                <div style={{ color: isCorrect ? "#16a34a" : "#ef4444" }}>
+                  {isCorrect ? "答對了 ✅" : `答錯了，正確答案：${q.answer}`}
+                </div>
+
+                <div className="mt-1 opacity-80">{q.explanation}</div>
+
+                {q.source_hint && (
+                  <div className="mt-1 opacity-50">
+                    來源提示：{q.source_hint}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="flex flex-wrap gap-2">
+        {!submitted ? (
+          <button
+            type="button"
+            onClick={() => setSubmitted(true)}
+            className="rounded-xl px-4 py-2 text-sm font-semibold"
+            style={{
+              backgroundColor: "rgba(59,130,246,0.90)",
+              color: "white",
+            }}
+          >
+            送出答案
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setAnswers({});
+              setSubmitted(false);
+              setShowEncourageToast(false);
+            }}
+            className="rounded-xl px-4 py-2 text-sm font-semibold border"
+            style={{
+              borderColor: "rgba(148,163,184,0.25)",
+            }}
+          >
+            重新作答
+          </button>
+        )}
+
+        {onRequestNewQuiz && (
+          <button
+            type="button"
+            onClick={onRequestNewQuiz}
+            className="rounded-xl px-4 py-2 text-sm font-semibold border"
+            style={{
+              borderColor: "rgba(59,130,246,0.35)",
+              backgroundColor: "rgba(59,130,246,0.10)",
+            }}
+          >
+            再出一組題目
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function cleanInlineMarkdown(raw: string) {
+  return String(raw || "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1");
+}
+
+function renderPrettyLearningText(raw: string) {
+  const text = cleanInlineMarkdown(raw);
+  const lines = text.split("\n");
+
+  const sectionTitlePattern =
+    /^\s*(1|2|3)\)\s*(綜合回答|骨骼學習重點|注意事項|Comprehensive Answer|Bone Learning Highlights|Learning Highlights|Cautionary Notes|Notes|Key Points)\s*[:：]?\s*(.*)$/i;
+
+  const out: React.ReactNode[] = [];
+
+  lines.forEach((line, idx) => {
+    const cleaned = line.trim();
+    const m = cleaned.match(sectionTitlePattern);
+
+    if (m) {
+      const sectionNo = m[1];
+      const sectionTitle = m[2];
+      const restText = (m[3] || "").trim();
+
+      out.push(
+        <div
+          key={`title-${idx}`}
+          className="mt-3 mb-1 text-[12px] font-semibold opacity-70"
+        >
+          {sectionNo}) {sectionTitle}
+        </div>
+      );
+
+      if (restText) {
+        out.push(
+          <div
+            key={`title-content-${idx}`}
+            className="whitespace-pre-wrap break-words"
+          >
+            {restText}
+          </div>
+        );
+      }
+
+      return;
+    }
+
+    if (!cleaned) {
+      out.push(<div key={`space-${idx}`} className="h-2" />);
+      return;
+    }
+
+    out.push(
+      <div key={`line-${idx}`} className="whitespace-pre-wrap break-words">
+        {cleanInlineMarkdown(line)}
+      </div>
+    );
+  });
+
+  return <div className="space-y-1">{out}</div>;
+}
+
+function MessageContent({
+  content,
+  isUser,
+  fallback,
+  onRequestNewQuiz,
+}: {
+  content: string;
+  isUser: boolean;
+  fallback?: React.ReactNode;
+  onRequestNewQuiz?: () => void;
+}) {
+  const quiz = !isUser ? tryParseQuiz(content) : null;
+
+  if (quiz) {
+    return (
+      <QuizCard
+        quiz={quiz}
+        onRequestNewQuiz={onRequestNewQuiz}
+      />
+    );
+  }
+
+  // 串流中的 quiz JSON 還沒完整，先不要把 raw JSON 打出來
+  if (!isUser && looksLikeQuizJson(content)) {
+    return <QuizGeneratingCard />;
+  }
+
+  if (fallback) {
+    return <>{fallback}</>;
+  }
+
+  return <div className="whitespace-pre-wrap break-words">{content}</div>;
+}
+
 // ============================================================
 //  HistoryOverlay（原樣保留）
 // ============================================================
@@ -1527,9 +2081,7 @@ const HistoryOverlay = memo(function HistoryOverlay({
                               : "var(--chat-assistant-text)",
                           }}
                         >
-                          <div className="whitespace-pre-wrap break-words">
-                            {m.content}
-                          </div>
+                          <MessageContent content={m.content} isUser={isUser} />
 
                           {!isUser && renderResources((m as HistoryMessageWithResources).resources)}
                         </div>
@@ -3737,6 +4289,7 @@ function LLMClient() {
     );
   }
 
+
   function ResourceCarousel({ resources }: { resources: ChatResource[] }) {
 
     const formatPageLabel = (page?: string) => {
@@ -3868,7 +4421,7 @@ function LLMClient() {
     return (
       <div className="mt-2">
         <div className="flex items-center justify-between mb-2">
-          <div className="text-[11px] font-semibold opacity-70">參考資料</div>
+          <div className="text-[11px] font-semibold opacity-70">{locale === "en-US" ? "References" : "參考資料"}</div>
 
           {total > 1 && (
             <div className="flex items-center gap-2">
@@ -4679,7 +5232,10 @@ function LLMClient() {
 
 
   function getGuideActions(text: string) {
+    const isEn = locale === "en-US";
+
     const actions: { label: string; path: string; icon: string; note?: string }[] = [];
+
 
     const urlBoneName = urlBoneZh || urlBone || "";
     const urlMeshName = urlMesh || "";
@@ -4689,8 +5245,10 @@ function LLMClient() {
 
     if (urlBoneName || urlMeshName) {
       actions.push({
-        label: `前往 3D 模型觀察：${urlBoneName || urlMeshName}`,
-        note: urlMeshName ? `mesh：${urlMeshName}` : undefined,
+        label: isEn
+          ? `View 3D model: ${urlBoneName || urlMeshName}`
+          : `前往 3D 模型觀察：${urlBoneName || urlMeshName}`,
+        note: urlMeshName ? `mesh: ${urlMeshName}` : undefined,
         path: `/model?${new URLSearchParams({
           bone: urlBoneName,
           mesh: urlMeshName,
@@ -4732,8 +5290,10 @@ function LLMClient() {
             "骨骼模型";
 
           actions.push({
-            label: `觀察 3D 模型：${displayName}`,
-            note: meshName ? `mesh：${meshName}` : undefined,
+            label: isEn
+              ? `View 3D model: ${displayName}`
+              : `觀察 3D 模型：${displayName}`,
+            note: meshName ? `mesh: ${meshName}` : undefined,
             path: `/model?${new URLSearchParams({
               bone: String(displayName || ""),
               mesh: String(meshName || ""),
@@ -4743,7 +5303,7 @@ function LLMClient() {
         });
       } else {
         actions.push({
-          label: "前往 3D 骨骼模型觀察",
+          label: isEn ? "View 3D Bone Model" : "前往 3D 骨骼模型觀察",
           path: "/model",
           icon: "fa-solid fa-cube",
         });
@@ -4753,22 +5313,30 @@ function LLMClient() {
     if (s1Targets.length > 0) {
       s1Targets.slice(0, 4).forEach((target) => {
         actions.push({
-          label: `開啟${target.zh}範例影像庫`,
-          note: `自動篩選：${target.zh}`,
+          label: isEn
+            ? `Open ${target.en} sample image library`
+            : `開啟${target.zh}範例影像庫`,
+          note: isEn
+            ? `Auto filter: ${target.en}`
+            : `自動篩選：${target.zh}`,
           path: `/bonevision?openGallery=1&bone=${encodeURIComponent(target.zh)}`,
           icon: "fa-regular fa-images",
         });
       });
     } else {
       actions.push({
-        label: "開啟X光影像範例集學習",
+        label: isEn
+          ? "Open X-ray sample image library"
+          : "開啟X光影像範例集學習",
         path: "/bonevision?openGallery=1",
         icon: "fa-regular fa-images",
       });
     }
 
     actions.push({
-      label: "上傳X光影像進行骨頭辨識",
+      label: isEn
+        ? "Upload X-ray image for bone recognition"
+        : "上傳X光影像進行骨頭辨識",
       path: "/bonevision",
       icon: "fa-solid fa-x-ray",
     });
@@ -4798,14 +5366,16 @@ function LLMClient() {
     const prettyName = makeS3TargetDisplayZh("", "", meshName);
 
     if (
-      rawLabel.includes("觀察 3D 模型") &&
+      (rawLabel.includes("觀察 3D 模型") || rawLabel.includes("View 3D model")) &&
       meshName &&
       prettyName &&
       prettyName !== meshName
     ) {
       return {
-        label: `觀察 3D 模型：${prettyName}`,
-        note: `mesh：${meshName}`,
+        label: locale === "en-US"
+          ? `View 3D model: ${prettyName}`
+          : `觀察 3D 模型：${prettyName}`,
+        note: `mesh: ${meshName}`,
       };
     }
 
@@ -4827,6 +5397,63 @@ function LLMClient() {
     );
   }
 
+  function buildQuizPromptFromAssistantAnswer(answerText: string) {
+    const cleaned = cleanInlineMarkdown(answerText)
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 1800);
+
+    if (locale === "en-US") {
+      return [
+        "Please create a short bone-learning quiz based on the assistant answer below.",
+        "Use 5 questions, mainly single-choice questions.",
+        "The quiz should test whether the learner understood the key anatomical concepts.",
+        "Do not repeat previous questions.",
+        "Please return only quiz JSON format.",
+        "",
+        `Assistant answer: ${cleaned}`,
+      ].join("\n");
+    }
+
+    return [
+      "請根據下面這一則回答內容，產生一組骨骼學習小測驗。",
+      "請出 5 題，以單選題為主，可少量加入是非題或簡答題。",
+      "題目要測驗使用者是否理解這則回答的重點，例如位置、功能、分類、影像判讀或臨床注意事項。",
+      "不要和前面題目重複。",
+      "請只回傳 quiz JSON 格式。",
+      "",
+      `回答內容：${cleaned}`,
+    ].join("\n");
+  }
+
+  function QuizGuideButton({ answerText }: { answerText: string }) {
+    return (
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() =>
+          reallySendMessage(
+            undefined,
+            buildQuizPromptFromAssistantAnswer(answerText),
+            "block"
+          )
+        }
+        className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80 disabled:opacity-50"
+        style={{
+          borderColor: "rgba(59,130,246,0.35)",
+          backgroundColor: "rgba(59,130,246,0.10)",
+        }}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <i className="fa-solid fa-clipboard-question text-[10px] opacity-70" />
+          <span>
+            {locale === "en-US" ? "Create a quiz from this answer" : "根據這則回答出小測驗"}
+          </span>
+        </span>
+      </button>
+    );
+  }
+
   function renderAssistantContent(content: string) {
     const text = String(content || "");
     const lastUserText =
@@ -4838,11 +5465,13 @@ function LLMClient() {
       ? getGuideActions(contextText)
       : [];
 
+    const followTitlePattern =
+      /(?:^|\n)\s*(?:#{1,6}\s*)?(?:\d+[.)、]\s*)?(?:[-•]\s*)?(?:\*\*)?\s*(?:延伸學習問題|延伸問題|延伸提問|Follow-up questions|Further learning questions|Extended Learning Questions|Extended Questions|Learning Questions)\s*(?:\*\*)?\s*[:：]?\s*/im;
+
     const match =
-      text.match(
-        /(?:^|\n)\s*(?:\*\*)?\s*(?:4\)\s*)?(延伸學習問題|延伸問題|延伸提問|Follow-up questions|Further learning questions)\s*[:：]?\s*(?:\*\*)?/im
-      ) ||
+      text.match(followTitlePattern) ||
       text.match(/(?:^|\n)((?:\s*(?:[-•]|\d+[.)、]\s*[-•]?)\s*.+[？?]\s*){1,4})\s*$/m);
+
 
     const idx =
       match?.index != null
@@ -4854,41 +5483,45 @@ function LLMClient() {
     if (idx < 0) {
       return (
         <>
-          <div className="whitespace-pre-wrap break-words">{text}</div>
+          {renderPrettyLearningText(text)}
 
-          {guideActions.map((a) => {
-            const pretty = getPrettyActionText(a);
+          <div className="mt-3 flex flex-wrap gap-2">
+            <QuizGuideButton answerText={text} />
 
-            return (
-              <button
-                key={a.path}
-                type="button"
-                onClick={() => {
-                  setIsNavigating(true);
-                  setNavigatingText(pretty.label);
+            {guideActions.map((a) => {
+              const pretty = getPrettyActionText(a);
 
-                  setTimeout(() => {
-                    router.push(a.path);
-                  }, 900);
-                }}
-                className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80"
-                style={{
-                  borderColor: "rgba(56,189,248,0.35)",
-                  backgroundColor: "rgba(56,189,248,0.10)",
-                }}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <i className={`${a.icon} text-[10px] opacity-70`} />
-                  <span>
-                    {pretty.label}
-                    {pretty.note && (
-                      <span className="ml-1 opacity-60">（{pretty.note}）</span>
-                    )}
+              return (
+                <button
+                  key={a.path}
+                  type="button"
+                  onClick={() => {
+                    setIsNavigating(true);
+                    setNavigatingText(pretty.label);
+
+                    setTimeout(() => {
+                      router.push(a.path);
+                    }, 900);
+                  }}
+                  className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80"
+                  style={{
+                    borderColor: "rgba(56,189,248,0.35)",
+                    backgroundColor: "rgba(56,189,248,0.10)",
+                  }}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <i className={`${a.icon} text-[10px] opacity-70`} />
+                    <span>
+                      {pretty.label}
+                      {pretty.note && (
+                        <span className="ml-1 opacity-60">（{pretty.note}）</span>
+                      )}
+                    </span>
                   </span>
-                </span>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
         </>
       );
     }
@@ -4902,7 +5535,7 @@ function LLMClient() {
       // 拿掉標題行，不然「延伸學習問題：」會混進問題
       .filter(
         (line) =>
-          !/^(?:\*\*)?\s*(?:4\)\s*)?(延伸學習問題|延伸問題|延伸提問)\s*[:：]?\s*(?:\*\*)?$/i.test(line)
+          !/^(?:#{1,6}\s*)?(?:\d+[.)、]\s*)?(?:[-•]\s*)?(?:\*\*)?\s*(延伸學習問題|延伸問題|延伸提問|Follow-up questions|Further learning questions|Extended Learning Questions|Extended Questions|Learning Questions)\s*(?:\*\*)?\s*[:：]?\s*$/i.test(line)
       )
       // 支援：
       // - 問題
@@ -4928,12 +5561,22 @@ function LLMClient() {
 
     return (
       <>
-        <div className="whitespace-pre-wrap break-words">{mainText}</div>
+        {renderPrettyLearningText(mainText)}
+
+        <div className="mt-3">
+          <div className="text-[12px] font-semibold opacity-70 mb-2">
+            {locale === "en-US" ? "Learning actions" : "學習引導"}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <QuizGuideButton answerText={mainText || text} />
+          </div>
+        </div>
 
         {guideActions.length > 0 && (
           <div className="mt-3">
             <div className="text-[12px] font-semibold opacity-70 mb-2">
-              相關功能
+              {locale === "en-US" ? "Related actions" : "相關功能"}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -4973,7 +5616,7 @@ function LLMClient() {
         {questions.length > 0 && (
           <div className="mt-3">
             <div className="text-[12px] font-semibold opacity-70 mb-2">
-              延伸學習問題
+              {locale === "en-US" ? "Extended learning questions" : "延伸學習問題"}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -6247,7 +6890,20 @@ function LLMClient() {
                               {isUser ? (
                                 msg.content
                               ) : (
-                                renderAssistantContent(msg.content)
+                                <MessageContent
+                                  content={msg.content}
+                                  isUser={isUser}
+                                  fallback={renderAssistantContent(msg.content)}
+                                  onRequestNewQuiz={() =>
+                                    reallySendMessage(
+                                      undefined,
+                                      locale === "en-US"
+                                        ? "Please create another new quiz based on the previous topic. Do not repeat the previous questions."
+                                        : "請針對上一輪主題再出一組新的骨骼學習測驗，題目不要和剛才重複。",
+                                      "block"
+                                    )
+                                  }
+                                />
                               )}
                               {!isUser && renderResources(msg.resources)}
                             </div>

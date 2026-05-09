@@ -25,11 +25,12 @@ def analyze_user_intent(question: str) -> dict:
         "旋轉", "放大", "縮小", "定位",
         "骨架", "骨骼模型", "3d viewer", "viewer",
         "model", "render", "visualize", "visualise",
-        
+
         # 多輪追問 / 指代
-    "前面那個", "剛剛那個", "剛才那個", "上一個", "同一個",
-    "再給我一次", "再開一次", "再看一次", "重新顯示",
-    "打開剛剛", "開剛剛", "再顯示", "再打開"
+        "前面那個", "剛剛那個", "剛才那個", "上一個", "同一個",
+        "再來一次", "再一次", "重來一次",
+        "再給我一次", "再開一次", "再看一次", "重新顯示",
+        "打開剛剛", "開剛剛", "再顯示", "再打開",
     ]
 
     # 病灶 / 影像標示類，也適合 3D 示意
@@ -48,8 +49,7 @@ def analyze_user_intent(question: str) -> dict:
         "是什麼", "為什麼", "如何", "差異", "比較",
     ]
 
-    # 骨頭名稱 / 解剖詞：這些詞本身不一定要 3D，
-    # 但如果搭配「看 / 顯示 / 觀察 / 在哪」就應該觸發 3D。
+    # 骨頭名稱 / 解剖詞
     bone_anatomy_words = [
         "骨", "骨頭", "骨骼", "解剖",
         "顱骨", "頭骨", "鼻骨", "顴骨", "額骨", "頂骨", "枕骨", "顳骨",
@@ -64,7 +64,8 @@ def analyze_user_intent(question: str) -> dict:
         "第一", "第二", "第三", "第四", "第五",
         "proximal", "middle", "distal",
         "phalanx", "phalanges", "metacarpal", "metatarsal",
-        "carpal", "tarsal", "femur", "tibia", "fibula", "humerus", "radius", "ulna",
+        "carpal", "tarsal",
+        "femur", "tibia", "fibula", "humerus", "radius", "ulna",
     ]
 
     # 這些動詞搭配骨頭名稱時，代表使用者很可能想看 3D
@@ -74,6 +75,11 @@ def analyze_user_intent(question: str) -> dict:
         "觀察", "查看", "定位", "標示", "標出",
         "在哪", "在哪裡", "位置",
         "跳到", "前往", "進入",
+
+        # 多輪追問
+        "再來一次", "再一次", "重來一次",
+        "再給我一次", "再開一次", "再看一次", "重新顯示",
+        "打開剛剛", "開剛剛", "再顯示", "再打開",
     ]
 
     # 明確否定 3D 的情境，避免使用者只想文字解釋時硬跳 modal
@@ -82,7 +88,6 @@ def analyze_user_intent(question: str) -> dict:
         "只要文字", "文字就好", "不用示意圖",
     ]
 
-    # 英文 token 比較適合用 regex 避免亂中；中文仍用 includes
     has_model_word = _has_any(raw, model_words) or _has_any(q, model_words)
     has_lesion_word = _has_any(raw, lesion_words) or _has_any(q, lesion_words)
     has_text_word = _has_any(raw, text_words) or _has_any(q, text_words)
@@ -90,12 +95,17 @@ def analyze_user_intent(question: str) -> dict:
     has_visual_action = _has_any(raw, visual_action_words) or _has_any(q, visual_action_words)
     text_only = _has_any(raw, text_only_words) or _has_any(q, text_only_words)
 
-    # 英文常見 3D/模型意圖
-    if re.search(r"\b(show|open|view|display|visualize|render|highlight|focus)\b", q):
+    # 英文常見 3D / 模型意圖
+    if re.search(r"\b(show|open|view|display|visualize|visualise|render|highlight|focus)\b", q):
         has_visual_action = True
 
     if re.search(r"\b(3d|model|viewer|mesh|bone model)\b", q):
         has_model_word = True
+
+    # 英文短句追問
+    if re.search(r"\b(again|one more time|do it again|show it again|open it again|view it again)\b", q):
+        has_model_word = True
+        has_visual_action = True
 
     if re.search(r"\b(third|second|fourth|fifth|first)\s+(distal|middle|proximal)\b", q):
         has_bone_word = True
@@ -111,7 +121,10 @@ def analyze_user_intent(question: str) -> dict:
     very_specific_small_bone = bool(
         re.search(r"第[一二三四五12345].{0,3}[指趾].{0,4}[遠近中]節", raw)
         or re.search(r"[遠近中]節[指趾]骨", raw)
-        or re.search(r"\b(third|second|fourth|fifth|first).{0,12}(distal|middle|proximal).{0,12}(phalanx|phalanges)\b", q)
+        or re.search(
+            r"\b(third|second|fourth|fifth|first).{0,12}(distal|middle|proximal).{0,12}(phalanx|phalanges)\b",
+            q,
+        )
     )
 
     need_3d = False

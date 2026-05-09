@@ -1,0 +1,41 @@
+cd C:\Users\IM43LLM\Desktop\114_Project\BoneOrthoSystem\frontend
+npm install          # 第一次才需要
+
+npm run dev   //不要用他
+
+要開就開這個:指令不用dev上面那個
+npm run build
+npm run start
+
+安裝套件
+npm i framer-motion
+
+連外
+npm run dev -- --hostname 0.0.0.0 --port 3000
+
+npx next dev -H 0.0.0.0 -p 3000
+
+
+http://localhost:3000/llm/materials   //上傳官方教材的前端(學生以外的使用者:老師，記得連)
+
+
+
+
+--------------------------------------------------------------
+rmdir /s /q .next
+npm run build
+npm run start -- --hostname 0.0.0.0 --port 3000
+
+
+
+------------------------------------------------------------------
+iis裝
+Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole -All
+
+安裝與部屬
+
+npm run build
+npm run start
+
+測試
+http://localhost/bonevision
