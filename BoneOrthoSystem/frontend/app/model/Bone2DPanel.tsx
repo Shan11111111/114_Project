@@ -1,183 +1,101 @@
+// frontend/app/model/Bone2DPanel.tsx
 'use client';
+
+/* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from 'react';
 
 type ViewMode = 'front' | 'back';
 type SideMode = 'left' | 'right' | 'both';
 
-type RegionKey =
-  | 'head'
-  | 'clavicle'
-  | 'scapula'
-  | 'sternum'
-  | 'ribs'
-  | 'spine'
-  | 'pelvis'
-  | 'upperArm'
-  | 'forearm'
-  | 'wrist'
-  | 'hand'
-  | 'thigh'
-  | 'knee'
-  | 'lowerLeg'
-  | 'foot';
-
-type BoneTarget = {
-  view: ViewMode;
-  labelZh: string;
-  labelEn: string;
-  regions: RegionKey[];
-  side: SideMode;
-};
-
 type Props = {
   selectedBoneName?: string | null;
 };
 
-function normalizeText(name?: string | null) {
-  return String(name ?? '')
-    .toLowerCase()
-    .replace(/_/g, ' ')
-    .replace(/\./g, ' ')
-    .replace(/-/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+type DotPosition = {
+  x: number;
+  y: number;
+};
 
-function detectSide(raw: string): SideMode {
-  const compact = raw.replace(/\s+/g, '');
+type SidePair = {
+  left: string;
+  right: string;
+};
 
-  const isLeft =
-    raw.includes(' left ') ||
-    raw.startsWith('left ') ||
-    raw.includes('左') ||
-    compact.endsWith('l') ||
-    compact.includes('claviclel') ||
-    compact.includes('scapulal') ||
-    compact.includes('scapulael') ||
-    compact.includes('humerusl') ||
-    compact.includes('radiusl') ||
-    compact.includes('ulnal') ||
-    compact.includes('metacarpall') ||
-    compact.includes('phalangesl') ||
-    compact.includes('femurl') ||
-    compact.includes('tibial') ||
-    compact.includes('fibulal');
+type DotPair = {
+  left: DotPosition;
+  right: DotPosition;
+};
 
-  const isRight =
-    raw.includes(' right ') ||
-    raw.startsWith('right ') ||
-    raw.includes('右') ||
-    compact.endsWith('r') ||
-    compact.includes('clavicler') ||
-    compact.includes('scapular') ||
-    compact.includes('scapulaer') ||
-    compact.includes('humerusr') ||
-    compact.includes('radiusr') ||
-    compact.includes('ulnar') ||
-    compact.includes('metacarpalr') ||
-    compact.includes('phalangesr') ||
-    compact.includes('femurr') ||
-    compact.includes('tibiar') ||
-    compact.includes('fibular');
+type Bone2DTarget = {
+  labelZh: string;
+  labelEn: string;
+  defaultView: ViewMode;
+  frontDot?: DotPosition;
+  backDot?: DotPosition;
+  frontDotPair?: DotPair;
+  backDotPair?: DotPair;
+};
 
-  if (isLeft && !isRight) return 'left';
-  if (isRight && !isLeft) return 'right';
-  return 'both';
-}
+//const HIGHLIGHT_DIR = '/anatomy/highlights';
 
-function normalizeBoneTarget(name?: string | null): BoneTarget | null {
-  if (!name) return null;
+function normalizeBoneKey(name?: string | null) {
+  if (!name) return '';
 
-  const raw = normalizeText(name);
-  const side = detectSide(raw);
+  const raw = name.toLowerCase();
 
   if (
     raw.includes('skull') ||
     raw.includes('cranium') ||
     raw.includes('frontal') ||
     raw.includes('parietal') ||
-    raw.includes('occipital') ||
     raw.includes('temporal') ||
+    raw.includes('occipital') ||
     raw.includes('sphenoid') ||
     raw.includes('ethmoid') ||
     raw.includes('zygomatic') ||
-    raw.includes('nasal') ||
     raw.includes('maxilla') ||
     raw.includes('mandible') ||
+    raw.includes('nasal') ||
     raw.includes('hyoid') ||
-    raw.includes('頭顱') ||
-    raw.includes('顱骨') ||
+    raw.includes('頭') ||
+    raw.includes('顱') ||
     raw.includes('額骨') ||
-    raw.includes('頂骨') ||
-    raw.includes('枕骨') ||
-    raw.includes('顳骨') ||
     raw.includes('蝶骨') ||
     raw.includes('篩骨') ||
+    raw.includes('顳骨') ||
+    raw.includes('頂骨') ||
+    raw.includes('枕骨') ||
     raw.includes('顴骨') ||
     raw.includes('鼻骨') ||
     raw.includes('上顎') ||
     raw.includes('下顎') ||
     raw.includes('下頜') ||
-    raw.includes('舌骨') ||
+    raw.includes('舌骨')
+  ) {
+    return 'head';
+  }
+
+  if (
+    raw.includes('ear') ||
+    raw.includes('malleus') ||
+    raw.includes('incus') ||
+    raw.includes('stapes') ||
+    raw.includes('ossicle') ||
     raw.includes('聽小骨') ||
     raw.includes('砧骨') ||
     raw.includes('錘骨') ||
     raw.includes('槌骨') ||
-    raw.includes('鐙骨') ||
-    raw.includes('incus') ||
-    raw.includes('malleus') ||
-    raw.includes('stapes') ||
-    raw.includes('ossicle')
+    raw.includes('鐙骨')
   ) {
-    return {
-      view: 'front',
-      labelZh: '頭顱骨',
-      labelEn: 'Skull',
-      regions: ['head'],
-      side: 'both',
-    };
+    return 'head';
   }
 
-  if (raw.includes('clavicle') || raw.includes('clavicles') || raw.includes('鎖骨')) {
-    return {
-      view: 'front',
-      labelZh: '鎖骨',
-      labelEn: 'Clavicle',
-      regions: ['clavicle'],
-      side,
-    };
-  }
+  if (raw.includes('clavicle') || raw.includes('鎖骨')) return 'clavicle';
+  if (raw.includes('scapula') || raw.includes('肩胛')) return 'scapula';
 
-  if (raw.includes('scapula') || raw.includes('scapulae') || raw.includes('肩胛')) {
-    return {
-      view: 'back',
-      labelZh: '肩胛骨',
-      labelEn: 'Scapula',
-      regions: ['scapula'],
-      side,
-    };
-  }
-
-  if (raw.includes('sternum') || raw.includes('胸骨')) {
-    return {
-      view: 'front',
-      labelZh: '胸骨',
-      labelEn: 'Sternum',
-      regions: ['sternum'],
-      side: 'both',
-    };
-  }
-
-  if (raw.includes('rib') || raw.includes('ribs') || raw.includes('肋骨')) {
-    return {
-      view: 'front',
-      labelZh: '肋骨',
-      labelEn: 'Ribs',
-      regions: ['ribs'],
-      side,
-    };
-  }
+  if (raw.includes('sternum') || raw.includes('胸骨')) return 'sternum';
+  if (raw.includes('rib') || raw.includes('肋')) return 'ribs';
 
   if (
     raw.includes('vertebra') ||
@@ -197,63 +115,32 @@ function normalizeBoneTarget(name?: string | null): BoneTarget | null {
     /^t([1-9]|1[0-2])$/i.test(raw.replace(/\s/g, '')) ||
     /^l[1-5]$/i.test(raw.replace(/\s/g, ''))
   ) {
-    return {
-      view: 'back',
-      labelZh: '脊椎',
-      labelEn: 'Spine',
-      regions: ['spine'],
-      side: 'both',
-    };
+    return 'spine';
   }
 
   if (
-    raw.includes('pelvis') ||
-    raw.includes('hipbone') ||
-    raw.includes('pelvic') ||
-    raw.includes('hip') ||
-    raw.includes('骨盆') ||
-    raw.includes('髖骨')
+    raw.includes('humerus') ||
+    raw.includes('upper arm') ||
+    raw.includes('上臂') ||
+    raw.includes('肱骨')
   ) {
-    return {
-      view: 'front',
-      labelZh: '骨盆',
-      labelEn: 'Pelvis',
-      regions: ['pelvis'],
-      side: 'both',
-    };
-  }
-
-  if (raw.includes('humerus') || raw.includes('humeri') || raw.includes('肱骨')) {
-    return {
-      view: 'front',
-      labelZh: '肱骨',
-      labelEn: 'Humerus',
-      regions: ['upperArm'],
-      side,
-    };
-  }
-
-  if (raw.includes('radius') || raw.includes('radii') || raw.includes('橈骨')) {
-    return {
-      view: 'front',
-      labelZh: '橈骨',
-      labelEn: 'Radius',
-      regions: ['forearm'],
-      side,
-    };
-  }
-
-  if (raw.includes('ulna') || raw.includes('ulnae') || raw.includes('尺骨')) {
-    return {
-      view: 'front',
-      labelZh: '尺骨',
-      labelEn: 'Ulna',
-      regions: ['forearm'],
-      side,
-    };
+    return 'upperArm';
   }
 
   if (
+    raw.includes('radius') ||
+    raw.includes('ulna') ||
+    raw.includes('forearm') ||
+    raw.includes('前臂') ||
+    raw.includes('橈骨') ||
+    raw.includes('尺骨')
+  ) {
+    return 'forearm';
+  }
+
+  if (
+    raw.includes('wrist') ||
+    raw.includes('carpal') ||
     raw.includes('scaphoid') ||
     raw.includes('lunate') ||
     raw.includes('triquetrum') ||
@@ -262,495 +149,662 @@ function normalizeBoneTarget(name?: string | null): BoneTarget | null {
     raw.includes('trapezoid') ||
     raw.includes('capitate') ||
     raw.includes('hamate') ||
-    raw.includes('carpal') ||
-    raw.includes('腕骨')
+    raw.includes('腕') ||
+    raw.includes('腕骨') ||
+    raw.includes('舟狀骨') ||
+    raw.includes('月狀骨') ||
+    raw.includes('三角骨') ||
+    raw.includes('豆狀骨') ||
+    raw.includes('大多角骨') ||
+    raw.includes('小多角骨') ||
+    raw.includes('頭狀骨') ||
+    raw.includes('鉤狀骨')
   ) {
-    return {
-      view: 'front',
-      labelZh: '腕骨',
-      labelEn: 'Carpal bones',
-      regions: ['wrist'],
-      side,
-    };
+    return 'wrist';
   }
 
   if (
+    raw.includes('hand') ||
     raw.includes('metacarpal') ||
-    raw.includes('metacarpals') ||
     raw.includes('phalanx') ||
     raw.includes('phalanges') ||
+    raw.includes('finger') ||
     raw.includes('thumb') ||
-    raw.includes('index') ||
-    raw.includes('middle') ||
-    raw.includes('ring') ||
-    raw.includes('little') ||
-    raw.includes('hand') ||
     raw.includes('掌骨') ||
     raw.includes('指骨') ||
-    raw.includes('手骨')
+    raw.includes('手')
   ) {
-    return {
-      view: 'front',
-      labelZh: '手骨',
-      labelEn: 'Hand bones',
-      regions: ['hand'],
-      side,
-    };
-  }
-
-  if (raw.includes('femur') || raw.includes('femora') || raw.includes('股骨')) {
-    return {
-      view: 'front',
-      labelZh: '股骨',
-      labelEn: 'Femur',
-      regions: ['thigh'],
-      side,
-    };
-  }
-
-  if (raw.includes('patella') || raw.includes('patellae') || raw.includes('髕骨')) {
-    return {
-      view: 'front',
-      labelZh: '髕骨',
-      labelEn: 'Patella',
-      regions: ['knee'],
-      side,
-    };
-  }
-
-  if (raw.includes('tibia') || raw.includes('tibiae') || raw.includes('脛骨')) {
-    return {
-      view: 'front',
-      labelZh: '脛骨',
-      labelEn: 'Tibia',
-      regions: ['lowerLeg'],
-      side,
-    };
-  }
-
-  if (raw.includes('fibula') || raw.includes('fibulae') || raw.includes('腓骨')) {
-    return {
-      view: 'front',
-      labelZh: '腓骨',
-      labelEn: 'Fibula',
-      regions: ['lowerLeg'],
-      side,
-    };
+    return 'hand';
   }
 
   if (
-    raw.includes('talus') ||
+    raw.includes('pelvis') ||
+    raw.includes('hip bone') ||
+    raw.includes('hipbone') ||
+    raw.includes('hip') ||
+    raw.includes('ilium') ||
+    raw.includes('ischium') ||
+    raw.includes('pubis') ||
+    raw.includes('骨盆') ||
+    raw.includes('髖骨') ||
+    raw.includes('髂骨') ||
+    raw.includes('坐骨') ||
+    raw.includes('恥骨')
+  ) {
+    return 'pelvis';
+  }
+
+  if (
+    raw.includes('femur') ||
+    raw.includes('thigh') ||
+    raw.includes('股骨') ||
+    raw.includes('大腿')
+  ) {
+    return 'thigh';
+  }
+
+  if (
+    raw.includes('patella') ||
+    raw.includes('knee') ||
+    raw.includes('髕骨') ||
+    raw.includes('膝')
+  ) {
+    return 'knee';
+  }
+
+  if (
+    raw.includes('tibia') ||
+    raw.includes('fibula') ||
+    raw.includes('lower leg') ||
+    raw.includes('小腿') ||
+    raw.includes('脛骨') ||
+    raw.includes('腓骨')
+  ) {
+    return 'lowerLeg';
+  }
+
+  if (
+    raw.includes('foot') ||
+    raw.includes('tarsal') ||
+    raw.includes('metatarsal') ||
     raw.includes('calcaneus') ||
+    raw.includes('talus') ||
     raw.includes('navicular') ||
     raw.includes('cuboid') ||
     raw.includes('cuneiform') ||
-    raw.includes('metatarsal') ||
     raw.includes('toe') ||
     raw.includes('hallux') ||
-    raw.includes('foot') ||
-    raw.includes('距骨') ||
-    raw.includes('跟骨') ||
-    raw.includes('舟狀骨') ||
-    raw.includes('立方骨') ||
-    raw.includes('楔狀骨') ||
+    raw.includes('足') ||
+    raw.includes('跗骨') ||
     raw.includes('蹠骨') ||
     raw.includes('趾骨') ||
-    raw.includes('足骨')
+    raw.includes('跟骨') ||
+    raw.includes('距骨') ||
+    raw.includes('舟狀骨') ||
+    raw.includes('立方骨') ||
+    raw.includes('楔狀骨')
   ) {
-    return {
-      view: 'front',
-      labelZh: '足骨',
-      labelEn: 'Foot bones',
-      regions: ['foot'],
-      side,
-    };
+    return 'foot';
   }
 
-  return null;
+  return '';
 }
 
-function isActive(
-  region: RegionKey,
-  activeRegions: RegionKey[],
-  activeSide: SideMode,
-  regionSide: SideMode = 'both'
+function detectSide(name?: string | null): SideMode {
+  if (!name) return 'both';
+
+  const raw = name.toLowerCase();
+
+  const hasLeft =
+    raw.includes('左') ||
+    raw.includes('left') ||
+    raw.includes('.l') ||
+    raw.includes('_l') ||
+    raw.includes('-l') ||
+    raw.includes(' l ') ||
+    raw.startsWith('l:') ||
+    raw.includes('| l:');
+
+  const hasRight =
+    raw.includes('右') ||
+    raw.includes('right') ||
+    raw.includes('.r') ||
+    raw.includes('_r') ||
+    raw.includes('-r') ||
+    raw.includes(' r ') ||
+    raw.startsWith('r:') ||
+    raw.includes('| r:');
+
+  if (hasLeft && !hasRight) return 'left';
+  if (hasRight && !hasLeft) return 'right';
+  return 'both';
+}
+
+const bone2DMap: Record<string, Bone2DTarget> = {
+  head: {
+    labelZh: '頭部',
+    labelEn: 'Head',
+    defaultView: 'front',
+    //frontSingle: [`${HIGHLIGHT_DIR}/front_head.png`],
+    //backSingle: [`${HIGHLIGHT_DIR}/back_head.png`],
+    frontDot: { x: 50, y: 9 },
+    backDot: { x: 50, y: 9 },
+  },
+
+  clavicle: {
+    labelZh: '鎖骨',
+    labelEn: 'Clavicle',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_clavicle_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_clavicle_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 57, y: 19 },
+      right: { x: 46, y: 19 },
+    },
+  },
+
+  scapula: {
+    labelZh: '肩胛骨',
+    labelEn: 'Scapula',
+    defaultView: 'back',
+    /*backPair: {
+      left: `${HIGHLIGHT_DIR}/back_scapula_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_scapula_right.png`,
+    },*/
+    backDotPair: {
+      left: { x: 42, y: 31 },
+      right: { x: 58, y: 31 },
+    },
+  },
+
+  sternum: {
+    labelZh: '胸骨',
+    labelEn: 'Sternum',
+    defaultView: 'front',
+    //frontSingle: [`${HIGHLIGHT_DIR}/front_sternum.png`],
+    frontDot: { x: 50, y: 31 },
+  },
+
+  ribs: {
+    labelZh: '肋骨',
+    labelEn: 'Ribs',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_ribs_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_ribs_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 43, y: 33 },
+      right: { x: 57, y: 33 },
+    },
+  },
+
+  spine: {
+    labelZh: '脊椎',
+    labelEn: 'Spine',
+    defaultView: 'back',
+    //backSingle: [`${HIGHLIGHT_DIR}/back_spine.png`],
+    backDot: { x: 50, y: 36 },
+  },
+
+  upperArm: {
+    labelZh: '上臂',
+    labelEn: 'Upper arm',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_upperArm_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_upperArm_right.png`,
+    },
+    backPair: {
+      left: `${HIGHLIGHT_DIR}/back_upperArm_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_upperArm_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 29, y: 35 },
+      right: { x: 71, y: 35 },
+    },
+    backDotPair: {
+      left: { x: 29, y: 38 },
+      right: { x: 71, y: 38 },
+    },
+  },
+
+  forearm: {
+    labelZh: '前臂',
+    labelEn: 'Forearm',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_forearm_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_forearm_right.png`,
+    },*/
+    /*backPair: {
+      left: `${HIGHLIGHT_DIR}/back_forearm_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_forearm_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 24, y: 49 },
+      right: { x: 76, y: 49 },
+    },
+    backDotPair: {
+      left: { x: 24, y: 52 },
+      right: { x: 76, y: 52 },
+    },
+  },
+
+  wrist: {
+    labelZh: '手腕',
+    labelEn: 'Wrist',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_wrist_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_wrist_right.png`,
+    },
+    backPair: {
+      left: `${HIGHLIGHT_DIR}/back_wrist_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_wrist_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 21, y: 56 },
+      right: { x: 79, y: 56 },
+    },
+    backDotPair: {
+      left: { x: 21, y: 59 },
+      right: { x: 79, y: 59 },
+    },
+  },
+
+  hand: {
+    labelZh: '手部',
+    labelEn: 'Hand',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_hand_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_hand_right.png`,
+    },
+    backPair: {
+      left: `${HIGHLIGHT_DIR}/back_hand_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_hand_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 18, y: 61 },
+      right: { x: 82, y: 61 },
+    },
+    backDotPair: {
+      left: { x: 18, y: 64 },
+      right: { x: 82, y: 64 },
+    },
+  },
+
+  pelvis: {
+    labelZh: '骨盆',
+    labelEn: 'Pelvis',
+    defaultView: 'front',
+    //frontSingle: [`${HIGHLIGHT_DIR}/front_pelvis.png`],
+    //backSingle: [`${HIGHLIGHT_DIR}/back_pelvis.png`],
+    frontDot: { x: 50, y: 52 },
+    backDot: { x: 50, y: 52 },
+  },
+
+  thigh: {
+    labelZh: '大腿',
+    labelEn: 'Thigh',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_thigh_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_thigh_right.png`,
+    },
+    backPair: {
+      left: `${HIGHLIGHT_DIR}/back_thigh_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_thigh_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 43, y: 67 },
+      right: { x: 57, y: 67 },
+    },
+    backDotPair: {
+      left: { x: 43, y: 70 },
+      right: { x: 57, y: 70 },
+    },
+  },
+
+  knee: {
+    labelZh: '膝部',
+    labelEn: 'Knee',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_knee_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_knee_right.png`,
+    },
+    backPair: {
+      left: `${HIGHLIGHT_DIR}/back_knee_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_knee_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 42, y: 77 },
+      right: { x: 58, y: 77 },
+    },
+    backDotPair: {
+      left: { x: 42, y: 80 },
+      right: { x: 58, y: 80 },
+    },
+  },
+
+  lowerLeg: {
+    labelZh: '小腿',
+    labelEn: 'Lower leg',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_lowerLeg_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_lowerLeg_right.png`,
+    },
+    backPair: {
+      left: `${HIGHLIGHT_DIR}/back_lowerLeg_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_lowerLeg_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 42, y: 87 },
+      right: { x: 58, y: 87 },
+    },
+    backDotPair: {
+      left: { x: 42, y: 90 },
+      right: { x: 58, y: 90 },
+    },
+  },
+
+  foot: {
+    labelZh: '足部',
+    labelEn: 'Foot',
+    defaultView: 'front',
+    /*frontPair: {
+      left: `${HIGHLIGHT_DIR}/front_foot_left.png`,
+      right: `${HIGHLIGHT_DIR}/front_foot_right.png`,
+    },
+    backPair: {
+      left: `${HIGHLIGHT_DIR}/back_foot_left.png`,
+      right: `${HIGHLIGHT_DIR}/back_foot_right.png`,
+    },*/
+    frontDotPair: {
+      left: { x: 41, y: 94 },
+      right: { x: 59, y: 94 },
+    },
+    backDotPair: {
+      left: { x: 41, y: 97 },
+      right: { x: 59, y: 97 },
+    },
+  },
+};
+
+/*function resolvePair(pair: SidePair | undefined, side: SideMode) {
+  if (!pair) return [];
+  if (side === 'left') return [pair.left];
+  if (side === 'right') return [pair.right];
+  return [pair.left, pair.right];
+}*/
+
+/*function getOverlayPaths(
+  target: Bone2DTarget | null,
+  view: ViewMode,
+  side: SideMode
 ) {
-  if (!activeRegions.includes(region)) return false;
-  if (activeSide === 'both') return true;
-  if (regionSide === 'both') return true;
-  return activeSide === regionSide;
+  if (!target) return [];
+
+  if (view === 'front') {
+    if (target.frontSingle?.length) return target.frontSingle;
+    if (target.frontPair) return resolvePair(target.frontPair, side);
+    return [];
+  }
+
+  if (target.backSingle?.length) return target.backSingle;
+  if (target.backPair) return resolvePair(target.backPair, side);
+  return [];
+}*/
+
+function resolveDotPair(pair: DotPair | undefined, side: SideMode) {
+  if (!pair) return [];
+  if (side === 'left') return [pair.left];
+  if (side === 'right') return [pair.right];
+  return [pair.left, pair.right];
 }
 
-function clipOpacity(
-  region: RegionKey,
-  activeRegions: RegionKey[],
-  activeSide: SideMode,
-  regionSide: SideMode = 'both'
-) {
-  return isActive(region, activeRegions, activeSide, regionSide) ? 1 : 0;
+function getDotPositions(
+  target: Bone2DTarget | null,
+  view: ViewMode,
+  side: SideMode
+): DotPosition[] {
+  if (!target) return [];
+
+  if (view === 'front') {
+    if (target.frontDot) return [target.frontDot];
+    if (target.frontDotPair) return resolveDotPair(target.frontDotPair, side);
+    return [];
+  }
+
+  if (target.backDot) return [target.backDot];
+  if (target.backDotPair) return resolveDotPair(target.backDotPair, side);
+  return [];
 }
 
-function FrontHighlightImage({
-  imageSrc,
-  activeRegions,
-  side,
-}: {
-  imageSrc: string;
-  activeRegions: RegionKey[];
-  side: SideMode;
-}) {
-  const o = (region: RegionKey, regionSide: SideMode = 'both') =>
-    clipOpacity(region, activeRegions, side, regionSide);
+function hasView(target: Bone2DTarget | null, view: ViewMode) {
+  if (!target) return true;
 
-  return (
-    <svg
-      viewBox="0 0 260 430"
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      preserveAspectRatio="xMidYMid meet"
-    >
-      <defs>
-        <clipPath id="front-head">
-          <ellipse cx="130" cy="60" rx="24" ry="31" />
-        </clipPath>
+  if (view === 'front') {
+    return Boolean(target.frontDot || target.frontDotPair);
+  }
 
-        <clipPath id="front-clavicle-left">
-          <path d="M97 120 C107 113 117 113 126 119 C119 123 110 126 100 129 C97 127 96 123 97 120 Z" />
-        </clipPath>
-        <clipPath id="front-clavicle-right">
-          <path d="M163 120 C153 113 143 113 134 119 C141 123 150 126 160 129 C163 127 164 123 163 120 Z" />
-        </clipPath>
-
-        <clipPath id="front-sternum">
-          <rect x="124" y="124" width="12" height="46" rx="6" />
-        </clipPath>
-
-        <clipPath id="front-ribs-left">
-          <path d="M88 128 C99 126 111 126 121 123 C122 138 122 155 118 171 C107 175 96 172 88 164 C84 151 84 138 88 128Z" />
-        </clipPath>
-        <clipPath id="front-ribs-right">
-          <path d="M172 128 C161 126 149 126 139 123 C138 138 138 155 142 171 C153 175 164 172 172 164 C176 151 176 138 172 128Z" />
-        </clipPath>
-
-        <clipPath id="front-pelvis">
-          <path d="M96 214 C108 221 118 224 130 224 C142 224 152 221 164 214 C172 220 176 231 174 244 C166 255 157 262 148 266 C142 262 136 260 130 260 C124 260 118 262 112 266 C103 262 94 255 86 244 C84 231 88 220 96 214Z" />
-        </clipPath>
-
-        <clipPath id="front-upper-arm-left">
-          <path d="M76 136 C67 145 61 160 60 176 C60 189 65 199 72 205 C79 202 83 197 85 191 C82 173 79 154 76 136Z" />
-        </clipPath>
-        <clipPath id="front-upper-arm-right">
-          <path d="M184 136 C193 145 199 160 200 176 C200 189 195 199 188 205 C181 202 177 197 175 191 C178 173 181 154 184 136Z" />
-        </clipPath>
-
-        <clipPath id="front-forearm-left">
-          <path d="M71 205 C63 219 57 235 56 252 C57 262 62 269 69 272 C76 265 79 255 79 244 C76 230 74 217 71 205Z" />
-        </clipPath>
-        <clipPath id="front-forearm-right">
-          <path d="M189 205 C197 219 203 235 204 252 C203 262 198 269 191 272 C184 265 181 255 181 244 C184 230 186 217 189 205Z" />
-        </clipPath>
-
-        <clipPath id="front-wrist-left">
-          <ellipse cx="69" cy="274" rx="8" ry="7" />
-        </clipPath>
-        <clipPath id="front-wrist-right">
-          <ellipse cx="191" cy="274" rx="8" ry="7" />
-        </clipPath>
-
-        <clipPath id="front-hand-left">
-          <path d="M61 281 C56 289 55 299 59 308 C68 305 75 298 77 288 C73 283 67 281 61 281Z" />
-        </clipPath>
-        <clipPath id="front-hand-right">
-          <path d="M199 281 C204 289 205 299 201 308 C192 305 185 298 183 288 C187 283 193 281 199 281Z" />
-        </clipPath>
-
-        <clipPath id="front-thigh-left">
-          <path d="M110 265 C103 281 99 300 99 321 C104 327 111 330 119 330 C122 308 123 286 122 265 C118 264 114 264 110 265Z" />
-        </clipPath>
-        <clipPath id="front-thigh-right">
-          <path d="M150 265 C157 281 161 300 161 321 C156 327 149 330 141 330 C138 308 137 286 138 265 C142 264 146 264 150 265Z" />
-        </clipPath>
-
-        <clipPath id="front-knee-left">
-          <ellipse cx="118" cy="337" rx="11" ry="12" />
-        </clipPath>
-        <clipPath id="front-knee-right">
-          <ellipse cx="142" cy="337" rx="11" ry="12" />
-        </clipPath>
-
-        <clipPath id="front-lower-leg-left">
-          <path d="M112 349 C108 363 106 382 105 403 C110 407 116 409 121 408 C123 388 123 368 122 349 C118 348 115 348 112 349Z" />
-        </clipPath>
-        <clipPath id="front-lower-leg-right">
-          <path d="M148 349 C152 363 154 382 155 403 C150 407 144 409 139 408 C137 388 137 368 138 349 C142 348 145 348 148 349Z" />
-        </clipPath>
-
-        <clipPath id="front-foot-left">
-          <path d="M104 405 C95 407 89 412 88 420 C98 421 108 419 117 414 C115 409 111 406 104 405Z" />
-        </clipPath>
-        <clipPath id="front-foot-right">
-          <path d="M156 405 C165 407 171 412 172 420 C162 421 152 419 143 414 C145 409 149 406 156 405Z" />
-        </clipPath>
-      </defs>
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-head)" opacity={o('head')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-clavicle-left)" opacity={o('clavicle', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-clavicle-right)" opacity={o('clavicle', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-sternum)" opacity={o('sternum')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-ribs-left)" opacity={o('ribs', 'left')} style={{ filter: 'brightness(1.42) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-ribs-right)" opacity={o('ribs', 'right')} style={{ filter: 'brightness(1.42) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-pelvis)" opacity={o('pelvis')} style={{ filter: 'brightness(1.42) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-upper-arm-left)" opacity={o('upperArm', 'left')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-upper-arm-right)" opacity={o('upperArm', 'right')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-forearm-left)" opacity={o('forearm', 'left')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-forearm-right)" opacity={o('forearm', 'right')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-wrist-left)" opacity={o('wrist', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-wrist-right)" opacity={o('wrist', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-hand-left)" opacity={o('hand', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-hand-right)" opacity={o('hand', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-thigh-left)" opacity={o('thigh', 'left')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-thigh-right)" opacity={o('thigh', 'right')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-knee-left)" opacity={o('knee', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-knee-right)" opacity={o('knee', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-lower-leg-left)" opacity={o('lowerLeg', 'left')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-lower-leg-right)" opacity={o('lowerLeg', 'right')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-foot-left)" opacity={o('foot', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#front-foot-right)" opacity={o('foot', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-    </svg>
-  );
-}
-
-function BackHighlightImage({
-  imageSrc,
-  activeRegions,
-  side,
-}: {
-  imageSrc: string;
-  activeRegions: RegionKey[];
-  side: SideMode;
-}) {
-  const o = (region: RegionKey, regionSide: SideMode = 'both') =>
-    clipOpacity(region, activeRegions, side, regionSide);
-
-  return (
-    <svg
-      viewBox="0 0 260 430"
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      preserveAspectRatio="xMidYMid meet"
-    >
-      <defs>
-        <clipPath id="back-head">
-          <ellipse cx="130" cy="60" rx="24" ry="31" />
-        </clipPath>
-
-        <clipPath id="back-scapula-left">
-          <path d="M93 126 C104 123 114 131 116 144 C116 156 110 168 99 172 C91 166 87 153 89 140 C90 133 91 129 93 126Z" />
-        </clipPath>
-        <clipPath id="back-scapula-right">
-          <path d="M167 126 C156 123 146 131 144 144 C144 156 150 168 161 172 C169 166 173 153 171 140 C170 133 169 129 167 126Z" />
-        </clipPath>
-
-        <clipPath id="back-spine">
-          <path d="M125 114 C123 140 124 165 125 191 C125 205 125 220 124 234 L136 234 C135 220 135 205 135 191 C136 165 137 140 135 114Z" />
-        </clipPath>
-
-        <clipPath id="back-pelvis">
-          <path d="M96 214 C108 221 118 224 130 224 C142 224 152 221 164 214 C172 220 176 231 174 244 C166 255 157 262 148 266 C142 262 136 260 130 260 C124 260 118 262 112 266 C103 262 94 255 86 244 C84 231 88 220 96 214Z" />
-        </clipPath>
-
-        <clipPath id="back-upper-arm-left">
-          <path d="M76 136 C67 145 61 160 60 176 C60 189 65 199 72 205 C79 202 83 197 85 191 C82 173 79 154 76 136Z" />
-        </clipPath>
-        <clipPath id="back-upper-arm-right">
-          <path d="M184 136 C193 145 199 160 200 176 C200 189 195 199 188 205 C181 202 177 197 175 191 C178 173 181 154 184 136Z" />
-        </clipPath>
-
-        <clipPath id="back-forearm-left">
-          <path d="M71 205 C63 219 57 235 56 252 C57 262 62 269 69 272 C76 265 79 255 79 244 C76 230 74 217 71 205Z" />
-        </clipPath>
-        <clipPath id="back-forearm-right">
-          <path d="M189 205 C197 219 203 235 204 252 C203 262 198 269 191 272 C184 265 181 255 181 244 C184 230 186 217 189 205Z" />
-        </clipPath>
-
-        <clipPath id="back-wrist-left">
-          <ellipse cx="69" cy="274" rx="8" ry="7" />
-        </clipPath>
-        <clipPath id="back-wrist-right">
-          <ellipse cx="191" cy="274" rx="8" ry="7" />
-        </clipPath>
-
-        <clipPath id="back-hand-left">
-          <path d="M61 281 C56 289 55 299 59 308 C68 305 75 298 77 288 C73 283 67 281 61 281Z" />
-        </clipPath>
-        <clipPath id="back-hand-right">
-          <path d="M199 281 C204 289 205 299 201 308 C192 305 185 298 183 288 C187 283 193 281 199 281Z" />
-        </clipPath>
-
-        <clipPath id="back-thigh-left">
-          <path d="M110 265 C103 281 99 300 99 321 C104 327 111 330 119 330 C122 308 123 286 122 265 C118 264 114 264 110 265Z" />
-        </clipPath>
-        <clipPath id="back-thigh-right">
-          <path d="M150 265 C157 281 161 300 161 321 C156 327 149 330 141 330 C138 308 137 286 138 265 C142 264 146 264 150 265Z" />
-        </clipPath>
-
-        <clipPath id="back-knee-left">
-          <ellipse cx="118" cy="337" rx="11" ry="12" />
-        </clipPath>
-        <clipPath id="back-knee-right">
-          <ellipse cx="142" cy="337" rx="11" ry="12" />
-        </clipPath>
-
-        <clipPath id="back-lower-leg-left">
-          <path d="M112 349 C108 363 106 382 105 403 C110 407 116 409 121 408 C123 388 123 368 122 349 C118 348 115 348 112 349Z" />
-        </clipPath>
-        <clipPath id="back-lower-leg-right">
-          <path d="M148 349 C152 363 154 382 155 403 C150 407 144 409 139 408 C137 388 137 368 138 349 C142 348 145 348 148 349Z" />
-        </clipPath>
-
-        <clipPath id="back-foot-left">
-          <path d="M104 405 C95 407 89 412 88 420 C98 421 108 419 117 414 C115 409 111 406 104 405Z" />
-        </clipPath>
-        <clipPath id="back-foot-right">
-          <path d="M156 405 C165 407 171 412 172 420 C162 421 152 419 143 414 C145 409 149 406 156 405Z" />
-        </clipPath>
-      </defs>
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-head)" opacity={o('head')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-scapula-left)" opacity={o('scapula', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-scapula-right)" opacity={o('scapula', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-spine)" opacity={o('spine')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-pelvis)" opacity={o('pelvis')} style={{ filter: 'brightness(1.42) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-upper-arm-left)" opacity={o('upperArm', 'left')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-upper-arm-right)" opacity={o('upperArm', 'right')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-forearm-left)" opacity={o('forearm', 'left')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-forearm-right)" opacity={o('forearm', 'right')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-wrist-left)" opacity={o('wrist', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-wrist-right)" opacity={o('wrist', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-hand-left)" opacity={o('hand', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-hand-right)" opacity={o('hand', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-thigh-left)" opacity={o('thigh', 'left')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-thigh-right)" opacity={o('thigh', 'right')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-knee-left)" opacity={o('knee', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-knee-right)" opacity={o('knee', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-lower-leg-left)" opacity={o('lowerLeg', 'left')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-lower-leg-right)" opacity={o('lowerLeg', 'right')} style={{ filter: 'brightness(1.45) saturate(1.2)' }} />
-
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-foot-left)" opacity={o('foot', 'left')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-      <image href={imageSrc} x="0" y="0" width="260" height="430" preserveAspectRatio="xMidYMid meet" clipPath="url(#back-foot-right)" opacity={o('foot', 'right')} style={{ filter: 'brightness(1.5) saturate(1.25)' }} />
-    </svg>
-  );
+  return Boolean(target.backDot || target.backDotPair);
 }
 
 export default function Bone2DPanel({ selectedBoneName }: Props) {
-  const target = useMemo(() => normalizeBoneTarget(selectedBoneName), [selectedBoneName]);
+  const boneKey = useMemo(
+    () => normalizeBoneKey(selectedBoneName),
+    [selectedBoneName]
+  );
 
-  const defaultView: ViewMode = target?.view ?? 'front';
-  const [activeView, setActiveView] = useState<ViewMode>(defaultView);
+  const side = useMemo(() => detectSide(selectedBoneName), [selectedBoneName]);
+
+  const target = boneKey ? bone2DMap[boneKey] ?? null : null;
+
+  const [view, setView] = useState<ViewMode>('front');
 
   useEffect(() => {
-    setActiveView(defaultView);
-  }, [defaultView, selectedBoneName]);
+    if (target) {
+      setView(target.defaultView);
+    }
+  }, [target]);
 
-  const imageSrc =
-    activeView === 'front'
-      ? '/anatomy/front_body.png'
-      : '/anatomy/back_body.png';
+  const canFront = hasView(target, 'front');
+  const canBack = hasView(target, 'back');
 
-  const activeRegions = target && target.view === activeView ? target.regions : [];
-  const activeSide = target?.side ?? 'both';
+  /*const overlayPaths = useMemo(
+    () => getOverlayPaths(target, view, side),
+    [target, view, side]
+  );*/
+
+  const dotPositions = useMemo(
+    () => getDotPositions(target, view, side),
+    [target, view, side]
+  );
+
+  const bodySrc =
+    view === 'front' ? '/anatomy/front_body.png' : '/anatomy/back_body.png';
 
   return (
-    <aside className="pointer-events-auto w-full rounded-[24px] border border-[#d9e0ea] bg-[#f6f8fc] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.14)]">
-      <div className="mb-3 flex items-center justify-center">
-        <div className="inline-flex rounded-xl border border-[#d8dee8] bg-[#eef2f7] p-1">
-          <button
-            type="button"
-            onClick={() => setActiveView('front')}
-            className="min-w-[72px] rounded-lg px-4 py-2 text-sm font-bold transition"
-            style={{
-              background:
-                activeView === 'front'
-                  ? 'linear-gradient(180deg, #4da6ff 0%, #2f80ed 100%)'
-                  : 'transparent',
-              color: activeView === 'front' ? '#ffffff' : '#334155',
-              boxShadow:
-                activeView === 'front'
-                  ? '0 4px 10px rgba(47,128,237,0.25)'
-                  : 'none',
-            }}
-          >
-            正面
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveView('back')}
-            className="min-w-[72px] rounded-lg px-4 py-2 text-sm font-bold transition"
-            style={{
-              background:
-                activeView === 'back'
-                  ? 'linear-gradient(180deg, #4da6ff 0%, #2f80ed 100%)'
-                  : 'transparent',
-              color: activeView === 'back' ? '#ffffff' : '#334155',
-              boxShadow:
-                activeView === 'back'
-                  ? '0 4px 10px rgba(47,128,237,0.25)'
-                  : 'none',
-            }}
-          >
-            背面
-          </button>
+    <aside
+      className="
+        pointer-events-auto flex max-h-[calc(100dvh-104px)] w-full flex-col
+        rounded-[28px] border border-slate-200 bg-white p-4
+        text-slate-900 shadow-[0_16px_40px_rgba(15,23,42,0.12)]
+      "
+    >
+      <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
+        <div>
+          <div className="text-lg font-bold text-slate-800">人體部位圖</div>
+          <div className="text-xs leading-5 text-slate-500">
+            依 3D 骨頭自動同步高亮對應部位
+          </div>
         </div>
+
+        {target && (
+          <div className="shrink-0 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+            {target.labelZh} / {target.labelEn}
+          </div>
+        )}
       </div>
 
-      <div className="rounded-[22px] border border-[#dbe2ec] bg-white px-3 pt-2 pb-3">
-        <div className="relative mx-auto h-[470px] w-full max-w-[240px] overflow-visible -translate-y-4">
+      <div className="mb-3 grid shrink-0 grid-cols-2 rounded-2xl bg-slate-100 p-1">
+        <button
+          type="button"
+          onClick={() => canFront && setView('front')}
+          disabled={!canFront}
+          className={[
+            'rounded-xl px-4 py-2 text-sm font-semibold transition',
+            view === 'front'
+              ? 'bg-blue-500 text-white shadow'
+              : 'bg-transparent text-slate-600 hover:bg-white',
+            !canFront ? 'cursor-not-allowed opacity-40' : '',
+          ].join(' ')}
+        >
+          正面
+        </button>
+
+        <button
+          type="button"
+          onClick={() => canBack && setView('back')}
+          disabled={!canBack}
+          className={[
+            'rounded-xl px-4 py-2 text-sm font-semibold transition',
+            view === 'back'
+              ? 'bg-blue-500 text-white shadow'
+              : 'bg-transparent text-slate-600 hover:bg-white',
+            !canBack ? 'cursor-not-allowed opacity-40' : '',
+          ].join(' ')}
+        >
+          背面
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 rounded-[26px] border border-slate-200 bg-slate-50 p-3">
+        {/*
+          重點在這裡：
+          1. 不再用固定 620px 大圖硬塞。
+          2. 用 panel 剩餘高度 flex-1 自動縮放。
+          3. object-contain 確保頭和腳完整出現。
+        */}
+        <div className="relative h-full min-h-[300px] w-full overflow-hidden">
+          <style>{`
+            @keyframes bone2dPulse {
+              0% {
+                transform: translate(-50%, -50%) scale(0.82);
+                opacity: 0.32;
+              }
+              50% {
+                transform: translate(-50%, -50%) scale(1.12);
+                opacity: 0.72;
+              }
+              100% {
+                transform: translate(-50%, -50%) scale(0.82);
+                opacity: 0.32;
+              }
+            }
+            @keyframes bone2dRing {
+              0% {
+                transform: translate(-50%, -50%) scale(0.55);
+                opacity: 0.42;
+              }
+              100% {
+                transform: translate(-50%, -50%) scale(2.05);
+                opacity: 0;
+              }
+            }
+          `}</style>
+
           <img
-            src={imageSrc}
-            alt={activeView === 'front' ? '人體正面部位圖' : '人體背面部位圖'}
-            className="h-full w-full object-contain select-none"
+            src={bodySrc}
+            alt={view === 'front' ? 'Front body map' : 'Back body map'}
+            className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
             draggable={false}
           />
 
-          {activeView === 'front' ? (
-            <FrontHighlightImage
-              imageSrc={imageSrc}
-              activeRegions={activeRegions}
-              side={activeSide}
+          {/*{overlayPaths.map((src) => (
+            <img
+              key={`${src}-glow`}
+              src={src}
+              alt=""
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
+              draggable={false}
+              style={{
+                opacity: 0.42,
+                mixBlendMode: 'screen',
+                filter:
+                  'brightness(3.1) saturate(2.2) blur(2px) drop-shadow(0 0 10px rgba(14,165,233,0.45)) drop-shadow(0 0 18px rgba(14,165,233,0.28))',
+              }}
             />
-          ) : (
-            <BackHighlightImage
-              imageSrc={imageSrc}
-              activeRegions={activeRegions}
-              side={activeSide}
+          ))}
+
+          {overlayPaths.map((src) => (
+            <img
+              key={src}
+              src={src}
+              alt=""
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
+              draggable={false}
+              style={{
+                opacity: 0.5,
+                mixBlendMode: 'screen',
+                filter:
+                  'brightness(2.6) saturate(2) contrast(1.12) drop-shadow(0 0 6px rgba(14,165,233,0.4))',
+              }}
             />
-          )}
+          ))}*/}
+
+          {dotPositions.map((dot, index) => (
+            <div
+              key={`${dot.x}-${dot.y}-${index}`}
+              aria-hidden="true"
+              className="pointer-events-none absolute z-20"
+              style={{
+                left: `${dot.x}%`,
+                top: `${dot.y}%`,
+                width: 20,
+                height: 20,
+                borderRadius: 999,
+                background:
+                  'radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(56,189,248,0.58) 34%, rgba(37,99,235,0.42) 62%, rgba(37,99,235,0) 72%)',
+                boxShadow:
+                  '0 0 8px rgba(56,189,248,0.5), 0 0 16px rgba(37,99,235,0.32), 0 0 24px rgba(37,99,235,0.22)',
+                animation: 'bone2dPulse 1.05s ease-in-out infinite',
+              }}
+            >
+              <span
+                className="absolute left-1/2 top-1/2 rounded-full border-2 border-sky-300"
+                style={{
+                  width: 34,
+                  height: 34,
+                  animation: 'bone2dRing 1.05s ease-out infinite',
+                }}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="mt-3 text-center text-xs font-semibold text-slate-500">
-        {target ? `${target.labelZh} / ${target.labelEn}` : '尚未選取骨頭'}
+      <div className="mt-3 shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        {target ? (
+          <>
+            目前已同步高亮：
+            <span className="ml-1 font-semibold text-slate-800">
+              {target.labelZh}
+            </span>
+            <span className="mx-1 text-slate-400">/</span>
+            <span className="font-medium text-blue-700">{target.labelEn}</span>
+          </>
+        ) : (
+          <>尚未建立此骨頭的 2D 對應高亮。</>
+        )}
       </div>
     </aside>
   );

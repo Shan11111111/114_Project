@@ -1355,7 +1355,7 @@ export default function S3Viewer() {
 
   //抽屜式
   const [sidebarOpen, setSidebarOpen] = useState(() => readStoredS3ViewerState().sidebarOpen ?? true);
-  const SIDEBAR_WIDTH = 360;
+  const SIDEBAR_WIDTH = 340;
   const SIDEBAR_PEEK = 0; // 收合時完全藏起來
 
   // Solo / Isolate 模式：null = 顯示目前部位包全部 mesh；Set = 只顯示指定 mesh。
@@ -2015,11 +2015,11 @@ export default function S3Viewer() {
    *  ========================= */
   const sAside: React.CSSProperties = {
     position: 'absolute',
-    top: 14,
-    left: 14,
+    top: 18,
+    left: 18,
     zIndex: 30,
     width: SIDEBAR_WIDTH,
-    height: 'calc(100% - 28px)',
+    height: 'calc(100% - 36px)',
     background: 'var(--panel-bg)',
     color: 'var(--panel-text)',
     border: '1px solid var(--panel-border)',
@@ -2517,8 +2517,8 @@ export default function S3Viewer() {
         style={{
           position: 'absolute',
           top: 18,
-          right: 18,
-          zIndex: 20,
+          right: 24,
+          zIndex: 24,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
@@ -2601,11 +2601,13 @@ export default function S3Viewer() {
           className="s3-2d-panel"
           style={{
             position: 'absolute',
-            top: 174,
-            right: 18,
+            top: 118,
+            right: 24,
             zIndex: 18,
-            width: 280,
-            maxHeight: 'calc(100% - 198px)',
+            width: 360,
+            height: 'calc(100% - 142px)',
+            maxHeight: 660,
+            minHeight: 500,
             pointerEvents: 'auto',
           }}
         >
