@@ -12,6 +12,14 @@ import React, {
 import { useRouter, useSearchParams } from "next/navigation";
 import { getUser } from "../lib/auth";
 
+import {
+  type AppLocale,
+  getSavedLocale,
+  messages,
+} from "../lib/i18n";
+
+import { ScanSearch, RotateCcw } from "lucide-react";
+
 const API_BASE = (
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_BASE ||
@@ -151,6 +159,26 @@ export default function BoneVisionPage() {
 function BoneVisionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const [locale, setLocale] = useState<AppLocale>("zh-TW");
+
+  useEffect(() => {
+    const syncLocale = () => {
+      setLocale(getSavedLocale());
+    };
+
+    syncLocale();
+
+    window.addEventListener("storage", syncLocale);
+    window.addEventListener("galabone-locale-changed", syncLocale);
+
+    return () => {
+      window.removeEventListener("storage", syncLocale);
+      window.removeEventListener("galabone-locale-changed", syncLocale);
+    };
+  }, []);
+
+  const t = (key: string) => messages[locale]?.[key] ?? messages["zh-TW"]?.[key] ?? key;
 
 
   const [file, setFile] = useState<File | null>(null);
@@ -1263,24 +1291,30 @@ function BoneVisionPageInner() {
       <main className="flex-1 flex flex-col lg:flex-row gap-6 px-6 py-6">
         <section className="w-full lg:w-5/20 space-y-4">
           <div className="card border border-slate-800/70 shadow-xl shadow-slate-900/40">
-            <h2 className="text-sm font-semibold mb-3">資料與設定</h2>
+            <h2 className="text-sm font-semibold mb-3">{t("bonevision.dataSettings")}</h2>
 
             <div className="space-y-3">
               <div>
-                <span className="text-xs text-slate-400">上傳 X 光影像</span>
+                <span className="text-xs text-slate-400">{t("bonevision.uploadXray")}</span>
 
-                <label className="block mt-1">
+                <label className="mt-3 flex items-center gap-4 cursor-pointer">
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleFileChange}
-                    className="block w-full text-sm text-slate-200
-                   file:mr-4 file:py-2.5 file:px-4
-                   file:rounded-full file:border-0
-                   file:text-sm file:font-semibold
-                   file:bg-cyan-500 file:text-slate-900
-                   hover:file:bg-cyan-400 cursor-pointer"
+                    className="hidden"
                   />
+
+                  <span
+                    className="inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-semibold
+    bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
+                  >
+                    {t("bonevision.chooseFile")}
+                  </span>
+
+                  <span className="text-sm text-slate-600 dark:text-slate-300 truncate">
+                    {file ? file.name : t("bonevision.noFileSelected")}
+                  </span>
                 </label>
               </div>
 
@@ -1295,7 +1329,7 @@ function BoneVisionPageInner() {
                bg-cyan-500/10 hover:bg-cyan-500/15
                transition-colors"
               >
-                查看範例影像庫
+                {t("bonevision.sampleGallery")}
               </button>
             </div>
 
@@ -1307,7 +1341,7 @@ function BoneVisionPageInner() {
              disabled:opacity-50 disabled:cursor-not-allowed
              hover:bg-cyan-400 transition-colors"
             >
-              {loading ? "辨識中..." : "開始辨識（模型）"}
+              {loading ? t("bonevision.detecting") : t("bonevision.startDetect")}
             </button>
 
             <div className="mt-3 border-t border-slate-600/40" />
@@ -1324,7 +1358,7 @@ function BoneVisionPageInner() {
              hover:bg-slate-700/40 hover:border-slate-400
              transition-all"
             >
-              歷史紀錄
+              {t("bonevision.history")}
             </button>
 
             {errorMsg && (
@@ -1340,39 +1374,66 @@ function BoneVisionPageInner() {
         <section className="w-full lg:w-8/20">
           <div className="card border border-slate-800 rounded-2xl h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold">影像預覽與結果</h2>
-              <div className="flex items-center gap-2 text-xs text-slate-300">
-                <span>Zoom</span>
+              <h2 className="text-sm font-semibold">{t("bonevision.previewResult")}</h2>
+              <div className="flex items-center gap-2 scale-[0.88] origin-right text-xs">
+                <div
+                  className={`flex items-center justify-center ${isDarkMode ? "text-slate-300" : "text-slate-500"
+                    }`}
+                >
+                  <ScanSearch className="w-[16px] h-[16px]" />
+                </div>
+
                 <button
                   onClick={handleZoomOut}
-                  className="w-6 h-6 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-700"
+                  className={`w-7 h-7 rounded-full border flex items-center justify-center text-sm transition-colors ${isDarkMode
+                    ? "border-slate-600/70 bg-slate-900/70 text-slate-200 hover:bg-slate-800"
+                    : "border-slate-400/80 bg-white/80 text-slate-700 hover:bg-slate-100"
+                    }`}
                 >
                   −
                 </button>
-                <span className="w-12 text-center">
+
+                <span
+                  className={`w-10 text-center text-sm font-semibold ${isDarkMode ? "text-slate-300" : "text-slate-700"
+                    }`}
+                >
                   {Math.round(zoom * 100)}%
                 </span>
+
                 <button
                   onClick={handleZoomIn}
-                  className="w-6 h-6 rounded-full border border-slate-600 flex items-center justify-center hover:bg-slate-700"
+                  className={`w-7 h-7 rounded-full border flex items-center justify-center text-sm transition-colors ${isDarkMode
+                    ? "border-slate-600/70 bg-slate-900/70 text-slate-200 hover:bg-slate-800"
+                    : "border-slate-400/80 bg-white/80 text-slate-700 hover:bg-slate-100"
+                    }`}
                 >
                   +
                 </button>
+
                 <button
                   onClick={handleResetView}
-                  className="ml-2 px-2 py-1 rounded-full border border-slate-600 hover:bg-slate-700"
+                  title="Reset"
+                  aria-label="Reset"
+                  className={`w-7 h-7 rounded-full border flex items-center justify-center transition-colors ${isDarkMode
+                    ? "border-slate-600/70 bg-slate-900/70 text-slate-200 hover:bg-slate-800"
+                    : "border-slate-400/80 bg-white/80 text-slate-700 hover:bg-slate-100"
+                    }`}
                 >
-                  Reset
+                  <RotateCcw className="w-[15px] h-[15px]" />
                 </button>
 
                 <button
                   onClick={() => setShowOnlyActive((v) => !v)}
-                  className={`ml-2 px-2 py-1 rounded-full border text-[11px] ${showOnlyActive
-                    ? "border-cyan-400 bg-cyan-500/20 text-cyan-300"
-                    : "border-slate-600 hover:bg-slate-700 text-slate-300"
+                  className={`ml-1 px-3 h-7 rounded-full border text-xs font-medium transition-colors ${showOnlyActive
+                    ? isDarkMode
+                      ? "border-cyan-400/60 bg-cyan-500/15 text-cyan-300"
+                      : "border-cyan-400 bg-cyan-50 text-cyan-700"
+                    : isDarkMode
+                      ? "border-cyan-400/40 bg-slate-900/60 text-cyan-300 hover:bg-cyan-500/10"
+                      : "border-cyan-500/70 bg-white/70 text-cyan-700 hover:bg-cyan-50"
                     }`}
                 >
-                  {showOnlyActive ? "顯示全部框" : "只顯示目前框"}
+                  {showOnlyActive ? t("bonevision.showAllBoxes") : t("bonevision.onlyCurrentBox")}
                 </button>
               </div>
             </div>
@@ -1467,28 +1528,28 @@ function BoneVisionPageInner() {
                 </div>
               ) : (
                 <p className="text-xs text-slate-500">
-                  尚未上傳圖片，請先選擇一張 X 光影像。
+                  {t("bonevision.noImage")}
                 </p>
               )}
             </div>
 
             <p className="mt-3 text-xs text-slate-400">
-              已偵測到{" "}
+              {t("bonevision.detectedCount")}{" "}
               <span className="text-cyan-400 font-semibold">
                 {detections.length}
               </span>{" "}
-              個骨骼框
+              {t("bonevision.boneBoxes")}
             </p>
           </div>
         </section>
 
         <section className="w-full lg:w-7/20">
           <div className="card border border-slate-800 rounded-2xl h-full flex flex-col">
-            <h2 className="text-sm font-semibold mb-3">辨識出的部位</h2>
+            <h2 className="text-sm font-semibold mb-3">{t("bonevision.detectedParts")}</h2>
 
             {detections.length === 0 ? (
               <p className="text-xs text-slate-500">
-                尚未有偵測結果，請上傳圖片並點選「開始辨識（模型）」。
+                {t("bonevision.noResult")}
               </p>
             ) : (
               <>
@@ -1512,7 +1573,7 @@ function BoneVisionPageInner() {
                   {activeBox ? (
                     <>
                       <p className="text-slate-400">
-                        辨識部位：{" "}
+                        {t("bonevision.detectedPart")}{"： "}
                         <span className="font-semibold text-cyan-300">
                           {getDisplayBoneName(activeBox)}
                         </span>{" "}
@@ -1522,7 +1583,7 @@ function BoneVisionPageInner() {
                       </p>
                       {activeBox.sub_label && (
                         <p className="text-slate-400 mt-1">
-                          節數 / 小類：{" "}
+                          {t("bonevision.subLabel")}{"： "}
                           <span className="font-semibold text-emerald-300">
                             {activeBox.sub_label}
                           </span>
@@ -1532,7 +1593,7 @@ function BoneVisionPageInner() {
                       <hr className="border-slate-800" />
 
                       <p>
-                        <span className="text-slate-400">骨頭名稱：</span>
+                        <span className="text-slate-400">{t("bonevision.boneName")}{"："}</span>
                         <span className="font-semibold text-slate-100">
                           {cleanBoneZh(activeBox.bone_info?.bone_zh) ?? "—"}{" "}
                         </span>
@@ -1544,14 +1605,14 @@ function BoneVisionPageInner() {
                       </p>
 
                       <p>
-                        <span className="text-slate-400">部位區域：</span>
+                        <span className="text-slate-400">{t("bonevision.region")}{"："}</span>
                         <span className="text-slate-100">
                           {activeBox.bone_info?.bone_region ?? "—"}
                         </span>
                       </p>
 
                       <div>
-                        <p className="text-slate-400 mb-1">說明：</p>
+                        <p className="text-slate-400 mb-1">{t("bonevision.description")}{"："}</p>
                         <p className="text-slate-100 whitespace-pre-wrap leading-relaxed">
                           {activeBox.bone_info?.bone_desc ?? "—"}
                         </p>
@@ -1585,7 +1646,7 @@ function BoneVisionPageInner() {
                               : "需要 /predict 回傳 image_case_id 才能使用"
                           }
                         >
-                          查詢知識庫
+                          {t("bonevision.queryKnowledge")}
                         </button>
 
                         <button
@@ -1602,7 +1663,7 @@ function BoneVisionPageInner() {
                hover:bg-slate-800 transition-colors"
                           title="查看此部位的 3D 模型"
                         >
-                          查看此部位 3D 模型
+                          {t("bonevision.view3dModel")}
                         </button>
                       </div>
 

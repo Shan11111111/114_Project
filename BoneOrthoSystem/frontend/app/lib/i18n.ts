@@ -91,6 +91,32 @@ export const messages: Record<AppLocale, Record<string, string>> = {
 小罐頭想和你約兩個小約定：
 1. 請勿輸入任何他人的敏感個資或真實姓名，小罐頭只想記住你的學習脈絡就好。
 2. 小罐頭是用來學習和輔助說明的，醫療決策還是要和醫療專業人員討論後再做出喔。`,
+
+    /*bonevision */
+    "bonevision.dataSettings": "資料與設定",
+    "bonevision.uploadXray": "上傳 X 光影像",
+    "bonevision.sampleGallery": "查看範例影像庫",
+    "bonevision.startDetect": "開始辨識（模型）",
+    "bonevision.detecting": "辨識中...",
+    "bonevision.history": "歷史紀錄",
+    "bonevision.previewResult": "影像預覽與結果",
+    "bonevision.noImage": "尚未上傳圖片，請先選擇一張 X 光影像。",
+    "bonevision.detectedCount": "已偵測到",
+    "bonevision.boneBoxes": "個骨骼框",
+    "bonevision.detectedParts": "辨識出的部位",
+    "bonevision.noResult": "尚未有偵測結果，請上傳圖片並點選「開始辨識（模型）」。",
+    "bonevision.onlyCurrentBox": "只顯示目前框",
+    "bonevision.showAllBoxes": "顯示全部框",
+    "bonevision.detectedPart": "辨識部位",
+    "bonevision.subLabel": "節數 / 小類",
+    "bonevision.boneName": "骨頭名稱",
+    "bonevision.region": "部位區域",
+    "bonevision.description": "說明",
+    "bonevision.queryKnowledge": "查詢知識庫",
+    "bonevision.view3dModel": "查看此部位 3D 模型",
+    "bonevision.chooseFile": "選擇檔案",
+    "bonevision.noFileSelected": "未選擇任何檔案",
+
   },
 
   "en-US": {
@@ -158,6 +184,32 @@ Instructions:
 3. GalaBone is intended for learning and auxiliary explanation only. Medical decisions should still be made with healthcare professionals.
 4. Please do not enter sensitive personal information or real names.
 5. Feedback is welcome.`,
+
+    /* bonevision */
+    "bonevision.dataSettings": "Data & Settings",
+    "bonevision.uploadXray": "Upload X-ray Image",
+    "bonevision.sampleGallery": "View Sample Gallery",
+    "bonevision.startDetect": "Start Detection",
+    "bonevision.detecting": "Detecting...",
+    "bonevision.history": "History",
+    "bonevision.previewResult": "Image Preview & Results",
+    "bonevision.noImage": "No image uploaded. Please choose an X-ray image first.",
+    "bonevision.detectedCount": "Detected",
+    "bonevision.boneBoxes": "bone boxes",
+    "bonevision.detectedParts": "Detected Parts",
+    "bonevision.noResult": "No detection results yet. Please upload an image and click Start Detection.",
+    "bonevision.onlyCurrentBox": "Show current box only",
+    "bonevision.showAllBoxes": "Show all boxes",
+    "bonevision.detectedPart": "Detected Part",
+    "bonevision.subLabel": "Segment / Subtype",
+    "bonevision.boneName": "Bone Name",
+    "bonevision.region": "Region",
+    "bonevision.description": "Description",
+    "bonevision.queryKnowledge": "Query Knowledge Base",
+    "bonevision.view3dModel": "View 3D Model",
+    "bonevision.chooseFile": "Choose File",
+    "bonevision.noFileSelected": "No file selected",
+
   },
 };
 
