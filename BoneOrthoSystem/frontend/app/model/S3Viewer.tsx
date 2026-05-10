@@ -2617,8 +2617,8 @@ export default function S3Viewer() {
                 selectedMeshName,
                 boneInfo?.bone_zh,
                 boneInfo?.bone_en,
-                boneInfo?.bone_region,
-                boneInfo?.bone_desc,
+                //boneInfo?.bone_region,
+                //boneInfo?.bone_desc,
               ]
                 .filter(Boolean)
                 .join(' ') || null
