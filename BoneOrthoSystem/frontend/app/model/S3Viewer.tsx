@@ -164,8 +164,8 @@ type BodyPartKey =
   | 'skull';
 
 const BODY_PART_MODEL_URL: Record<BodyPartKey, string> = {
-  // skeleton_preview.glb 是低模完整骨架總覽，不使用舊 bones.glb。
-  full_skeleton: '/models/body-parts/skeleton_preview.glb?v=1',
+  // skeleton_mid_keep_names.glb 是中面數完整骨架，且保留 BoneDB 對應用的 mesh_name；不使用舊 bones.glb。
+  full_skeleton: '/models/skeleton_mid_keep_names.glb?v=1',
 
   // ?v=4 用來強制瀏覽器與 useGLTF 重新抓最新 GLB，避免吃到舊快取。
   right_wrist: '/models/body-parts/right_wrist.glb?v=4',
@@ -1049,6 +1049,41 @@ function meshToSeries(norm: string): SeriesKind | null {
   return null;
 }
 
+function getBoneItemSortValue(item?: BoneListItem | null): number {
+  if (!item) return 999999;
+
+  const norm = normalizeMeshName(item.mesh_name);
+
+  const c = norm.match(/^C([1-7])$/);
+  if (c) return 1900 + Number(c[1]);
+
+  const t = norm.match(/^T([1-9]|1[0-2])$/);
+  if (t) return 2000 + Number(t[1]);
+
+  const l = norm.match(/^L([1-5])$/);
+  if (l) return 2100 + Number(l[1]);
+
+  const rib = norm.match(/^Rib(\d{1,2})$/i);
+  if (rib) return 2500 + Number(rib[1]);
+
+  return Number(item.small_bone_id ?? 999999);
+}
+
+function getCardSortValue(card: Card): number {
+  if (card.kind === 'series') {
+    if (card.series === 'cervical') return 1900;
+    if (card.series === 'thoracic') return 2000;
+    if (card.series === 'lumbar') return 2100;
+    return 999999;
+  }
+
+  return Math.min(
+    getBoneItemSortValue(card.C),
+    getBoneItemSortValue(card.L),
+    getBoneItemSortValue(card.R)
+  );
+}
+
 /** =========================
  *  Cards
  *  ========================= */
@@ -1147,27 +1182,30 @@ function buildCardsForRegion(
 
   const cards = [...seriesCards, ...Array.from(m.values())];
 
-  if (!scoreByMesh) return cards;
+  const getCardScore = (card: Card) => {
+    if (!scoreByMesh) return 0;
+
+    if (card.kind === "series") {
+      return Math.max(
+        ...Object.values(card.items).map(
+          (item) => scoreByMesh.get(normalizeMeshName(item.mesh_name)) ?? 0
+        ),
+        0
+      );
+    }
+
+    return Math.max(
+      card.L ? scoreByMesh.get(normalizeMeshName(card.L.mesh_name)) ?? 0 : 0,
+      card.R ? scoreByMesh.get(normalizeMeshName(card.R.mesh_name)) ?? 0 : 0,
+      card.C ? scoreByMesh.get(normalizeMeshName(card.C.mesh_name)) ?? 0 : 0
+    );
+  };
 
   return cards.sort((a, b) => {
-    const getCardScore = (card: Card) => {
-      if (card.kind === "series") {
-        return Math.max(
-          ...Object.values(card.items).map(
-            (item) => scoreByMesh.get(normalizeMeshName(item.mesh_name)) ?? 0
-          ),
-          0
-        );
-      }
+    const scoreDiff = getCardScore(b) - getCardScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
 
-      return Math.max(
-        card.L ? scoreByMesh.get(normalizeMeshName(card.L.mesh_name)) ?? 0 : 0,
-        card.R ? scoreByMesh.get(normalizeMeshName(card.R.mesh_name)) ?? 0 : 0,
-        card.C ? scoreByMesh.get(normalizeMeshName(card.C.mesh_name)) ?? 0 : 0
-      );
-    };
-
-    return getCardScore(b) - getCardScore(a);
+    return getCardSortValue(a) - getCardSortValue(b);
   });
 }
 
@@ -1180,7 +1218,83 @@ type SelectedMode =
   | { kind: 'mesh'; meshName: string }
   | { kind: 'series'; series: SeriesKind };
 
-type PanelMode = 'body' | 'bone';
+type PanelMode = 'bone';
+
+type NavGroupKey =
+  | 'overview'
+  | 'head-neck'
+  | 'thorax-back'
+  | 'upper-limb'
+  | 'pelvis'
+  | 'lower-limb'
+  | 'other';
+
+type NavGroup = {
+  key: NavGroupKey;
+  labelZh: string;
+  labelEn: string;
+};
+
+const NAV_GROUPS: NavGroup[] = [
+  { key: 'overview', labelZh: '全身總覽', labelEn: 'Full Skeleton' },
+  { key: 'head-neck', labelZh: '頭頸部', labelEn: 'Head & Neck' },
+  { key: 'thorax-back', labelZh: '胸背部', labelEn: 'Thorax & Back' },
+  { key: 'upper-limb', labelZh: '上肢', labelEn: 'Upper Limb' },
+  { key: 'pelvis', labelZh: '骨盆', labelEn: 'Pelvis' },
+  { key: 'lower-limb', labelZh: '下肢', labelEn: 'Lower Limb' },
+  { key: 'other', labelZh: '其他', labelEn: 'Other' },
+];
+
+function isNavGroupKey(value: unknown): value is NavGroupKey {
+  return (
+    value === 'overview' ||
+    value === 'head-neck' ||
+    value === 'thorax-back' ||
+    value === 'upper-limb' ||
+    value === 'pelvis' ||
+    value === 'lower-limb' ||
+    value === 'other'
+  );
+}
+
+function getNavKeyForBoneItem(item: BoneListItem): NavGroupKey {
+  const boneId = Number(item.bone_id);
+
+  if (boneId >= 1 && boneId <= 19) return 'head-neck';
+  if (boneId === 20 || boneId === 21 || boneId === 24 || boneId === 25) return 'thorax-back';
+  if (boneId === 22 || boneId === 23 || boneId === 34) return 'pelvis';
+  if (boneId >= 26 && boneId <= 33) return 'upper-limb';
+  if (boneId >= 35 && boneId <= 41) return 'lower-limb';
+
+  const rk = toRegionKey(item.bone_region);
+
+  if (rk === 'skull') return 'head-neck';
+  if (rk === 'upper') return 'upper-limb';
+  if (rk === 'lower') return 'lower-limb';
+  if (rk === 'pelvis') return 'pelvis';
+  if (rk === 'thorax') return 'thorax-back';
+
+  if (rk === 'spine') {
+    const norm = normalizeMeshName(item.mesh_name);
+    const series = meshToSeries(norm);
+    if (series === 'cervical') return 'head-neck';
+    return 'thorax-back';
+  }
+
+  return 'other';
+}
+
+function getNavKeyForCard(card: Card): NavGroupKey {
+  if (card.kind === 'series') {
+    if (card.series === 'cervical') return 'head-neck';
+    return 'thorax-back';
+  }
+
+  const item = card.C || card.L || card.R;
+  if (!item) return 'other';
+
+  return getNavKeyForBoneItem(item);
+}
 
 /** =========================
  *  Flatten bone-list response
@@ -1253,7 +1367,7 @@ type StoredS3ViewerState = {
   selectedMode?: SelectedMode;
   panelMode?: PanelMode;
   q?: string;
-  openGroups?: RegionKey[];
+  openGroups?: NavGroupKey[];
   sidebarOpen?: boolean;
 };
 
@@ -1262,7 +1376,7 @@ function isBodyPartKey(value: unknown): value is BodyPartKey {
 }
 
 function isPanelMode(value: unknown): value is PanelMode {
-  return value === 'body' || value === 'bone';
+  return value === 'bone';
 }
 
 function isRegionKey(value: unknown): value is RegionKey {
@@ -1307,7 +1421,7 @@ function readStoredS3ViewerState(): StoredS3ViewerState {
     }
 
     if (Array.isArray(parsed.openGroups)) {
-      out.openGroups = parsed.openGroups.filter(isRegionKey);
+      out.openGroups = parsed.openGroups.filter(isNavGroupKey);
     }
 
     if (typeof parsed.sidebarOpen === 'boolean') {
@@ -1332,7 +1446,7 @@ export default function S3Viewer() {
   const targetBoneId = searchParams.get("boneId");
 
   const [selectedMode, setSelectedMode] = useState<SelectedMode>(() => readStoredS3ViewerState().selectedMode ?? { kind: 'none' });
-  const [selectedBodyPart, setSelectedBodyPart] = useState<BodyPartKey | null>(() => readStoredS3ViewerState().selectedBodyPart ?? 'right_wrist');
+  const [selectedBodyPart, setSelectedBodyPart] = useState<BodyPartKey | null>(() => 'full_skeleton');
   const currentBodyPartScale = selectedBodyPart ? BODY_PART_VIEW_SCALE[selectedBodyPart] : 1.2;
 
   const selectedMeshName = selectedMode.kind === 'mesh' ? selectedMode.meshName : null;
@@ -1343,9 +1457,9 @@ export default function S3Viewer() {
 
   const [boneList, setBoneList] = useState<BoneListItem[]>([]);
   const [q, setQ] = useState(() => readStoredS3ViewerState().q ?? '');
-  const [panelMode, setPanelMode] = useState<PanelMode>(() => readStoredS3ViewerState().panelMode ?? 'body');
+  const [panelMode] = useState<PanelMode>('bone');
 
-  const [openGroups, setOpenGroups] = useState<RegionKey[]>(() => readStoredS3ViewerState().openGroups ?? []);
+  const [openGroups, setOpenGroups] = useState<NavGroupKey[]>(() => readStoredS3ViewerState().openGroups ?? []);
   const openSet = useMemo(() => new Set(openGroups), [openGroups]);
 
   const meshRegistryRef = useRef<Record<string, THREE.Mesh>>({});
@@ -1722,27 +1836,64 @@ export default function S3Viewer() {
     return result;
   }, [searched, searchScoreByMesh]);
 
-  const availableGroups = useMemo(() => {
-    return (Object.keys(regionCards) as RegionKey[]).filter((rk) => regionCards[rk].length > 0);
+  const navGroupCards = useMemo(() => {
+    const result: Record<NavGroupKey, Card[]> = {
+      overview: [],
+      'head-neck': [],
+      'thorax-back': [],
+      'upper-limb': [],
+      pelvis: [],
+      'lower-limb': [],
+      other: [],
+    };
+
+    (Object.keys(regionCards) as RegionKey[]).forEach((rk) => {
+      regionCards[rk].forEach((card) => {
+        const navKey = getNavKeyForCard(card);
+        result[navKey].push(card);
+      });
+    });
+
+    return result;
   }, [regionCards]);
 
+  const availableGroups = useMemo(() => {
+    return NAV_GROUPS
+      .map((group) => group.key)
+      .filter((key) => {
+        if (key === 'overview') return true;
+        return navGroupCards[key].length > 0;
+      });
+  }, [navGroupCards]);
+
   const allOpen = useMemo(() => {
-    if (!availableGroups.length) return false;
-    return availableGroups.every((rk) => openSet.has(rk));
+    const groups = availableGroups.filter((key) => key !== 'overview');
+    if (!groups.length) return false;
+    return groups.every((key) => openSet.has(key));
   }, [availableGroups, openSet]);
 
   const toggleAllGroups = useCallback(() => {
     setOpenGroups((prev) => {
       const prevSet = new Set(prev);
-      const nextAllOpen = availableGroups.length > 0 && availableGroups.every((rk) => prevSet.has(rk));
+      const groups = availableGroups.filter((key) => key !== 'overview');
+      const nextAllOpen = groups.length > 0 && groups.every((key) => prevSet.has(key));
       if (nextAllOpen) return [];
-      return [...availableGroups];
+      return groups;
     });
   }, [availableGroups]);
 
-  const toggleGroup = useCallback((rk: RegionKey) => {
-    setOpenGroups((prev) => (prev.includes(rk) ? prev.filter((x) => x !== rk) : [...prev, rk]));
-  }, []);
+  const toggleGroup = useCallback((key: NavGroupKey) => {
+    if (key === 'overview') {
+      selectBodyPart('full_skeleton');
+      return;
+    }
+
+    setOpenGroups((prev) =>
+      prev.includes(key)
+        ? prev.filter((x) => x !== key)
+        : [...prev, key]
+    );
+  }, [selectBodyPart]);
 
   const seriesNorms = useMemo(() => {
     const out: Record<SeriesKind, string[]> = { cervical: [], thoracic: [], lumbar: [] };
@@ -1780,14 +1931,15 @@ export default function S3Viewer() {
 
   const selectSeries = useCallback(
     (series: SeriesKind) => {
-      setOpenGroups((prev) => (prev.includes('spine') ? prev : [...prev, 'spine']));
+      const navKey: NavGroupKey = series === 'cervical' ? 'head-neck' : 'thorax-back';
+      setOpenGroups((prev) => (prev.includes(navKey) ? prev : [...prev, navKey]));
       setBoneInfo(null);
       setLoadingInfo(false);
       setSelectedMode({ kind: 'series', series });
-      setSelectedBodyPart('spine');
+      setSelectedBodyPart('full_skeleton');
       meshRegistryRef.current = {};
       setRegistryTick((t) => t + 1);
-      setSoloNormSet(new Set(seriesNorms[series]));
+      setSoloNormSet(null);
 
       requestAnimationFrame(() => {
         const el = document.getElementById(`card-spine-${series}`);
@@ -1806,15 +1958,15 @@ export default function S3Viewer() {
       setSelectedMode({ kind: 'mesh', meshName });
       setLoadingInfo(true);
 
-      // ✅ Solo 開著時，換選別顆就自動只顯示新那顆
+      // 穩定版：點骨頭只做「選取、高亮、對應左邊清單」
+      // 不切換成切割部位 GLB，也不自動只顯示單顆
       const normSel = normalizeMeshName(meshName);
-      setSoloNormSet((prev) => (prev ? new Set([normSel]) : null));
+      setSoloNormSet(null);
 
       const li = findListItemByMeshName(meshName);
-      const guessedPart = getBodyPartForMeshName(meshName, li?.bone_region);
 
-      if (guessedPart && guessedPart !== selectedBodyPart) {
-        setSelectedBodyPart(guessedPart);
+      if (selectedBodyPart !== 'full_skeleton') {
+        setSelectedBodyPart('full_skeleton');
         meshRegistryRef.current = {};
         setRegistryTick((t) => t + 1);
       }
@@ -1830,7 +1982,8 @@ export default function S3Viewer() {
         });
 
         const rk = toRegionKey(li.bone_region);
-        setOpenGroups((prev) => (prev.includes(rk) ? prev : [...prev, rk]));
+        const navKey = getNavKeyForBoneItem(li);
+        setOpenGroups((prev) => (prev.includes(navKey) ? prev : [...prev, navKey]));
 
         const norm = normalizeMeshName(li.mesh_name);
         const s = meshToSeries(norm);
@@ -1951,8 +2104,9 @@ export default function S3Viewer() {
 
     const first = matches[0];
     const rk = toRegionKey(first.bone_region);
+    const navKey = getNavKeyForBoneItem(first);
 
-    setOpenGroups((prev) => (prev.includes(rk) ? prev : [...prev, rk]));
+    setOpenGroups((prev) => (prev.includes(navKey) ? prev : [...prev, navKey]));
 
     setBoneInfo({
       small_bone_id: Number(first.small_bone_id),
@@ -2195,15 +2349,13 @@ export default function S3Viewer() {
           }}
         >
           <div style={{ fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap' }}>
-            {panelMode === 'body' ? '人體部位' : '骨頭清單'}
+            骨架導覽
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {panelMode === 'bone' ? (
-              <button style={sTopToggleBtn} onClick={toggleAllGroups}>
-                {allOpen ? '一鍵收起' : '一鍵展開'}
-              </button>
-            ) : null}
+            <button style={sTopToggleBtn} onClick={toggleAllGroups}>
+              {allOpen ? '一鍵收起' : '一鍵展開'}
+            </button>
 
             <button
               onClick={() => setSidebarOpen(false)}
@@ -2215,29 +2367,10 @@ export default function S3Viewer() {
           </div>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            gap: 8,
-            padding: 4,
-            borderRadius: 14,
-            background: 'var(--panel-btn-bg)',
-            border: '1px solid var(--panel-border)',
-            marginBottom: 12,
-          }}
-        >
-          <button type="button" style={sTabBtn(panelMode === 'body')} onClick={() => setPanelMode('body')}>
-            人體部位
-          </button>
-          <button type="button" style={sTabBtn(panelMode === 'bone')} onClick={() => setPanelMode('bone')}>
-            骨頭清單
-          </button>
-        </div>
-
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder={panelMode === 'body' ? '搜尋：手腕、脊椎、胸廓、足部…' : '搜尋：尺骨、C3、脖子第三根、手腕小骨頭…'}
+          placeholder="搜尋：鎖骨、C3、尺骨、髕骨、手腕小骨..."
           style={{
             width: '100%',
             padding: '10px 12px',
@@ -2250,65 +2383,27 @@ export default function S3Viewer() {
           }}
         />
 
-        {panelMode === 'body' ? (
-          <div style={{ marginBottom: 14 }}>
-            <div
-              style={{
-                fontWeight: 900,
-                fontSize: 14,
-                marginBottom: 8,
-                opacity: 0.9,
-              }}
-            >
-              人體部位
-            </div>
+        {NAV_GROUPS.map((group) => {
+          const cards = navGroupCards[group.key];
+          const isOverview = group.key === 'overview';
+          const isOpen = openSet.has(group.key);
+          const count = isOverview ? 1 : cards.length;
 
-            <div style={{ display: 'grid', gap: 8 }}>
-              {BODY_PART_BUTTONS.map((part) => (
-                <button
-                  key={part}
-                  type="button"
-                  onClick={() => selectBodyPart(part)}
-                  style={sGroupBtn(selectedBodyPart === part)}
-                >
-                  <span>{BODY_PART_LABEL[part].zh}</span>
-                  <span style={{ opacity: 0.65, fontSize: 12 }}>{BODY_PART_LABEL[part].en}</span>
-                </button>
-              ))}
-            </div>
-
-            <div
-              style={{
-                marginTop: 12,
-                padding: '10px 12px',
-                borderRadius: 12,
-                border: '1px solid var(--panel-border)',
-                background: 'var(--card-bg)',
-                fontSize: 12,
-                lineHeight: 1.6,
-                opacity: 0.82,
-              }}
-            >
-              先選人體部位載入對應 GLB；要找單一骨頭時，切到「骨頭清單」搜尋。
-            </div>
-          </div>
-        ) : null}
-
-        {panelMode === 'bone' ? (Object.keys(regionCards) as RegionKey[]).map((rk) => {
-          const cards = regionCards[rk];
-          if (!cards.length) return null;
-
-          const isOpen = openSet.has(rk);
+          if (!isOverview && !cards.length) return null;
 
           return (
-            <div key={rk} style={{ marginBottom: 10 }}>
-
-              <button onClick={() => toggleGroup(rk)} style={sGroupBtn(isOpen)}>
-                <span>{REGION_LABEL[rk]}</span>
-                <span style={{ opacity: 0.75, fontSize: 12 }}>{cards.length}</span>
+            <div key={group.key} style={{ marginBottom: 10 }}>
+              <button
+                onClick={() => toggleGroup(group.key)}
+                style={sGroupBtn(isOverview ? selectedBodyPart === 'full_skeleton' : isOpen)}
+              >
+                <span>{group.labelZh}</span>
+                <span style={{ opacity: 0.75, fontSize: 12 }}>
+                  {isOverview ? group.labelEn : count}
+                </span>
               </button>
 
-              {isOpen && (
+              {!isOverview && isOpen && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
                   {cards.map((card) => {
                     const active = isActiveCard(card);
@@ -2385,11 +2480,7 @@ export default function S3Viewer() {
                               >
                                 選取
                               </button>
-
-
                             ) : null}
-
-
                           </div>
                         ) : (
                           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
@@ -2476,7 +2567,7 @@ export default function S3Viewer() {
               )}
             </div>
           );
-        }) : null}
+        })}
       </aside>
       {!sidebarOpen && (
         <button
