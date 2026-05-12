@@ -106,6 +106,44 @@ def _resolve_mesh_map_table(cn: pyodbc.Connection) -> str:
     return "[model].[BoneMeshMap]"
 
 
+def _resolve_bone_teaching_info_table(cn: pyodbc.Connection) -> Optional[str]:
+    if _table_exists(cn, "model", "BoneTeachingInfo"):
+        return "[model].[BoneTeachingInfo]"
+    if _table_exists(cn, "dbo", "BoneTeachingInfo"):
+        return "[dbo].[BoneTeachingInfo]"
+    if _try_select(cn, "[model].[BoneTeachingInfo]"):
+        return "[model].[BoneTeachingInfo]"
+    return None
+
+
+def _teaching_from_row(
+    teaching_id: Any,
+    teaching_bone_id: Any,
+    teaching_small_bone_id: Any,
+    region_path: Any,
+    list_hint: Any,
+    intro_text: Any,
+    structure_function_text: Any,
+    learning_text: Any,
+    suggested_questions: Any,
+) -> Optional[Dict[str, Any]]:
+    if teaching_id is None:
+        return None
+
+    return {
+        "TeachingId": int(teaching_id) if teaching_id is not None else None,
+        "BoneId": int(teaching_bone_id) if teaching_bone_id is not None else None,
+        "SmallBoneId": int(teaching_small_bone_id) if teaching_small_bone_id is not None else None,
+        "RegionPath": str(region_path or ""),
+        "ListHint": str(list_hint or ""),
+        "IntroText": str(intro_text or ""),
+        "StructureFunctionText": str(structure_function_text or ""),
+        "LearningText": str(learning_text or ""),
+        "SuggestedQuestions": str(suggested_questions or ""),
+    }
+
+
+
 def _side_from_place(place: Optional[str], mesh_name: Optional[str]) -> Optional[str]:
     p = (place or "").strip().lower()
     if "left" in p:
@@ -153,6 +191,54 @@ def get_bone_list() -> Dict[str, Any]:
         bone_info_table = _resolve_bone_info_table(cn)
         bone_small_table = _resolve_bone_small_table(cn)
         mesh_map_table = _resolve_mesh_map_table(cn)
+        teaching_info_table = _resolve_bone_teaching_info_table(cn)
+
+        teaching_select = """
+            ti.TeachingId,
+            ti.BoneId AS TeachingBoneId,
+            ti.SmallBoneId AS TeachingSmallBoneId,
+            ti.RegionPath,
+            ti.ListHint,
+            ti.IntroText,
+            ti.StructureFunctionText,
+            ti.LearningText,
+            ti.SuggestedQuestions
+        """ if teaching_info_table else """
+            CAST(NULL AS INT) AS TeachingId,
+            CAST(NULL AS INT) AS TeachingBoneId,
+            CAST(NULL AS INT) AS TeachingSmallBoneId,
+            CAST(NULL AS NVARCHAR(400)) AS RegionPath,
+            CAST(NULL AS NVARCHAR(400)) AS ListHint,
+            CAST(NULL AS NVARCHAR(MAX)) AS IntroText,
+            CAST(NULL AS NVARCHAR(MAX)) AS StructureFunctionText,
+            CAST(NULL AS NVARCHAR(MAX)) AS LearningText,
+            CAST(NULL AS NVARCHAR(MAX)) AS SuggestedQuestions
+        """
+
+        teaching_apply = f"""
+        OUTER APPLY (
+            SELECT TOP 1
+                t.TeachingId,
+                t.BoneId,
+                t.SmallBoneId,
+                t.RegionPath,
+                t.ListHint,
+                t.IntroText,
+                t.StructureFunctionText,
+                t.LearningText,
+                t.SuggestedQuestions
+            FROM {teaching_info_table} t
+            WHERE
+                t.IsActive = 1
+                AND (
+                    t.SmallBoneId = bs.small_bone_id
+                    OR (t.BoneId = bi.bone_id AND t.SmallBoneId IS NULL)
+                )
+            ORDER BY
+                CASE WHEN t.SmallBoneId = bs.small_bone_id THEN 0 ELSE 1 END
+        ) ti
+        """ if teaching_info_table else """
+        """
 
         sql = f"""
         SELECT
@@ -167,12 +253,14 @@ def get_bone_list() -> Dict[str, Any]:
             bs.serial_number,
             bs.place,
             bs.note,
-            mm.MeshName
+            mm.MeshName,
+            {teaching_select}
         FROM {bone_info_table} bi
         JOIN {bone_small_table} bs
             ON bs.bone_id = bi.bone_id
         LEFT JOIN {mesh_map_table} mm
             ON mm.SmallBoneId = bs.small_bone_id
+        {teaching_apply}
         ORDER BY bi.bone_region, bi.bone_id, bs.small_bone_id
         """
 
@@ -187,6 +275,7 @@ def get_bone_list() -> Dict[str, Any]:
                     "bone_info_table": bone_info_table,
                     "bone_small_table": bone_small_table,
                     "mesh_map_table": mesh_map_table,
+                    "teaching_info_table": teaching_info_table,
                 },
                 "backend_db": DATABASE,
                 "backend_server": SERVER,
@@ -208,6 +297,9 @@ def get_bone_list() -> Dict[str, Any]:
             place = str(r[9] or "")
             note = str(r[10] or "")
             mesh_name = str(r[11] or "")
+            teaching = _teaching_from_row(
+                r[12], r[13], r[14], r[15], r[16], r[17], r[18], r[19], r[20]
+            )
 
             side = _side_from_place(place, mesh_name)
             key = _key_base(small_bone_en, mesh_name)
@@ -237,6 +329,7 @@ def get_bone_list() -> Dict[str, Any]:
                 "note": note,
                 "mesh_name": mesh_name,
                 "side": side,
+                "teaching": teaching,
             }
 
             groups[gk]["items"].append(item)

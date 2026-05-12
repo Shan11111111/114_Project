@@ -32,13 +32,23 @@ const ENABLE_BONE_GLB = false;
 function normalizeMeshName(meshName: string) {
   let s = (meshName || '').replace(/_/g, ' ').trim();
 
+  // Blender 匯出/複製物件常見：Trapezium.R.001、Lunate.L.002
+  // 要先修成 Trapezium.R / Lunate.L，否則 2D 圖會判不到左右。
+  s = s.replace(/\.(L|R)\.\d{3}$/i, '.$1');
+
   while (s.endsWith('.')) s = s.slice(0, -1).trim();
 
-  s = s.replace(/\.LL$/, '.L').replace(/\.RR$/, '.R');
+  s = s.replace(/\.LL$/i, '.L').replace(/\.RR$/i, '.R');
 
-  if (s.length > 1 && (s.endsWith('L') || s.endsWith('R')) && !s.endsWith('.L') && !s.endsWith('.R')) {
+  if (
+    s.length > 1 &&
+    (s.endsWith('L') || s.endsWith('R')) &&
+    !s.endsWith('.L') &&
+    !s.endsWith('.R')
+  ) {
     s = s.slice(0, -1) + '.' + s.slice(-1);
   }
+
   return s;
 }
 
@@ -49,6 +59,18 @@ function e3(m: THREE.Euler) {
   return [m.x, m.y, m.z] as [number, number, number];
 }
 
+type BoneTeachingInfo = {
+  TeachingId?: number | null;
+  BoneId?: number | null;
+  SmallBoneId?: number | null;
+  RegionPath?: string | null;
+  ListHint?: string | null;
+  IntroText?: string | null;
+  StructureFunctionText?: string | null;
+  LearningText?: string | null;
+  SuggestedQuestions?: string | null;
+};
+
 type BoneInfo = {
   small_bone_id: number;
   bone_id: number;
@@ -56,6 +78,7 @@ type BoneInfo = {
   bone_en: string;
   bone_region?: string | null;
   bone_desc?: string | null;
+  teaching?: BoneTeachingInfo | null;
 };
 
 type BoneListItem = {
@@ -66,7 +89,63 @@ type BoneListItem = {
   bone_en: string;
   bone_region?: string | null;
   bone_desc?: string | null;
+  teaching?: BoneTeachingInfo | null;
 };
+
+function normalizeTeachingInfo(input: any): BoneTeachingInfo | null {
+  if (!input || typeof input !== 'object') return null;
+
+  const teaching: BoneTeachingInfo = {
+    TeachingId: input.TeachingId ?? input.teaching_id ?? input.teachingId ?? null,
+    BoneId: input.BoneId ?? input.bone_id ?? input.boneId ?? null,
+    SmallBoneId: input.SmallBoneId ?? input.small_bone_id ?? input.smallBoneId ?? null,
+    RegionPath: input.RegionPath ?? input.region_path ?? input.regionPath ?? null,
+    ListHint: input.ListHint ?? input.list_hint ?? input.listHint ?? null,
+    IntroText: input.IntroText ?? input.intro_text ?? input.introText ?? null,
+    StructureFunctionText:
+      input.StructureFunctionText ??
+      input.structure_function_text ??
+      input.structureFunctionText ??
+      null,
+    LearningText: input.LearningText ?? input.learning_text ?? input.learningText ?? null,
+    SuggestedQuestions:
+      input.SuggestedQuestions ??
+      input.suggested_questions ??
+      input.suggestedQuestions ??
+      null,
+  };
+
+  const hasAny = Object.values(teaching).some((v) => v !== null && String(v).trim() !== '');
+  return hasAny ? teaching : null;
+}
+
+function parseSuggestedQuestions(raw?: string | null): string[] {
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 4);
+    }
+  } catch {
+    // fallback below
+  }
+
+  return String(raw)
+    .split(/\n|[、,，;；]/g)
+    .map((x) => x.replace(/^[-•\d.、\s]+/, '').trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function hasTeachingText(teaching?: BoneTeachingInfo | null) {
+  return Boolean(
+    teaching?.IntroText ||
+    teaching?.StructureFunctionText ||
+    teaching?.LearningText ||
+    teaching?.SuggestedQuestions
+  );
+}
 
 /** =========================
  *  Regions
@@ -164,8 +243,8 @@ type BodyPartKey =
   | 'skull';
 
 const BODY_PART_MODEL_URL: Record<BodyPartKey, string> = {
-  // skeleton_mid_keep_names.glb 是中面數完整骨架，且保留 BoneDB 對應用的 mesh_name；不使用舊 bones.glb。
-  full_skeleton: '/models/skeleton_mid_keep_names.glb?v=1',
+  // skeleton_30_40_keep_names.glb 是中面數完整骨架，且保留 BoneDB 對應用的 mesh_name；不使用舊 bones.glb。
+  full_skeleton: '/models/skeleton_30_40_v3_keep_names.glb?v=1',
 
   // ?v=4 用來強制瀏覽器與 useGLTF 重新抓最新 GLB，避免吃到舊快取。
   right_wrist: '/models/body-parts/right_wrist.glb?v=4',
@@ -793,6 +872,21 @@ function lookupBaseName(baseRaw: string): { zh: string; en: string } | null {
   return null;
 }
 
+function toZhNumber(n: number): string {
+  const zh = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+
+  if (n <= 10) return zh[n];
+  if (n < 20) return `十${zh[n - 10]}`;
+  return String(n);
+}
+
+function vertebraZh(prefix: '頸椎' | '胸椎' | '腰椎', code: string): string {
+  const m = code.match(/^[CTL](\d{1,2})$/i);
+  if (!m) return `${prefix} ${code}`;
+  return `第${toZhNumber(Number(m[1]))}${prefix}（${code.toUpperCase()}）`;
+}
+
+
 function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { zh: string; en: string; tag?: string } {
   const mapped = lookupBaseName(base);
   if (mapped) return { zh: mapped.zh, en: mapped.en };
@@ -825,7 +919,7 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     const m = key.match(/^Metacarpal\s?(I{1,3}|IV|V)$/i);
     if (m) {
       const n = romanToInt(m[1]);
-      if (n) return { zh: `第${n}掌骨`, en: `Metacarpal ${n}` };
+      if (n) return { zh: `第${toZhNumber(n)}掌骨`, en: `Metacarpal ${n}` };
     }
   }
 
@@ -833,7 +927,7 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     const m = key.match(/^Metatarsal\s?(I{1,3}|IV|V)$/i);
     if (m) {
       const n = romanToInt(m[1]);
-      if (n) return { zh: `第${n}蹠骨`, en: `Metatarsal ${n}` };
+      if (n) return { zh: `第${toZhNumber(n)}蹠骨`, en: `Metatarsal ${n}` };
     }
   }
 
@@ -841,13 +935,24 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
     const m = key.match(/^Rib(\d{1,2})$/i);
     if (m) {
       const n = Number(m[1]);
-      if (!Number.isNaN(n)) return { zh: `第${n}肋骨`, en: `Rib ${n}` };
+      if (!Number.isNaN(n)) return { zh: `第${toZhNumber(n)}肋骨`, en: `Rib ${n}` };
     }
   }
 
-  if (/^C\d{1,2}$/.test(key)) return { zh: `頸椎 ${key}`, en: `Cervical vertebra ${key}` };
-  if (/^T\d{1,2}$/.test(key)) return { zh: `胸椎 ${key}`, en: `Thoracic vertebra ${key}` };
-  if (/^L\d{1,2}$/.test(key)) return { zh: `腰椎 ${key}`, en: `Lumbar vertebra ${key}` };
+  if (/^C\d{1,2}$/i.test(key)) {
+    const code = key.toUpperCase();
+    return { zh: vertebraZh('頸椎', code), en: `Cervical vertebra ${code}` };
+  }
+
+  if (/^T\d{1,2}$/i.test(key)) {
+    const code = key.toUpperCase();
+    return { zh: vertebraZh('胸椎', code), en: `Thoracic vertebra ${code}` };
+  }
+
+  if (/^L\d{1,2}$/i.test(key)) {
+    const code = key.toUpperCase();
+    return { zh: vertebraZh('腰椎', code), en: `Lumbar vertebra ${code}` };
+  }
 
   return { zh: fallbackZh || key, en: fallbackEn || key };
 }
@@ -1221,7 +1326,6 @@ type SelectedMode =
 type PanelMode = 'bone';
 
 type NavGroupKey =
-  | 'overview'
   | 'head-neck'
   | 'thorax-back'
   | 'upper-limb'
@@ -1236,7 +1340,6 @@ type NavGroup = {
 };
 
 const NAV_GROUPS: NavGroup[] = [
-  { key: 'overview', labelZh: '全身總覽', labelEn: 'Full Skeleton' },
   { key: 'head-neck', labelZh: '頭頸部', labelEn: 'Head & Neck' },
   { key: 'thorax-back', labelZh: '胸背部', labelEn: 'Thorax & Back' },
   { key: 'upper-limb', labelZh: '上肢', labelEn: 'Upper Limb' },
@@ -1247,7 +1350,6 @@ const NAV_GROUPS: NavGroup[] = [
 
 function isNavGroupKey(value: unknown): value is NavGroupKey {
   return (
-    value === 'overview' ||
     value === 'head-neck' ||
     value === 'thorax-back' ||
     value === 'upper-limb' ||
@@ -1313,6 +1415,7 @@ function flattenBoneListPayload(payload: any): BoneListItem[] {
         bone_en: String(g.bone_en ?? ''),
         bone_region: g.bone_region ?? null,
         bone_desc: g.bone_desc ?? null,
+        teaching: normalizeTeachingInfo(g.teaching),
       });
       continue;
     }
@@ -1338,6 +1441,7 @@ function flattenBoneListPayload(payload: any): BoneListItem[] {
         bone_en: parent.bone_en,
         bone_region: parent.bone_region,
         bone_desc: parent.bone_desc,
+        teaching: normalizeTeachingInfo(s.teaching ?? g?.teaching),
       });
     };
 
@@ -1724,7 +1828,7 @@ export default function S3Viewer() {
       <div className="mt-2 flex flex-wrap gap-2">
 
 
-        <button
+        {/*<button
           type="button"
           onClick={() => {
             navigateWithBoneLoading(
@@ -1739,7 +1843,7 @@ export default function S3Viewer() {
           }}
         >
           🤖 問 GalaBone RAG
-        </button>
+        </button>*/}
 
         {imageGalleryBone && (
           <button
@@ -1838,7 +1942,6 @@ export default function S3Viewer() {
 
   const navGroupCards = useMemo(() => {
     const result: Record<NavGroupKey, Card[]> = {
-      overview: [],
       'head-neck': [],
       'thorax-back': [],
       'upper-limb': [],
@@ -1860,14 +1963,11 @@ export default function S3Viewer() {
   const availableGroups = useMemo(() => {
     return NAV_GROUPS
       .map((group) => group.key)
-      .filter((key) => {
-        if (key === 'overview') return true;
-        return navGroupCards[key].length > 0;
-      });
+      .filter((key) => navGroupCards[key].length > 0);
   }, [navGroupCards]);
 
   const allOpen = useMemo(() => {
-    const groups = availableGroups.filter((key) => key !== 'overview');
+    const groups = availableGroups;
     if (!groups.length) return false;
     return groups.every((key) => openSet.has(key));
   }, [availableGroups, openSet]);
@@ -1875,7 +1975,7 @@ export default function S3Viewer() {
   const toggleAllGroups = useCallback(() => {
     setOpenGroups((prev) => {
       const prevSet = new Set(prev);
-      const groups = availableGroups.filter((key) => key !== 'overview');
+      const groups = availableGroups;
       const nextAllOpen = groups.length > 0 && groups.every((key) => prevSet.has(key));
       if (nextAllOpen) return [];
       return groups;
@@ -1883,17 +1983,12 @@ export default function S3Viewer() {
   }, [availableGroups]);
 
   const toggleGroup = useCallback((key: NavGroupKey) => {
-    if (key === 'overview') {
-      selectBodyPart('full_skeleton');
-      return;
-    }
-
     setOpenGroups((prev) =>
       prev.includes(key)
         ? prev.filter((x) => x !== key)
         : [...prev, key]
     );
-  }, [selectBodyPart]);
+  }, []);
 
   const seriesNorms = useMemo(() => {
     const out: Record<SeriesKind, string[]> = { cervical: [], thoracic: [], lumbar: [] };
@@ -1979,6 +2074,7 @@ export default function S3Viewer() {
           bone_en: li.bone_en,
           bone_region: li.bone_region ?? null,
           bone_desc: li.bone_desc ?? null,
+          teaching: li.teaching ?? null,
         });
 
         const rk = toRegionKey(li.bone_region);
@@ -2115,6 +2211,7 @@ export default function S3Viewer() {
       bone_en: first.bone_en,
       bone_region: first.bone_region ?? null,
       bone_desc: first.bone_desc ?? null,
+      teaching: first.teaching ?? null,
     });
 
     if (matches.length === 1) {
@@ -2217,6 +2314,26 @@ export default function S3Viewer() {
     opacity: 0.6,
     marginTop: 6,
     lineHeight: 1.35,
+  };
+
+  const sTeachingSection: React.CSSProperties = {
+    marginTop: 10,
+    padding: '10px 10px',
+    borderRadius: 12,
+    background: 'rgba(148,163,184,0.08)',
+    border: '1px solid var(--panel-border)',
+  };
+
+  const sTeachingTitle: React.CSSProperties = {
+    fontWeight: 900,
+    fontSize: 12,
+    marginBottom: 6,
+  };
+
+  const sTeachingText: React.CSSProperties = {
+    opacity: 0.92,
+    whiteSpace: 'pre-wrap',
+    lineHeight: 1.65,
   };
 
   const sVariantBtn = (active: boolean): React.CSSProperties => ({
@@ -2385,25 +2502,24 @@ export default function S3Viewer() {
 
         {NAV_GROUPS.map((group) => {
           const cards = navGroupCards[group.key];
-          const isOverview = group.key === 'overview';
           const isOpen = openSet.has(group.key);
-          const count = isOverview ? 1 : cards.length;
+          const count = cards.length;
 
-          if (!isOverview && !cards.length) return null;
+          if (!cards.length) return null;
 
           return (
             <div key={group.key} style={{ marginBottom: 10 }}>
               <button
                 onClick={() => toggleGroup(group.key)}
-                style={sGroupBtn(isOverview ? selectedBodyPart === 'full_skeleton' : isOpen)}
+                style={sGroupBtn(isOpen)}
               >
                 <span>{group.labelZh}</span>
                 <span style={{ opacity: 0.75, fontSize: 12 }}>
-                  {isOverview ? group.labelEn : count}
+                  {count}
                 </span>
               </button>
 
-              {!isOverview && isOpen && (
+              {isOpen && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
                   {cards.map((card) => {
                     const active = isActiveCard(card);
@@ -2551,7 +2667,68 @@ export default function S3Viewer() {
                                   {boneInfo.bone_zh} / {boneInfo.bone_en}
                                 </div>
                                 <div style={{ opacity: 0.85 }}>{boneInfo.bone_region ?? ''}</div>
-                                {boneInfo.bone_desc ? (
+
+                                {hasTeachingText(boneInfo.teaching) ? (
+                                  <>
+                                    {boneInfo.teaching?.IntroText ? (
+                                      <div style={sTeachingSection}>
+                                        <div style={sTeachingTitle}>📖 詳細介紹</div>
+                                        <div style={sTeachingText}>{boneInfo.teaching.IntroText}</div>
+                                      </div>
+                                    ) : null}
+
+                                    {boneInfo.teaching?.StructureFunctionText ? (
+                                      <div style={sTeachingSection}>
+                                        <div style={sTeachingTitle}>🧠 結構與功能</div>
+                                        <div style={sTeachingText}>{boneInfo.teaching.StructureFunctionText}</div>
+                                      </div>
+                                    ) : null}
+
+                                    {boneInfo.teaching?.LearningText ? (
+                                      <div style={sTeachingSection}>
+                                        <div style={sTeachingTitle}>📍 3D定位與辨認</div>
+                                        <div style={sTeachingText}>{boneInfo.teaching.LearningText}</div>
+                                      </div>
+                                    ) : null}
+
+                                    {parseSuggestedQuestions(boneInfo.teaching?.SuggestedQuestions).length > 0 ? (
+                                      <div style={sTeachingSection}>
+                                        <div style={sTeachingTitle}>🎯 小挑戰 / 延伸問題</div>
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                          {parseSuggestedQuestions(boneInfo.teaching?.SuggestedQuestions).map((question) => {
+                                            const questionParams = new URLSearchParams({
+                                              q: question,
+                                              bone: boneInfo.bone_zh,
+                                              bone_zh: boneInfo.bone_zh,
+                                              bone_en: boneInfo.bone_en,
+                                              mesh: selectedMeshName ?? '',
+                                            });
+
+                                            return (
+                                              <button
+                                                key={question}
+                                                type="button"
+                                                onClick={() => {
+                                                  navigateWithBoneLoading(
+                                                    `/llm?${questionParams.toString()}`,
+                                                    `正在開啟 GalaBone RAG：${question}`
+                                                  );
+                                                }}
+                                                className="rounded-lg px-3 py-1 text-xs font-semibold"
+                                                style={{
+                                                  backgroundColor: 'rgba(56,189,248,0.14)',
+                                                  color: '#0369a1',
+                                                }}
+                                              >
+                                                {question}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </>
+                                ) : boneInfo.bone_desc ? (
                                   <div style={{ opacity: 0.9, marginTop: 8, whiteSpace: 'pre-wrap' }}>
                                     {boneInfo.bone_desc}
                                   </div>
@@ -2705,11 +2882,9 @@ export default function S3Viewer() {
           <Bone2DPanel
             selectedBoneName={
               [
-                selectedMeshName,
+                selectedMeshName ? normalizeMeshName(selectedMeshName) : null,
                 boneInfo?.bone_zh,
                 boneInfo?.bone_en,
-                //boneInfo?.bone_region,
-                //boneInfo?.bone_desc,
               ]
                 .filter(Boolean)
                 .join(' ') || null
