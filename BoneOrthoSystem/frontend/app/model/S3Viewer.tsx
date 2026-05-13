@@ -69,6 +69,7 @@ type BoneTeachingInfo = {
   StructureFunctionText?: string | null;
   LearningText?: string | null;
   SuggestedQuestions?: string | null;
+  TeachingLevel?: 'basic' | 'key' | 'advanced' | string | null;
 };
 
 type BoneInfo = {
@@ -112,6 +113,11 @@ function normalizeTeachingInfo(input: any): BoneTeachingInfo | null {
       input.SuggestedQuestions ??
       input.suggested_questions ??
       input.suggestedQuestions ??
+      null,
+    TeachingLevel:
+      input.TeachingLevel ??
+      input.teaching_level ??
+      input.teachingLevel ??
       null,
   };
 
@@ -957,6 +963,36 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
   return { zh: fallbackZh || key, en: fallbackEn || key };
 }
 
+function getTeachingLevelMeta(level?: string | null) {
+  if (level === 'advanced') {
+    return {
+      label: '進階觀察',
+      desc: '這類骨頭位置較深、形狀較特殊，或容易和附近骨頭混淆，適合進一步比較與觀察。',
+      bg: 'rgba(168,85,247,0.14)',
+      color: '#7e22ce',
+      border: 'rgba(168,85,247,0.22)',
+    };
+  }
+
+  if (level === 'key') {
+    return {
+      label: '重點骨頭',
+      desc: '這類骨頭和支撐、活動、常見辨認或臨床學習較有關，提供較完整的結構、功能與定位說明。',
+      bg: 'rgba(59,130,246,0.14)',
+      color: '#1d4ed8',
+      border: 'rgba(59,130,246,0.22)',
+    };
+  }
+
+  return {
+    label: '基礎認識',
+    desc: '提供這塊骨頭的基本介紹，適合先建立整體概念。',
+    bg: 'rgba(100,116,139,0.12)',
+    color: '#475569',
+    border: 'rgba(100,116,139,0.2)',
+  };
+}
+
 /** =========================
  *  Outline fallback: EdgesGeometry
  *  ========================= */
@@ -1549,8 +1585,13 @@ export default function S3Viewer() {
   const targetMesh = searchParams.get("mesh") || "";
   const targetBoneId = searchParams.get("boneId");
 
-  const [selectedMode, setSelectedMode] = useState<SelectedMode>(() => readStoredS3ViewerState().selectedMode ?? { kind: 'none' });
-  const [selectedBodyPart, setSelectedBodyPart] = useState<BodyPartKey | null>(() => 'full_skeleton');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.removeItem(S3_VIEWER_STATE_KEY);
+  }, []);
+
+  const [selectedMode, setSelectedMode] = useState<SelectedMode>({ kind: 'none' });
+  const [selectedBodyPart, setSelectedBodyPart] = useState<BodyPartKey | null>('full_skeleton');
   const currentBodyPartScale = selectedBodyPart ? BODY_PART_VIEW_SCALE[selectedBodyPart] : 1.2;
 
   const selectedMeshName = selectedMode.kind === 'mesh' ? selectedMode.meshName : null;
@@ -1558,12 +1599,14 @@ export default function S3Viewer() {
 
   const [boneInfo, setBoneInfo] = useState<BoneInfo | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(false);
+  const [teachingLevelHelpOpen, setTeachingLevelHelpOpen] = useState(false);
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
 
   const [boneList, setBoneList] = useState<BoneListItem[]>([]);
-  const [q, setQ] = useState(() => readStoredS3ViewerState().q ?? '');
+  const [q, setQ] = useState('');
   const [panelMode] = useState<PanelMode>('bone');
 
-  const [openGroups, setOpenGroups] = useState<NavGroupKey[]>(() => readStoredS3ViewerState().openGroups ?? []);
+  const [openGroups, setOpenGroups] = useState<NavGroupKey[]>([]);
   const openSet = useMemo(() => new Set(openGroups), [openGroups]);
 
   const meshRegistryRef = useRef<Record<string, THREE.Mesh>>({});
@@ -1572,7 +1615,7 @@ export default function S3Viewer() {
   const [registryTick, setRegistryTick] = useState(0);
 
   //抽屜式
-  const [sidebarOpen, setSidebarOpen] = useState(() => readStoredS3ViewerState().sidebarOpen ?? true);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const SIDEBAR_WIDTH = 340;
   const SIDEBAR_PEEK = 0; // 收合時完全藏起來
 
@@ -1584,24 +1627,28 @@ export default function S3Viewer() {
     ENABLE_BONE_GLB &&
     (soloNormSet === null || (soloNormSet instanceof Set && soloNormSet.size > 0));
 
-  const [showHint, setShowHint] = useState(true);
+  const [showHint, setShowHint] = useState(false);
+  const [showControlHelp, setShowControlHelp] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [canvasRevision, setCanvasRevision] = useState(0);
+  const didInitialModelFitRef = useRef(false);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const payload: StoredS3ViewerState = {
-      selectedBodyPart,
-      selectedMode,
-      panelMode,
-      q,
-      openGroups,
-      sidebarOpen,
-    };
-
-    window.sessionStorage.setItem(S3_VIEWER_STATE_KEY, JSON.stringify(payload));
-  }, [selectedBodyPart, selectedMode, panelMode, q, openGroups, sidebarOpen]);
+  // 右側 2D 人體部位圖：只控制整個 panel 顯示/隱藏，不改 Bone2DPanel 尺寸與座標。
+  const [show2DPanel, setShow2DPanel] = useState(true);
+  /* useEffect(() => {
+     if (typeof window === 'undefined') return;
+ 
+     const payload: StoredS3ViewerState = {
+       selectedBodyPart,
+       selectedMode,
+       panelMode,
+       q,
+       openGroups,
+       sidebarOpen,
+     };
+ 
+     window.sessionStorage.setItem(S3_VIEWER_STATE_KEY, JSON.stringify(payload));
+   }, [selectedBodyPart, selectedMode, panelMode, q, openGroups, sidebarOpen]);*/
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth <= 768);
@@ -1623,10 +1670,10 @@ export default function S3Viewer() {
     })();
   }, []);
 
-  useEffect(() => {
+  {/*useEffect(() => {
     const timer = setTimeout(() => setShowHint(false), 3500);
     return () => clearTimeout(timer);
-  }, []);
+  }, []);*/}
 
   const focusOnMesh = useCallback((meshName: string) => {
     const norm = normalizeMeshName(meshName);
@@ -1703,20 +1750,57 @@ export default function S3Viewer() {
     if (!selectedBodyPart) return;
 
     requestAnimationFrame(() => {
+      // 第一次載入/刷新時，先用整個模型自動取景，避免 sessionStorage 還原 selectedMeshName 後鏡頭直接貼到單顆骨頭。
+      if (!didInitialModelFitRef.current) {
+        didInitialModelFitRef.current = true;
+        focusOnLoadedModel();
+        return;
+      }
+
       if (selectedMeshName) focusOnMesh(selectedMeshName);
       else focusOnLoadedModel();
     });
   }, [selectedBodyPart, registryTick, selectedMeshName, focusOnMesh, focusOnLoadedModel]);
 
-  const resetView = useCallback(() => {
+  const fitModelFromDirection = useCallback((dirInput: THREE.Vector3) => {
     const controls = controlsRef.current;
     const camera = cameraRef.current as THREE.PerspectiveCamera | null;
     if (!controls || !camera) return;
 
-    camera.position.set(0, 1.5, 6);
-    controls.target.set(0, 0, 0);
+    const meshes = Object.values(meshRegistryRef.current).filter(Boolean) as THREE.Mesh[];
+    if (!meshes.length) return;
+
+    const box = new THREE.Box3();
+    meshes.forEach((m) => box.expandByObject(m));
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    const dir = dirInput.clone().normalize();
+
+    // full_skeleton 用比較遠的距離，避免視角按鈕貼太近。
+    const distanceMultiplier = selectedBodyPart === 'full_skeleton' ? 1.45 : 2.8;
+    const minDistance = selectedBodyPart === 'full_skeleton' ? 0.9 : 1.4;
+    const distance = Math.max(minDistance, maxDim * distanceMultiplier);
+
+    controls.target.copy(center);
+    camera.position.copy(center.clone().add(dir.multiplyScalar(distance)));
+
+    camera.near = Math.max(0.001, distance / 100);
+    camera.far = Math.max(1000, distance * 100);
+    camera.updateProjectionMatrix?.();
+
     controls.update();
-  }, []);
+  }, [selectedBodyPart]);
+
+  const resetView = useCallback(() => {
+    // 完整骨架/部位模型都用目前已載入模型的 bounding box 自動重置視角，
+    // 避免固定 camera distance 導致完整骨架被放太大。
+    requestAnimationFrame(() => {
+      focusOnLoadedModel();
+    });
+  }, [focusOnLoadedModel]);
 
   const selectBodyPart = useCallback((part: BodyPartKey) => {
     setSelectedBodyPart(part);
@@ -1742,11 +1826,25 @@ export default function S3Viewer() {
     controls.update();
   }, []);
 
-  const setFrontView = useCallback(() => setView([0, 0, 6]), [setView]);
-  const setBackView = useCallback(() => setView([0, 0, -6]), [setView]);
-  const setLeftView = useCallback(() => setView([-6, 0, 0]), [setView]);
-  const setRightView = useCallback(() => setView([6, 0, 0]), [setView]);
-  const setTopView = useCallback(() => setView([0, 6, 0.001]), [setView]);
+  const setFrontView = useCallback(() => {
+    fitModelFromDirection(new THREE.Vector3(0, 0, 1));
+  }, [fitModelFromDirection]);
+
+  const setBackView = useCallback(() => {
+    fitModelFromDirection(new THREE.Vector3(0, 0, -1));
+  }, [fitModelFromDirection]);
+
+  const setLeftView = useCallback(() => {
+    fitModelFromDirection(new THREE.Vector3(-1, 0, 0));
+  }, [fitModelFromDirection]);
+
+  const setRightView = useCallback(() => {
+    fitModelFromDirection(new THREE.Vector3(1, 0, 0));
+  }, [fitModelFromDirection]);
+
+  const setTopView = useCallback(() => {
+    fitModelFromDirection(new THREE.Vector3(0, 1, 0.001));
+  }, [fitModelFromDirection]);
   const viewButtons: [string, () => void][] = [
     ['重置', resetView],
     ['上', setTopView],
@@ -1814,55 +1912,31 @@ export default function S3Viewer() {
   }
 
   function renderLearningButtons(card: Card) {
-    const { boneName, boneZh, boneEn, meshName, imageGalleryBone } = getCardPayload(card);
+    const { boneName, imageGalleryBone } = getCardPayload(card);
     if (!boneName) return null;
 
-    const llmQuery = new URLSearchParams({
-      bone: boneName,
-      bone_zh: boneZh,
-      bone_en: boneEn,
-      mesh: meshName,
-    });
+    // RAG 已經改由下方「小挑戰 / 延伸問題」按鈕負責，
+    // 這裡只保留影像學習庫，避免重複入口。
+    if (!imageGalleryBone) return null;
 
     return (
       <div className="mt-2 flex flex-wrap gap-2">
-
-
-        {/*<button
+        <button
           type="button"
           onClick={() => {
             navigateWithBoneLoading(
-              `/llm?${llmQuery.toString()}`,
-              `正在開啟 GalaBone RAG：${boneName}`
+              `/bonevision?openGallery=1&bone=${encodeURIComponent(imageGalleryBone)}`,
+              `正在開啟影像學習庫：${imageGalleryBone}`
             );
           }}
           className="rounded-lg px-3 py-1 text-xs font-semibold"
           style={{
-            backgroundColor: "rgba(56,189,248,0.14)",
-            color: "#0369a1",
+            backgroundColor: "rgba(34,197,94,0.14)",
+            color: "#15803d",
           }}
         >
-          🤖 問 GalaBone RAG
-        </button>*/}
-
-        {imageGalleryBone && (
-          <button
-            type="button"
-            onClick={() => {
-              navigateWithBoneLoading(
-                `/bonevision?openGallery=1&bone=${encodeURIComponent(imageGalleryBone)}`,
-                `正在開啟影像學習庫：${imageGalleryBone}`
-              );
-            }}
-            className="rounded-lg px-3 py-1 text-xs font-semibold"
-            style={{
-              backgroundColor: "rgba(34,197,94,0.14)",
-              color: "#15803d",
-            }}
-          >
-            🩻 看影像
-          </button>
-        )}
+          🩻 看影像
+        </button>
       </div>
     );
   }
@@ -2051,6 +2125,7 @@ export default function S3Viewer() {
   const selectByMeshName = useCallback(
     async (meshName: string) => {
       setSelectedMode({ kind: 'mesh', meshName });
+      setTeachingLevelHelpOpen(false);
       setLoadingInfo(true);
 
       // 穩定版：點骨頭只做「選取、高亮、對應左邊清單」
@@ -2067,11 +2142,14 @@ export default function S3Viewer() {
       }
 
       if (li) {
+        const { base } = parseSide(li.mesh_name);
+        const pretty = prettyForBase(base, li.bone_zh, li.bone_en);
+
         setBoneInfo({
           small_bone_id: Number(li.small_bone_id),
           bone_id: Number(li.bone_id),
-          bone_zh: li.bone_zh,
-          bone_en: li.bone_en,
+          bone_zh: pretty.zh,
+          bone_en: pretty.en,
           bone_region: li.bone_region ?? null,
           bone_desc: li.bone_desc ?? null,
           teaching: li.teaching ?? null,
@@ -2085,6 +2163,7 @@ export default function S3Viewer() {
         const s = meshToSeries(norm);
         const cardId = rk === 'spine' && s ? `card-spine-${s}` : `card-${rk}-${encodeURIComponent(parseSide(norm).base)}`;
 
+        setExpandedCardId(cardId);
         requestAnimationFrame(() => {
           const el = document.getElementById(cardId);
           if (!isMobile) {
@@ -2204,16 +2283,18 @@ export default function S3Viewer() {
 
     setOpenGroups((prev) => (prev.includes(navKey) ? prev : [...prev, navKey]));
 
+    const { base } = parseSide(first.mesh_name);
+    const pretty = prettyForBase(base, first.bone_zh, first.bone_en);
+
     setBoneInfo({
       small_bone_id: Number(first.small_bone_id),
       bone_id: Number(first.bone_id),
-      bone_zh: first.bone_zh,
-      bone_en: first.bone_en,
+      bone_zh: pretty.zh,
+      bone_en: pretty.en,
       bone_region: first.bone_region ?? null,
       bone_desc: first.bone_desc ?? null,
       teaching: first.teaching ?? null,
     });
-
     if (matches.length === 1) {
       selectByMeshName(first.mesh_name);
       return;
@@ -2334,6 +2415,56 @@ export default function S3Viewer() {
     opacity: 0.92,
     whiteSpace: 'pre-wrap',
     lineHeight: 1.65,
+  };
+
+  const sTeachingLevelBadge = (meta: ReturnType<typeof getTeachingLevelMeta>): React.CSSProperties => ({
+    position: 'relative',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 0,
+    padding: '5px 10px',
+    borderRadius: 999,
+    background: meta.bg,
+    color: meta.color,
+    border: `1px solid ${meta.border}`,
+    fontSize: 12,
+    fontWeight: 900,
+  });
+
+  const sTeachingHelpDot: React.CSSProperties = {
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    border: '1px solid rgba(148,163,184,0.45)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(255,255,255,0.65)',
+    fontSize: 11,
+    fontWeight: 900,
+    cursor: 'help',
+    padding: 0,
+    lineHeight: 1,
+    color: 'inherit',
+  };
+
+  const sTeachingHelpTooltip: React.CSSProperties = {
+    position: 'absolute',
+    top: 'calc(100% + 8px)',
+    right: 0,
+    zIndex: 90,
+    width: 190,
+    padding: '9px 10px',
+    borderRadius: 12,
+    background: 'var(--panel-bg)',
+    color: 'var(--panel-text)',
+    border: '1px solid var(--panel-border)',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
+    fontSize: 12,
+    fontWeight: 600,
+    lineHeight: 1.55,
+    whiteSpace: 'normal',
   };
 
   const sVariantBtn = (active: boolean): React.CSSProperties => ({
@@ -2528,8 +2659,48 @@ export default function S3Viewer() {
                         ? `card-spine-${card.series}`
                         : `card-${card.regionKey}-${encodeURIComponent(card.base)}`;
 
+                    const expanded = expandedCardId === cardId;
+                    const displayItem =
+                      card.kind === 'series'
+                        ? null
+                        : card.C || card.L || card.R || null;
+
+                    const displayTeaching =
+                      active && boneInfo?.teaching
+                        ? boneInfo.teaching
+                        : displayItem?.teaching ?? null;
+
+                    const displayName =
+                      active && boneInfo
+                        ? { zh: boneInfo.bone_zh, en: boneInfo.bone_en }
+                        : { zh: card.displayZh, en: card.displayEn };
+
+                    const displayRegion =
+                      active && boneInfo
+                        ? boneInfo.bone_region ?? ''
+                        : displayItem?.bone_region ?? '';
+
+                    const displayDesc =
+                      active && boneInfo
+                        ? boneInfo.bone_desc ?? ''
+                        : displayItem?.bone_desc ?? '';
+
+                    const teachingLevel = displayTeaching?.TeachingLevel ?? 'basic';
+                    const isBasicTeaching = teachingLevel !== 'key' && teachingLevel !== 'advanced';
+
                     return (
-                      <div id={cardId} key={cardId} style={sCard(active)}>
+                      <div
+                        id={cardId}
+                        key={cardId}
+                        style={{
+                          ...sCard(active || expanded),
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => {
+                          setExpandedCardId((prev) => (prev === cardId ? null : cardId));
+                          setTeachingLevelHelpOpen(false);
+                        }}
+                      >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                           <div>
                             <div style={{ fontWeight: 900, fontSize: 15 }}>{card.displayZh}</div>
@@ -2537,7 +2708,15 @@ export default function S3Viewer() {
                           </div>
 
                           {card.kind === 'series' ? (
-                            <button style={sWholeBtn} onClick={() => selectSeries(card.series)} title="選取整組（全部亮）">
+                            <button
+                              style={sWholeBtn}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedCardId(cardId);
+                                selectSeries(card.series);
+                              }}
+                              title="選取整組（全部亮）"
+                            >
                               整組
                             </button>
                           ) : null}
@@ -2549,12 +2728,17 @@ export default function S3Viewer() {
 
                         {card.kind === 'lr' ? (
                           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+
                             {card.L ? (
                               <button
                                 style={sVariantBtn(
                                   !!selectedMeshName && normalizeMeshName(card.L.mesh_name) === normalizeMeshName(selectedMeshName)
                                 )}
-                                onClick={() => selectByMeshName(card.L!.mesh_name)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedCardId(cardId);
+                                  selectByMeshName(card.L!.mesh_name);
+                                }}
                                 title={card.L.mesh_name}
                               >
                                 L
@@ -2566,7 +2750,11 @@ export default function S3Viewer() {
                                 style={sVariantBtn(
                                   !!selectedMeshName && normalizeMeshName(card.R.mesh_name) === normalizeMeshName(selectedMeshName)
                                 )}
-                                onClick={() => selectByMeshName(card.R!.mesh_name)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedCardId(cardId);
+                                  selectByMeshName(card.R!.mesh_name);
+                                }}
                                 title={card.R.mesh_name}
                               >
                                 R
@@ -2578,10 +2766,43 @@ export default function S3Viewer() {
                                 style={sVariantBtn(
                                   !!selectedMeshName && normalizeMeshName(card.C.mesh_name) === normalizeMeshName(selectedMeshName)
                                 )}
-                                onClick={() => selectByMeshName(card.C!.mesh_name)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedCardId(cardId);
+                                  selectByMeshName(card.C!.mesh_name);
+                                }}
                                 title={card.C.mesh_name}
                               >
                                 選取
+                              </button>
+                            ) : null}
+
+                            {active && selectedMeshName ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!soloActive) {
+                                    setSoloNormSet(new Set([normalizeMeshName(selectedMeshName)]));
+                                  } else {
+                                    setSoloNormSet(null);
+                                  }
+                                }}
+                                title={soloActive ? '顯示目前部位包的全部骨頭' : '只顯示目前選取的這顆骨頭'}
+                                style={{
+                                  height: 34,
+                                  padding: '0 12px',
+                                  borderRadius: 10,
+                                  border: soloActive ? '2px solid var(--accent)' : '1px solid var(--panel-border)',
+                                  background: soloActive ? 'rgba(56,189,248,0.14)' : 'var(--chip-bg)',
+                                  color: soloActive ? '#0369a1' : 'var(--chip-text)',
+                                  cursor: 'pointer',
+                                  fontWeight: 900,
+                                  fontSize: 13,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {soloActive ? '顯示全部' : '只顯示此骨頭'}
                               </button>
                             ) : null}
 
@@ -2591,7 +2812,11 @@ export default function S3Viewer() {
                                   !!selectedMeshName &&
                                   normalizeMeshName((card.L ?? card.R)!.mesh_name) === normalizeMeshName(selectedMeshName)
                                 )}
-                                onClick={() => selectByMeshName((card.L ?? card.R)!.mesh_name)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedCardId(cardId);
+                                  selectByMeshName((card.L ?? card.R)!.mesh_name);
+                                }}
                                 title={(card.L ?? card.R)!.mesh_name}
                               >
                                 選取
@@ -2609,7 +2834,11 @@ export default function S3Viewer() {
                                 <button
                                   key={k}
                                   style={sVariantBtn(isBtnActive)}
-                                  onClick={() => selectByMeshName(it.mesh_name)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExpandedCardId(cardId);
+                                    selectByMeshName(it.mesh_name);
+                                  }}
                                   title={it.mesh_name}
                                 >
                                   {k}
@@ -2634,74 +2863,107 @@ export default function S3Viewer() {
                         )}
 
                         {/* Info */}
-                        {active && selectedMeshName && (
+                        {expanded && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--panel-border)' }}>
-                            {/* ✅ Solo/Unsolo 按鈕 */}
-                            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                              {!soloActive ? (
-                                <button
-                                  style={sWholeBtn}
-                                  onClick={() => setSoloNormSet(new Set([normalizeMeshName(selectedMeshName)]))}
-                                  title="只顯示目前選取的這顆骨頭"
-                                >
-                                  只顯示此骨頭
-                                </button>
-                              ) : (
-                                <button
-                                  style={sWholeBtn}
-                                  onClick={() => setSoloNormSet(null)}
-                                  title="顯示目前部位包的全部骨頭"
-                                >
-                                  顯示全部
-                                </button>
-                              )}
-                            </div>
 
-                            {loadingInfo ? (
+
+                            {loadingInfo && active ? (
                               <div style={{ opacity: 0.7, fontSize: 13 }}>載入中…</div>
-                            ) : !boneInfo ? (
+                            ) : !displayTeaching && !displayDesc ? (
                               <div style={{ opacity: 0.7, fontSize: 13 }}>尚未載入資訊</div>
                             ) : (
                               <div style={{ fontSize: 13, lineHeight: 1.55 }}>
-                                <div style={{ fontWeight: 900 }}>
-                                  {boneInfo.bone_zh} / {boneInfo.bone_en}
-                                </div>
-                                <div style={{ opacity: 0.85 }}>{boneInfo.bone_region ?? ''}</div>
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    justifyContent: 'space-between',
+                                    gap: 10,
+                                    marginBottom: 8,
+                                  }}
+                                >
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 900 }}>
+                                      {displayName.zh} / {displayName.en}
+                                    </div>
+                                    <div style={{ opacity: 0.85 }}>
+                                      {displayRegion}
+                                    </div>
+                                  </div>
 
-                                {hasTeachingText(boneInfo.teaching) ? (
+                                  {displayTeaching ? (() => {
+                                    const levelMeta = getTeachingLevelMeta(displayTeaching.TeachingLevel);
+
+                                    return (
+                                      <div
+                                        style={{
+                                          ...sTeachingLevelBadge(levelMeta),
+                                          marginBottom: 0,
+                                          flexShrink: 0,
+                                        }}
+                                        onMouseEnter={() => setTeachingLevelHelpOpen(true)}
+                                        onMouseLeave={() => setTeachingLevelHelpOpen(false)}
+                                      >
+                                        <span>{levelMeta.label}</span>
+                                        <button
+                                          type="button"
+                                          aria-label={`${levelMeta.label}說明`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setTeachingLevelHelpOpen((v) => !v);
+                                          }}
+                                          style={sTeachingHelpDot}
+                                        >
+                                          ?
+                                        </button>
+
+                                        {teachingLevelHelpOpen ? (
+                                          <div role="tooltip" style={sTeachingHelpTooltip}>
+                                            {levelMeta.desc}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })() : null}
+                                </div>
+
+
+                                {hasTeachingText(displayTeaching) ? (
                                   <>
-                                    {boneInfo.teaching?.IntroText ? (
+                                    {displayTeaching?.IntroText ? (
                                       <div style={sTeachingSection}>
-                                        <div style={sTeachingTitle}>📖 詳細介紹</div>
-                                        <div style={sTeachingText}>{boneInfo.teaching.IntroText}</div>
+                                        <div style={sTeachingTitle}>
+                                          📖 {isBasicTeaching ? '簡短介紹' : '詳細介紹'}
+                                        </div>
+                                        <div style={sTeachingText}>{displayTeaching.IntroText}</div>
                                       </div>
                                     ) : null}
 
-                                    {boneInfo.teaching?.StructureFunctionText ? (
+                                    {!isBasicTeaching && displayTeaching?.StructureFunctionText ? (
                                       <div style={sTeachingSection}>
                                         <div style={sTeachingTitle}>🧠 結構與功能</div>
-                                        <div style={sTeachingText}>{boneInfo.teaching.StructureFunctionText}</div>
+                                        <div style={sTeachingText}>{displayTeaching.StructureFunctionText}</div>
                                       </div>
                                     ) : null}
 
-                                    {boneInfo.teaching?.LearningText ? (
+                                    {!isBasicTeaching && displayTeaching?.LearningText ? (
                                       <div style={sTeachingSection}>
                                         <div style={sTeachingTitle}>📍 3D定位與辨認</div>
-                                        <div style={sTeachingText}>{boneInfo.teaching.LearningText}</div>
+                                        <div style={sTeachingText}>{displayTeaching.LearningText}</div>
                                       </div>
                                     ) : null}
 
-                                    {parseSuggestedQuestions(boneInfo.teaching?.SuggestedQuestions).length > 0 ? (
+                                    {parseSuggestedQuestions(displayTeaching?.SuggestedQuestions).length > 0 ? (
                                       <div style={sTeachingSection}>
                                         <div style={sTeachingTitle}>🎯 小挑戰 / 延伸問題</div>
                                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                          {parseSuggestedQuestions(boneInfo.teaching?.SuggestedQuestions).map((question) => {
+                                          {parseSuggestedQuestions(displayTeaching?.SuggestedQuestions).map((question) => {
                                             const questionParams = new URLSearchParams({
                                               q: question,
-                                              bone: boneInfo.bone_zh,
-                                              bone_zh: boneInfo.bone_zh,
-                                              bone_en: boneInfo.bone_en,
-                                              mesh: selectedMeshName ?? '',
+                                              bone: displayName.zh,
+                                              bone_zh: displayName.zh,
+                                              bone_en: displayName.en,
+                                              mesh: selectedMeshName ?? displayItem?.mesh_name ?? '',
                                             });
 
                                             return (
@@ -2728,9 +2990,9 @@ export default function S3Viewer() {
                                       </div>
                                     ) : null}
                                   </>
-                                ) : boneInfo.bone_desc ? (
+                                ) : displayDesc ? (
                                   <div style={{ opacity: 0.9, marginTop: 8, whiteSpace: 'pre-wrap' }}>
-                                    {boneInfo.bone_desc}
+                                    {displayDesc}
                                   </div>
                                 ) : null}
                               </div>
@@ -2838,47 +3100,125 @@ export default function S3Viewer() {
             ))}
           </div>
 
-          {/* 操作提示 */}
-          {showHint && (
-            <div
-              className="s3-control-hint"
+          {/* 操作說明：改成 ?，hover / click 才顯示，不佔版面 */}
+          <div
+            className="s3-control-help"
+            style={{
+              position: 'relative',
+              marginTop: 2,
+              alignSelf: 'flex-end',
+            }}
+            onMouseEnter={() => setShowControlHelp(true)}
+            onMouseLeave={() => setShowControlHelp(false)}
+          >
+            <button
+              type="button"
+              aria-label="操作說明"
+              title="操作說明"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowControlHelp((v) => !v);
+              }}
               style={{
-                marginTop: 2,
-                padding: '7px 10px',
-                borderRadius: 12,
-                background: 'var(--glass-bg)',
+                width: 30,
+                height: 30,
+                borderRadius: 999,
                 border: '1px solid var(--panel-border)',
+                background: 'var(--panel-btn-bg)',
                 color: 'var(--panel-text)',
-                fontSize: 11,
-                lineHeight: 1.4,
+                cursor: 'help',
+                fontWeight: 900,
+                fontSize: 15,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 boxShadow: '0 6px 16px rgba(0,0,0,0.12)',
                 backdropFilter: 'blur(8px)',
-                pointerEvents: 'none',
-                opacity: 0.9,
+                opacity: 0.95,
               }}
             >
-              <i className="fa-solid fa-computer-mouse" style={{ marginRight: 6, opacity: 0.7 }} />
-              拖曳旋轉 · 右鍵平移 · 滾輪縮放
-            </div>
-          )}
+              ?
+            </button>
+
+            {showControlHelp ? (
+              <div
+                role="tooltip"
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  right: 0,
+                  zIndex: 90,
+                  width: 210,
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  background: 'var(--panel-bg)',
+                  color: 'var(--panel-text)',
+                  border: '1px solid var(--panel-border)',
+                  boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  lineHeight: 1.65,
+                  whiteSpace: 'normal',
+                }}
+              >
+                <div style={{ fontWeight: 900, marginBottom: 4 }}>操作說明</div>
+                <div>左鍵拖曳：旋轉模型</div>
+                <div>右鍵拖曳：平移視角</div>
+                <div>滾輪：縮放遠近</div>
+              </div>
+            ) : null}
+          </div>
 
         </div>
 
-        {/* 右側 2D 正反面骨骼對應圖 */}
+        {/* 右側 2D 正反面骨骼對應圖：可收合，但不改 Bone2DPanel 內部尺寸/座標 */}
         <div
           className="s3-2d-panel"
           style={{
             position: 'absolute',
             top: 118,
-            right: 24,
+            right: show2DPanel ? 24 : -390,
             zIndex: 18,
             width: 360,
             height: 'calc(100% - 142px)',
             maxHeight: 660,
             minHeight: 500,
-            pointerEvents: 'auto',
+            pointerEvents: show2DPanel ? 'auto' : 'none',
+            opacity: show2DPanel ? 1 : 0,
+            transform: show2DPanel ? 'translateX(0)' : 'translateX(16px)',
+            transition: 'right 0.22s ease, opacity 0.18s ease, transform 0.22s ease',
           }}
         >
+          <button
+            type="button"
+            onClick={() => setShow2DPanel(false)}
+            title="收起人體部位圖"
+            aria-label="收起人體部位圖"
+            style={{
+              position: 'absolute',
+              top: 18,
+              right: 18,
+              zIndex: 80,
+              width: 34,
+              height: 34,
+              borderRadius: 10,
+              border: '1px solid var(--panel-border)',
+              background: 'rgba(255,255,255,0.88)',
+              color: '#334155',
+              cursor: 'pointer',
+              fontWeight: 900,
+              fontSize: 16,
+              lineHeight: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 6px 14px rgba(15,23,42,0.12)',
+              backdropFilter: 'blur(8px)',
+            }}
+          >
+            ×
+          </button>
+
           <Bone2DPanel
             selectedBoneName={
               [
@@ -2891,6 +3231,9 @@ export default function S3Viewer() {
             }
           />
         </div>
+
+
+
 
         <Canvas
           key={`s3-canvas-${canvasRevision}`}
@@ -2956,6 +3299,34 @@ export default function S3Viewer() {
 
           <Environment preset="city" />
         </Canvas>
+
+        {!show2DPanel && (
+          <button
+            type="button"
+            onClick={() => setShow2DPanel(true)}
+            title="顯示人體部位圖"
+            style={{
+              position: 'absolute',
+              top: 222,
+              right: 24,
+              zIndex: 80,
+              height: 38,
+              padding: '0 14px',
+              borderRadius: 12,
+              border: '1px solid var(--panel-border)',
+              background: 'var(--panel-bg)',
+              color: 'var(--panel-text)',
+              cursor: 'pointer',
+              fontWeight: 900,
+              fontSize: 13,
+              boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
+              backdropFilter: 'blur(10px)',
+            }}
+          >
+            顯示部位圖
+          </button>
+        )}
+
       </main>
     </div>
   );

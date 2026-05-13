@@ -126,6 +126,7 @@ def _teaching_from_row(
     structure_function_text: Any,
     learning_text: Any,
     suggested_questions: Any,
+    teaching_level: Any,
 ) -> Optional[Dict[str, Any]]:
     if teaching_id is None:
         return None
@@ -140,6 +141,7 @@ def _teaching_from_row(
         "StructureFunctionText": str(structure_function_text or ""),
         "LearningText": str(learning_text or ""),
         "SuggestedQuestions": str(suggested_questions or ""),
+        "TeachingLevel": str(teaching_level or ""),
     }
 
 
@@ -202,7 +204,8 @@ def get_bone_list() -> Dict[str, Any]:
             ti.IntroText,
             ti.StructureFunctionText,
             ti.LearningText,
-            ti.SuggestedQuestions
+            ti.SuggestedQuestions,
+            ti.TeachingLevel
         """ if teaching_info_table else """
             CAST(NULL AS INT) AS TeachingId,
             CAST(NULL AS INT) AS TeachingBoneId,
@@ -213,6 +216,7 @@ def get_bone_list() -> Dict[str, Any]:
             CAST(NULL AS NVARCHAR(MAX)) AS StructureFunctionText,
             CAST(NULL AS NVARCHAR(MAX)) AS LearningText,
             CAST(NULL AS NVARCHAR(MAX)) AS SuggestedQuestions
+            CAST(NULL AS NVARCHAR(30)) AS TeachingLevel
         """
 
         teaching_apply = f"""
@@ -226,7 +230,8 @@ def get_bone_list() -> Dict[str, Any]:
                 t.IntroText,
                 t.StructureFunctionText,
                 t.LearningText,
-                t.SuggestedQuestions
+                t.SuggestedQuestions,
+                t.TeachingLevel
             FROM {teaching_info_table} t
             WHERE
                 t.IsActive = 1
@@ -298,7 +303,7 @@ def get_bone_list() -> Dict[str, Any]:
             note = str(r[10] or "")
             mesh_name = str(r[11] or "")
             teaching = _teaching_from_row(
-                r[12], r[13], r[14], r[15], r[16], r[17], r[18], r[19], r[20]
+                r[12], r[13], r[14], r[15], r[16], r[17], r[18], r[19], r[20], r[21]
             )
 
             side = _side_from_place(place, mesh_name)

@@ -910,7 +910,7 @@ export default function Bone2DPanel({ selectedBoneName }: Props) {
         text-slate-900 shadow-[0_16px_40px_rgba(15,23,42,0.12)]
       "
         >
-            <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
+            <div className="mb-3 flex shrink-0 items-start justify-between gap-3 pr-12">
                 <div>
                     <div className="text-lg font-bold text-slate-800">人體部位圖</div>
                     <div className="text-xs leading-5 text-slate-500">
