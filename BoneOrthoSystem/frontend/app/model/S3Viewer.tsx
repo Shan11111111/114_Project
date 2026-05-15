@@ -512,11 +512,23 @@ function expandS3SemanticTerms(keyword: string): string[] {
     add("鐙骨", "stapes", "stirrup", "auditoryossicles");
   }
 
-  // 脊椎總類
-  if (hasAny("脊椎", "脊柱", "spine", "vertebra")) {
-    add("脊椎", "vertebra", "spine");
+  // 脊椎總類：使用者打「脊椎」時，要能找到 C/T/L 全部系列
+  if (hasAny("脊椎", "脊柱", "椎骨", "spine", "vertebra", "vertebrae")) {
+    add(
+      "脊椎",
+      "脊柱",
+      "椎骨",
+      "vertebra",
+      "vertebrae",
+      "spine",
+      "cervical",
+      "thoracic",
+      "lumbar",
+      "c1", "c2", "c3", "c4", "c5", "c6", "c7",
+      "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11", "t12",
+      "l1", "l2", "l3", "l4", "l5"
+    );
   }
-
   // 頸椎：脖子第三根、C3、頸部
   if (hasAny("脖子", "頸部", "頸椎", "neck", "cervical", "cspine")) {
     add("頸椎", "cervical", "cervicalvertebra", "c1", "c2", "c3", "c4", "c5", "c6", "c7");
@@ -655,11 +667,51 @@ function scoreS3BoneByKeyword(item: BoneListItem, keyword: string) {
   const region = normalizeSearchText(item.bone_region);
   const desc = normalizeSearchText(item.bone_desc);
 
+
   const haystack = [zh, en, mesh, meshPretty, region, desc]
     .filter(Boolean)
     .join(" ");
 
   let score = 0;
+
+  const navKey = getNavKeyForBoneItem(item);
+  const meshPrettyRaw = normalizeMeshName(item.mesh_name);
+  const series = meshToSeries(meshPrettyRaw);
+
+  const queryHasAny = (...items: string[]) => {
+    return items.some((item) => {
+      const n = normalizeSearchText(item);
+      return n && (rawQ.includes(n) || q.includes(n));
+    });
+  };
+
+  // 使用者通常會用「部位」搜尋，不會知道精確骨名。
+  // 這裡補上大類語意搜尋：頭、胸背、上肢、骨盆、下肢、脊椎。
+  if (queryHasAny("頭", "頭部", "頭頸", "頭頸部", "脖子", "頸部", "head", "neck")) {
+    if (navKey === "head-neck") score = Math.max(score, 55);
+  }
+
+  if (queryHasAny("胸", "胸部", "胸背", "胸背部", "背", "背部", "肋骨", "胸骨", "thorax", "back", "rib", "sternum")) {
+    if (navKey === "thorax-back") score = Math.max(score, 55);
+  }
+
+  if (queryHasAny("上肢", "手", "手臂", "肩膀", "肩", "手腕", "手掌", "手指", "upperlimb", "arm", "hand", "wrist", "shoulder")) {
+    if (navKey === "upper-limb") score = Math.max(score, 55);
+  }
+
+  if (queryHasAny("骨盆", "髖", "屁股", "pelvis", "hip")) {
+    if (navKey === "pelvis") score = Math.max(score, 55);
+  }
+
+  if (queryHasAny("下肢", "腳", "腿", "大腿", "小腿", "膝蓋", "腳踝", "腳掌", "腳趾", "lowerlimb", "leg", "foot", "ankle", "knee")) {
+    if (navKey === "lower-limb") score = Math.max(score, 55);
+  }
+
+  // 「脊椎」是特殊情況：頸椎在頭頸部，胸椎/腰椎在胸背部，
+  // 所以不能只靠 navKey，要直接看 mesh 是否是 C/T/L 系列。
+  if (queryHasAny("脊椎", "脊柱", "椎骨", "spine", "vertebra", "vertebrae")) {
+    if (series) score = Math.max(score, 80);
+  }
 
   // 1. 中文骨名完全命中，最高
   if (zh && (rawQ === zh || q === zh)) {
@@ -1434,6 +1486,63 @@ function getNavKeyForCard(card: Card): NavGroupKey {
   return getNavKeyForBoneItem(item);
 }
 
+type BroadS3SearchKind =
+  | 'spine-all'
+  | 'head-neck'
+  | 'thorax-back'
+  | 'upper-limb'
+  | 'pelvis'
+  | 'lower-limb';
+
+function getBroadS3SearchKind(keyword: string): BroadS3SearchKind | null {
+  const q = removeS3SearchStopWords(keyword);
+
+  const hasAny = (...items: string[]) =>
+    items.some((item) => {
+      const n = normalizeSearchText(item);
+      return n && q.includes(n);
+    });
+
+  // 注意順序：脊椎要先判斷，不然「頸椎」可能被頭頸吃掉
+  if (hasAny('脊椎', '脊柱', '椎骨', 'spine', 'vertebra', 'vertebrae')) {
+    return 'spine-all';
+  }
+
+  if (hasAny('頭頸部', '頭頸', '頭部', '頭', '脖子', '頸部', 'head', 'neck')) {
+    return 'head-neck';
+  }
+
+  if (hasAny('胸背部', '胸背', '胸部', '胸', '背部', '背', '肋骨', '胸骨', 'thorax', 'back', 'rib', 'sternum')) {
+    return 'thorax-back';
+  }
+
+  if (hasAny('上肢', '手臂', '手腕', '手掌', '手指', '肩膀', '肩', '手', 'upperlimb', 'arm', 'hand', 'wrist', 'shoulder')) {
+    return 'upper-limb';
+  }
+
+  if (hasAny('骨盆', '髖', '屁股', 'pelvis', 'hip')) {
+    return 'pelvis';
+  }
+
+  if (hasAny('下肢', '大腿', '小腿', '膝蓋', '腳踝', '腳掌', '腳趾', '腳', '腿', 'lowerlimb', 'leg', 'foot', 'ankle', 'knee')) {
+    return 'lower-limb';
+  }
+
+  return null;
+}
+
+function matchBroadS3Search(item: BoneListItem, kind: BroadS3SearchKind) {
+  const norm = normalizeMeshName(item.mesh_name);
+  const series = meshToSeries(norm);
+
+  if (kind === 'spine-all') {
+    return Boolean(series);
+  }
+
+  return getNavKeyForBoneItem(item) === kind;
+}
+
+
 /** =========================
  *  Flatten bone-list response
  * ========================= */
@@ -1613,6 +1722,7 @@ export default function S3Viewer() {
   const controlsRef = useRef<any>(null);
   const cameraRef = useRef<THREE.Camera | null>(null);
   const [registryTick, setRegistryTick] = useState(0);
+  const sidebarScrollRef = useRef<HTMLElement | null>(null);
 
   //抽屜式
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -1967,6 +2077,13 @@ export default function S3Viewer() {
 
     if (!kw) return boneList;
 
+    const broadKind = getBroadS3SearchKind(kw);
+
+    // 大類詞直接硬篩選，避免「脊椎」撈到上肢、骨盆、下肢
+    if (broadKind) {
+      return boneList.filter((item) => matchBroadS3Search(item, broadKind));
+    }
+
     return boneList
       .map((item, index) => {
         const score = searchScoreByMesh.get(normalizeMeshName(item.mesh_name)) ?? 0;
@@ -2064,6 +2181,50 @@ export default function S3Viewer() {
     );
   }, []);
 
+  const openNavGroupFrom2D = useCallback((key: NavGroupKey) => {
+    // 2D 圖只做「導覽」：
+    // 打開左側、展開分類、必要時捲到分類標題。
+    // 不自動選骨頭、不改 3D 高亮、不清空其他分類。
+    setSidebarOpen(true);
+
+    setOpenGroups((prev) =>
+      prev.includes(key) ? prev : [...prev, key]
+    );
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const sidebar = sidebarScrollRef.current;
+        const target = document.getElementById(`nav-group-${key}`);
+
+        if (!sidebar || !target) return;
+
+        const sidebarRect = sidebar.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+
+        // sticky 標題 + 搜尋框大概佔的安全距離
+        const topSafeGap = 120;
+        const bottomSafeGap = 40;
+
+        const titleTopVisible =
+          targetRect.top >= sidebarRect.top + topSafeGap &&
+          targetRect.top <= sidebarRect.bottom - bottomSafeGap;
+
+        // 如果大類標題已經看得到，就不要捲，避免清單一直跳一下
+        if (titleTopVisible) return;
+
+        const nextTop =
+          sidebar.scrollTop +
+          (targetRect.top - sidebarRect.top) -
+          topSafeGap;
+
+        sidebar.scrollTo({
+          top: Math.max(0, nextTop),
+          behavior: 'smooth',
+        });
+      });
+    });
+  }, []);
+
   const seriesNorms = useMemo(() => {
     const out: Record<SeriesKind, string[]> = { cervical: [], thoracic: [], lumbar: [] };
 
@@ -2123,7 +2284,10 @@ export default function S3Viewer() {
   );
 
   const selectByMeshName = useCallback(
-    async (meshName: string) => {
+    async (
+      meshName: string,
+      options: { scrollToCard?: boolean } = { scrollToCard: true }
+    ) => {
       setSelectedMode({ kind: 'mesh', meshName });
       setTeachingLevelHelpOpen(false);
       setLoadingInfo(true);
@@ -2164,12 +2328,33 @@ export default function S3Viewer() {
         const cardId = rk === 'spine' && s ? `card-spine-${s}` : `card-${rk}-${encodeURIComponent(parseSide(norm).base)}`;
 
         setExpandedCardId(cardId);
-        requestAnimationFrame(() => {
-          const el = document.getElementById(cardId);
-          if (!isMobile) {
-            el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          }
-        });
+
+        if (options.scrollToCard !== false) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const sidebar = sidebarScrollRef.current;
+              const el = document.getElementById(cardId);
+
+              if (!sidebar || !el || isMobile) return;
+
+              const sidebarRect = sidebar.getBoundingClientRect();
+              const cardRect = el.getBoundingClientRect();
+
+              // 讓卡片上緣停在 sticky 標題下面，保留骨名、L/R 按鈕可見
+              const topSafeGap = 78;
+
+              const nextTop =
+                sidebar.scrollTop +
+                (cardRect.top - sidebarRect.top) -
+                topSafeGap;
+
+              sidebar.scrollTo({
+                top: Math.max(0, nextTop),
+                behavior: 'smooth',
+              });
+            });
+          });
+        }
       } else {
         setBoneInfo(null);
       }
@@ -2177,7 +2362,7 @@ export default function S3Viewer() {
       requestAnimationFrame(() => focusOnMesh(meshName));
       setLoadingInfo(false);
     },
-    [findListItemByMeshName, focusOnMesh, selectedBodyPart]
+    [findListItemByMeshName, focusOnMesh, selectedBodyPart, isMobile]
   );
 
   useEffect(() => {
@@ -2575,7 +2760,11 @@ export default function S3Viewer() {
 
 
       {/* 左側清單 */}
-      <aside className={`s3-bone-sidebar ${sidebarOpen ? 'is-open' : 'is-closed'}`} style={sAside}>
+      <aside
+        ref={sidebarScrollRef}
+        className={`s3-bone-sidebar ${sidebarOpen ? 'is-open' : 'is-closed'}`}
+        style={sAside}
+      >
         <div
           style={{
             position: 'sticky',
@@ -2618,7 +2807,7 @@ export default function S3Viewer() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋：鎖骨、C3、尺骨、髕骨、手腕小骨..."
+          placeholder="搜尋骨頭：鎖骨、胸骨、肋骨、尺骨、股骨、髕骨..."
           style={{
             width: '100%',
             padding: '10px 12px',
@@ -2639,7 +2828,14 @@ export default function S3Viewer() {
           if (!cards.length) return null;
 
           return (
-            <div key={group.key} style={{ marginBottom: 10 }}>
+            <div
+              id={`nav-group-${group.key}`}
+              key={group.key}
+              style={{
+                marginBottom: 10,
+                scrollMarginTop: 150,
+              }}
+            >
               <button
                 onClick={() => toggleGroup(group.key)}
                 style={sGroupBtn(isOpen)}
@@ -2737,7 +2933,7 @@ export default function S3Viewer() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setExpandedCardId(cardId);
-                                  selectByMeshName(card.L!.mesh_name);
+                                  selectByMeshName(card.L!.mesh_name, { scrollToCard: false });
                                 }}
                                 title={card.L.mesh_name}
                               >
@@ -2753,7 +2949,7 @@ export default function S3Viewer() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setExpandedCardId(cardId);
-                                  selectByMeshName(card.R!.mesh_name);
+                                  selectByMeshName(card.R!.mesh_name, { scrollToCard: false });
                                 }}
                                 title={card.R.mesh_name}
                               >
@@ -2769,7 +2965,7 @@ export default function S3Viewer() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setExpandedCardId(cardId);
-                                  selectByMeshName(card.C!.mesh_name);
+                                  selectByMeshName(card.C!.mesh_name, { scrollToCard: false });
                                 }}
                                 title={card.C.mesh_name}
                               >
@@ -2815,7 +3011,7 @@ export default function S3Viewer() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setExpandedCardId(cardId);
-                                  selectByMeshName((card.L ?? card.R)!.mesh_name);
+                                  selectByMeshName((card.L ?? card.R)!.mesh_name, { scrollToCard: false });
                                 }}
                                 title={(card.L ?? card.R)!.mesh_name}
                               >
@@ -2837,7 +3033,7 @@ export default function S3Viewer() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setExpandedCardId(cardId);
-                                    selectByMeshName(it.mesh_name);
+                                    selectByMeshName(it.mesh_name, { scrollToCard: false });
                                   }}
                                   title={it.mesh_name}
                                 >
@@ -3050,9 +3246,8 @@ export default function S3Viewer() {
           right: 24,
           zIndex: 24,
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: 8,
+          alignItems: 'flex-start',
+          gap: 10,
         }}
       >
           {/* 視角工具列 */}
@@ -3100,13 +3295,14 @@ export default function S3Viewer() {
             ))}
           </div>
 
-          {/* 操作說明：改成 ?，hover / click 才顯示，不佔版面 */}
+          {/* 操作說明：放在「重置」左邊 */}
           <div
             className="s3-control-help"
             style={{
               position: 'relative',
-              marginTop: 2,
-              alignSelf: 'flex-end',
+              marginTop: 7,
+              flexShrink: 0,
+              order: -1,
             }}
             onMouseEnter={() => setShowControlHelp(true)}
             onMouseLeave={() => setShowControlHelp(false)}
@@ -3120,19 +3316,19 @@ export default function S3Viewer() {
                 setShowControlHelp((v) => !v);
               }}
               style={{
-                width: 30,
-                height: 30,
+                width: 28,
+                height: 28,
                 borderRadius: 999,
                 border: '1px solid var(--panel-border)',
                 background: 'var(--panel-btn-bg)',
                 color: 'var(--panel-text)',
                 cursor: 'help',
                 fontWeight: 900,
-                fontSize: 15,
+                fontSize: 13,
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 6px 16px rgba(0,0,0,0.12)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
                 backdropFilter: 'blur(8px)',
                 opacity: 0.95,
               }}
@@ -3148,23 +3344,23 @@ export default function S3Viewer() {
                   top: 'calc(100% + 8px)',
                   right: 0,
                   zIndex: 90,
-                  width: 210,
-                  padding: '10px 12px',
-                  borderRadius: 12,
+                  width: 96,
+                  padding: '5px 7px',
+                  borderRadius: 8,
                   background: 'var(--panel-bg)',
                   color: 'var(--panel-text)',
                   border: '1px solid var(--panel-border)',
-                  boxShadow: '0 10px 24px rgba(15,23,42,0.18)',
-                  fontSize: 12,
+                  boxShadow: '0 8px 18px rgba(15,23,42,0.14)',
+                  fontSize: 11,
                   fontWeight: 600,
-                  lineHeight: 1.65,
-                  whiteSpace: 'normal',
+                  lineHeight: 1.35,
+                  whiteSpace: 'nowrap',
                 }}
               >
-                <div style={{ fontWeight: 900, marginBottom: 4 }}>操作說明</div>
-                <div>左鍵拖曳：旋轉模型</div>
-                <div>右鍵拖曳：平移視角</div>
-                <div>滾輪：縮放遠近</div>
+                <div style={{ fontWeight: 900, marginBottom: 2 }}>操作說明</div>
+                <div>左鍵：旋轉</div>
+                <div>右鍵：平移</div>
+                <div>滾輪：縮放</div>
               </div>
             ) : null}
           </div>
@@ -3229,6 +3425,9 @@ export default function S3Viewer() {
                 .filter(Boolean)
                 .join(' ') || null
             }
+            onRegionClick={(regionKey) => {
+              openNavGroupFrom2D(regionKey);
+            }}
           />
         </div>
 

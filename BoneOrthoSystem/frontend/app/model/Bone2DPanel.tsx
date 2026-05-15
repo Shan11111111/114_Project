@@ -8,8 +8,16 @@ import { useEffect, useMemo, useState } from 'react';
 type ViewMode = 'front' | 'back';
 type SideMode = 'left' | 'right' | 'both';
 
+type Bone2DRegionKey =
+    | 'head-neck'
+    | 'thorax-back'
+    | 'upper-limb'
+    | 'pelvis'
+    | 'lower-limb';
+
 type Props = {
     selectedBoneName?: string | null;
+    onRegionClick?: (regionKey: Bone2DRegionKey) => void;
 };
 
 type DotPosition = {
@@ -868,7 +876,7 @@ function hasView(target: Bone2DTarget | null, view: ViewMode) {
     return Boolean(target.backDot || target.backDotPair);
 }
 
-export default function Bone2DPanel({ selectedBoneName }: Props) {
+export default function Bone2DPanel({ selectedBoneName, onRegionClick }: Props) {
     const boneKey = useMemo(
         () => normalizeBoneKey(selectedBoneName),
         [selectedBoneName]
@@ -901,6 +909,11 @@ export default function Bone2DPanel({ selectedBoneName }: Props) {
 
     const bodySrc =
         view === 'front' ? '/anatomy/front_body.png' : '/anatomy/back_body.png';
+
+    const handleRegionClick = (regionKey: Bone2DRegionKey) => {
+        console.log('[2D region click]', regionKey);
+        onRegionClick?.(regionKey);
+    };
 
     return (
         <aside
@@ -999,6 +1012,123 @@ export default function Bone2DPanel({ selectedBoneName }: Props) {
                         draggable={false}
                     />
 
+                    {/* 2D 圖點擊區：只做分類導覽，不直接選 206 細項骨頭 */}
+                    <div
+                        className="absolute inset-0"
+                        style={{
+                            zIndex: 80,
+                            pointerEvents: 'auto',
+                        }}
+                    >
+                        {/* 頭頸部：頭、脖子 */}
+                        <button
+                            type="button"
+                            aria-label="展開頭頸部骨頭分類"
+                            title="展開頭頸部"
+                            onClick={() => handleRegionClick('head-neck')}
+                            className="absolute rounded-full"
+                            style={{
+                                left: '36%',
+                                top: '2%',
+                                width: '28%',
+                                height: '18%',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                zIndex: 30,
+                            }}
+                        />
+
+                        {/* 胸背部：胸骨、肋骨中央、胸椎對應區；不要吃到肩膀、手臂、腹部 */}
+                        <button
+                            type="button"
+                            aria-label="展開胸背部骨頭分類"
+                            title="展開胸背部"
+                            onClick={() => handleRegionClick('thorax-back')}
+                            className="absolute rounded-2xl"
+                            style={{
+                                left: '42%',
+                                top: '21%',
+                                width: '19%',
+                                height: '20%',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                zIndex: 20,
+                            }}
+                        />
+
+                        {/* 畫面左側的人體上肢：包含肩膀、肱骨、前臂、手腕、手掌、手指 */}
+                        <button
+                            type="button"
+                            aria-label="展開上肢骨頭分類"
+                            title="展開上肢"
+                            onClick={() => handleRegionClick('upper-limb')}
+                            className="absolute rounded-2xl"
+                            style={{
+                                left: '13%',
+                                top: '18%',
+                                width: '28%',
+                                height: '48%',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                zIndex: 35,
+                            }}
+                        />
+
+                        {/* 畫面右側的人體上肢：包含肩膀、肱骨、前臂、手腕、手掌、手指 */}
+                        <button
+                            type="button"
+                            aria-label="展開上肢骨頭分類"
+                            title="展開上肢"
+                            onClick={() => handleRegionClick('upper-limb')}
+                            className="absolute rounded-2xl"
+                            style={{
+                                left: '60%',
+                                top: '18%',
+                                width: '40%',
+                                height: '48%',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                zIndex: 35,
+                            }}
+                        />
+
+                        {/* 骨盆：只框骨盆/髖部，不吃到左右手腕與大腿太多 */}
+                        <button
+                            type="button"
+                            aria-label="展開骨盆骨頭分類"
+                            title="展開骨盆"
+                            onClick={() => handleRegionClick('pelvis')}
+                            className="absolute rounded-2xl"
+                            style={{
+                                left: '38%',
+                                top: '42%',
+                                width: '24%',
+                                height: '10%',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                zIndex: 32,
+                            }}
+                        />
+
+                        {/* 下肢 */}
+                        <button
+                            type="button"
+                            aria-label="展開下肢骨頭分類"
+                            title="展開下肢"
+                            onClick={() => handleRegionClick('lower-limb')}
+                            className="absolute rounded-2xl"
+                            style={{
+                                left: '35%',
+                                top: '53%',
+                                width: '33%',
+                                height: '45%',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                zIndex: 30,
+                            }}
+                        />
+                    </div>
+
                     {/*{overlayPaths.map((src) => (
             <img
               key={`${src}-glow`}
@@ -1064,20 +1194,16 @@ export default function Bone2DPanel({ selectedBoneName }: Props) {
                 </div>
             </div>
 
-            <div className="mt-3 shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                {target ? (
-                    <>
-                        目前已同步高亮：
-                        <span className="ml-1 font-semibold text-slate-800">
-                            {target.labelZh}
-                        </span>
-                        <span className="mx-1 text-slate-400">/</span>
-                        <span className="font-medium text-blue-700">{target.labelEn}</span>
-                    </>
-                ) : (
-                    <>尚未建立此骨頭的 2D 對應高亮。</>
-                )}
-            </div>
+            {target ? (
+                <div className="mt-3 shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    目前已同步高亮：
+                    <span className="ml-1 font-semibold text-slate-800">
+                        {target.labelZh}
+                    </span>
+                    <span className="mx-1 text-slate-400">/</span>
+                    <span className="font-medium text-blue-700">{target.labelEn}</span>
+                </div>
+            ) : null}
         </aside>
     );
 }
