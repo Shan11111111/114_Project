@@ -18,7 +18,7 @@ import {
   messages,
 } from "../lib/i18n";
 
-import { ScanSearch, RotateCcw } from "lucide-react";
+import { ScanSearch, RotateCcw, UploadCloud, Images } from "lucide-react";
 
 const API_BASE = (
   process.env.NEXT_PUBLIC_BACKEND_URL ||
@@ -101,6 +101,7 @@ type HistoryDetailDetection = {
   image_case_id: number;
   bone_id?: number | null;
   small_bone_id?: number | null;
+  sub_label?: string | null;
   label41?: number | string | null;
   attr206?: number | string | null;
   side?: string | null;
@@ -194,6 +195,19 @@ function BoneVisionPageInner() {
 
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isQuizOpen, setIsQuizOpen] = useState(false);
+
+  const [quizData, setQuizData] = useState<any>(null);
+
+  const [quizIndex, setQuizIndex] = useState(0);
+
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>({});
+
+  const [quizFinished, setQuizFinished] = useState(false);
+
+  const [quizScore, setQuizScore] = useState(0);
+
+  const [loadingQuiz, setLoadingQuiz] = useState(false);
   const [galleryFilter, setGalleryFilter] = useState<SampleCategory>("全部");
   const [galleryKeyword, setGalleryKeyword] = useState("");
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -212,6 +226,12 @@ function BoneVisionPageInner() {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const [imgBox, setImgBox] = useState<ImgBox>({
+    width: 0,
+    height: 0,
+  });
+  const quizDisplayRef = useRef<HTMLDivElement | null>(null);
+
+  const [quizImgBox, setQuizImgBox] = useState<ImgBox>({
     width: 0,
     height: 0,
   });
@@ -699,6 +719,16 @@ function BoneVisionPageInner() {
       height: rect.height,
     });
   }, []);
+  const measureQuizLayout = useCallback(() => {
+    if (!quizDisplayRef.current) return;
+
+    const rect = quizDisplayRef.current.getBoundingClientRect();
+
+    setQuizImgBox({
+      width: rect.width,
+      height: rect.height,
+    });
+  }, []);
 
   useEffect(() => {
     measureLayout();
@@ -926,7 +956,7 @@ function BoneVisionPageInner() {
         conf: typeof d.confidence === "number" ? d.confidence : 0,
         poly: parseHistoryPoly(d.poly_json),
         bone_info: d.bone_info ?? null,
-        sub_label: null,
+        sub_label: d.sub_label ?? null,
       })
     );
     setDetections(restoredBoxes);
@@ -1200,7 +1230,50 @@ function BoneVisionPageInner() {
       setLoading(false);
     }
   };
+  const handleStartQuiz = async () => {
+    console.log("imageCaseId =", imageCaseId);
 
+    const quizUrl =
+      `http://140.136.155.157:8000/quiz/generate-from-case?image_case_id=${imageCaseId}&limit=5`;
+
+    console.log("API url =", quizUrl);
+
+    if (!imageCaseId) {
+      alert("目前沒有可測驗的辨識結果");
+      return;
+    }
+
+    try {
+      setLoadingQuiz(true);
+
+      const res = await fetch(quizUrl);
+
+      const text = await res.text();
+
+      console.log("quiz status =", res.status);
+      console.log("quiz response =", text);
+
+      if (!res.ok) {
+        throw new Error(`測驗載入失敗：${res.status} ${text}`);
+      }
+
+      const data = JSON.parse(text);
+
+      setQuizData(data);
+      setQuizIndex(0);
+      setQuizAnswers({});
+      setQuizFinished(false);
+      setQuizScore(0);
+
+      setIsQuizOpen(true);
+
+    } catch (err) {
+      console.error("quiz error:", err);
+      alert(String(err));
+    } finally {
+      setLoadingQuiz(false);
+    }
+  };
   const polyToPoints = (poly: PolyPoint[]): string => {
     const { width, height } = imgBox;
     if (!width || !height) return "";
@@ -1215,7 +1288,23 @@ function BoneVisionPageInner() {
       })
       .join(" ");
   };
+  const quizPolyToPoints = (poly: PolyPoint[]): string => {
+    const { width, height } = quizImgBox;
 
+    if (!width || !height) return "";
+
+    return poly
+      .map(([nx, ny]) => {
+        const cx = Math.min(1, Math.max(0, nx));
+        const cy = Math.min(1, Math.max(0, ny));
+
+        const x = cx * width;
+        const y = cy * height;
+
+        return `${x},${y}`;
+      })
+      .join(" ");
+  };
   const activeBox =
     activeId !== null ? detections.find((b) => b.id === activeId) ?? null : null;
 
@@ -1297,7 +1386,7 @@ function BoneVisionPageInner() {
               <div>
                 <span className="text-xs text-slate-400">{t("bonevision.uploadXray")}</span>
 
-                <label className="mt-3 flex items-center gap-4 cursor-pointer">
+                <label className="mt-3 flex items-center gap-3 cursor-pointer group">
                   <input
                     type="file"
                     accept="image/*"
@@ -1306,13 +1395,24 @@ function BoneVisionPageInner() {
                   />
 
                   <span
-                    className="inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-semibold
-    bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
+                    className="
+    inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2
+    text-xs font-bold
+    bg-cyan-500 text-slate-950
+    shadow-md shadow-cyan-500/20
+    hover:bg-cyan-400 hover:-translate-y-0.5
+    active:translate-y-0
+    transition-all
+
+    dark:bg-cyan-400 dark:text-slate-950
+    dark:shadow-cyan-400/20 dark:hover:bg-cyan-300
+  "
                   >
+                    <UploadCloud className="w-3.5 h-3.5" />
                     {t("bonevision.chooseFile")}
                   </span>
 
-                  <span className="text-sm text-slate-600 dark:text-slate-300 truncate">
+                  <span className="min-w-0 flex-1 text-xs text-slate-500 dark:text-slate-400 truncate">
                     {file ? file.name : t("bonevision.noFileSelected")}
                   </span>
                 </label>
@@ -1324,11 +1424,31 @@ function BoneVisionPageInner() {
                   setGalleryFilter("全部");
                   setIsGalleryOpen(true);
                 }}
-                className="w-full rounded-full py-2.5 text-sm font-semibold
-               border border-cyan-500/40 text-cyan-300
-               bg-cyan-500/10 hover:bg-cyan-500/15
-               transition-colors"
-              >
+                className="
+  w-full rounded-xl py-2.5 text-sm font-bold
+  inline-flex items-center justify-center gap-2
+
+  border border-cyan-400/70
+  bg-cyan-50
+  text-cyan-700
+  shadow-sm shadow-cyan-500/10
+
+  hover:bg-cyan-100
+  hover:border-cyan-500
+  hover:text-cyan-800
+  hover:-translate-y-0.5
+
+  active:translate-y-0
+  transition-all
+
+  dark:border-cyan-400/40
+  dark:bg-cyan-500/10
+  dark:text-cyan-300
+  dark:shadow-[0_0_20px_rgba(34,211,238,0.10)]
+  dark:hover:bg-cyan-500/15
+  dark:hover:border-cyan-300/60
+"              >
+                <Images className="w-4 h-4" />
                 {t("bonevision.sampleGallery")}
               </button>
             </div>
@@ -1548,9 +1668,78 @@ function BoneVisionPageInner() {
             <h2 className="text-sm font-semibold mb-3">{t("bonevision.detectedParts")}</h2>
 
             {detections.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                {t("bonevision.noResult")}
-              </p>
+              <div
+                className={`mt-3 rounded-3xl border p-6 ${isDarkMode
+                    ? "border-slate-800 bg-slate-900/60"
+                    : "border-slate-200 bg-slate-50"
+                  }`}
+              >
+                <div className="flex items-start gap-4">
+                  <div
+                    className={`shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center ${isDarkMode
+                        ? "bg-cyan-500/10 text-cyan-300"
+                        : "bg-cyan-100 text-cyan-600"
+                      }`}
+                  >
+                    <ScanSearch className="w-5 h-5" />
+                  </div>
+
+                  <div>
+                    {!rawResponse ? (
+                      <>
+                        <h3 className={`text-sm font-bold ${isDarkMode ? "text-slate-100" : "text-slate-800"}`}>
+                          準備開始骨骼辨識
+                        </h3>
+
+                        <p className={`mt-2 text-sm leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                          上傳 X 光影像後，點選「開始辨識（模型）」即可查看 AI 標註結果。
+                        </p>
+
+                        <p className={`mt-2 text-sm leading-relaxed ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>
+                          建議使用清晰、骨骼區域完整入鏡的影像；也可以先用左側的「查看範例影像庫」體驗流程。
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <h3 className={`text-sm font-bold ${isDarkMode ? "text-amber-300" : "text-amber-700"}`}>
+                          這張影像沒有辨識出骨骼
+                        </h3>
+
+                        <p className={`mt-2 text-sm leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                          可能是影像不夠清晰、骨骼區域被裁切，或圖片內容不是系統目前支援的 X 光骨骼類型。
+                        </p>
+
+                        <p className={`mt-2 text-sm leading-relaxed ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>
+                          建議換一張骨骼更完整、對比更明顯的 X 光影像，或先使用範例影像庫確認辨識流程。
+                        </p>
+                      </>
+                    )}
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {[
+                        rawResponse ? "請更換圖片" : "上傳後開始辨識",
+                        "清晰 X 光",
+                        "骨骼完整入鏡",
+                        "可使用範例影像",
+                      ].map((tip) => (
+                        <span
+                          key={tip}
+                          className={`rounded-full px-3 py-1 text-xs ${rawResponse
+                              ? isDarkMode
+                                ? "bg-amber-500/10 text-amber-300"
+                                : "bg-amber-50 text-amber-700 border border-amber-200"
+                              : isDarkMode
+                                ? "bg-slate-800 text-slate-300"
+                                : "bg-white text-slate-500 border border-slate-200"
+                            }`}
+                        >
+                          {tip}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
             ) : (
               <>
                 <div className="flex flex-wrap gap-2 mb-4">
@@ -1564,22 +1753,93 @@ function BoneVisionPageInner() {
                         }`}
                     >
                       {getDisplayBoneName(box)}
-                      {box.sub_label ? ` - ${box.sub_label}` : ""}{" "}
-                      <span className="opacity-70">({box.conf.toFixed(2)})</span>
+                      {box.sub_label ? ` - ${box.sub_label}` : ""}
                     </button>
                   ))}
                 </div>
                 <div className="mt-2 text-xs space-y-3 card border border-slate-800 flex-1 overflow-auto rounded-xl">
                   {activeBox ? (
                     <>
-                      <p className="text-slate-400">
-                        {t("bonevision.detectedPart")}{"： "}
+                      <p className="flex items-center gap-2 text-slate-400 flex-wrap">
+                        {t("bonevision.detectedPart")}：
+
                         <span className="font-semibold text-cyan-300">
                           {getDisplayBoneName(activeBox)}
-                        </span>{" "}
-                        <span className="ml-1 text-slate-500">
+                        </span>
+
+                        <span className="text-slate-500">
                           conf {activeBox.conf.toFixed(3)}
                         </span>
+
+                        {/* conf tooltip */}
+                        {/* conf tooltip */}
+                        <div className="relative group">
+                          <div
+                            className={`
+      w-5 h-5 rounded-full
+      flex items-center justify-center
+      text-[11px] font-bold
+      cursor-help transition-colors
+      ${isDarkMode
+                                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                              }
+    `}
+                          >
+                            ?
+                          </div>
+
+                          <div
+                            className={`
+      absolute left-1/2 top-[130%]
+      -translate-x-1/2
+      w-72
+      rounded-2xl
+      border
+      px-4 py-3
+      text-xs leading-relaxed
+      shadow-2xl
+      opacity-0 invisible
+      group-hover:opacity-100
+      group-hover:visible
+      transition-all
+      z-50
+      ${isDarkMode
+                                ? "bg-slate-800 border-slate-600 text-slate-200 shadow-black/40"
+                                : "bg-white border-slate-200 text-slate-600"
+                              }
+    `}
+                          >
+                            <span
+                              className={
+                                isDarkMode
+                                  ? "font-semibold text-white"
+                                  : "font-semibold text-slate-800"
+                              }
+                            >
+                              conf（Confidence）
+                            </span>
+
+                            <br />
+                            <br />
+
+                            AI 對這次辨識結果的信心程度。
+
+                            數值越接近 1，
+                            代表模型越確定這個骨骼辨識是正確的。
+
+                            <br />
+                            <br />
+
+                            一般來說：
+                            <br />
+                            0.9↑ = 非常高信心
+                            <br />
+                            0.7 ~ 0.9 = 可接受
+                            <br />
+                            0.5↓ = 建議人工再確認
+                          </div>
+                        </div>
                       </p>
                       {activeBox.sub_label && (
                         <p className="text-slate-400 mt-1">
@@ -1618,33 +1878,24 @@ function BoneVisionPageInner() {
                         </p>
                       </div>
 
-                      <div className="mt-2 flex flex-wrap gap-2">
+                      <div className="mt-6 flex flex-wrap gap-3">
                         <button
                           onClick={() => {
                             if (!imageCaseId) {
-                              alert(
-                                "目前沒有 ImageCaseId（/predict 需要回傳 image_case_id 才能帶入 S2）"
-                              );
+                              alert("目前沒有 ImageCaseId（/predict 需要回傳 image_case_id 才能帶入 S2）");
                               return;
                             }
                             const boneId = activeBox.bone_info?.bone_id ?? "";
                             const url =
                               `/llm?caseId=${encodeURIComponent(String(imageCaseId))}` +
-                              (boneId
-                                ? `&boneId=${encodeURIComponent(String(boneId))}`
-                                : "");
+                              (boneId ? `&boneId=${encodeURIComponent(String(boneId))}` : "");
                             router.push(url);
                           }}
                           disabled={!imageCaseId}
                           className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
-               bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40
-               hover:bg-cyan-400 transition-colors
-               disabled:opacity-50 disabled:cursor-not-allowed"
-                          title={
-                            imageCaseId
-                              ? "前往 LLM（會帶入本次辨識結果）"
-                              : "需要 /predict 回傳 image_case_id 才能使用"
-                          }
+      bg-cyan-500 text-slate-900 shadow shadow-cyan-500/40
+      hover:bg-cyan-400 transition-colors
+      disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {t("bonevision.queryKnowledge")}
                         </button>
@@ -1659,12 +1910,45 @@ function BoneVisionPageInner() {
                             router.push(`/model?boneId=${encodeURIComponent(String(boneId))}`);
                           }}
                           className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
-               border border-slate-600 text-slate-100
-               hover:bg-slate-800 transition-colors"
-                          title="查看此部位的 3D 模型"
+      border border-slate-600 text-slate-100
+      hover:bg-slate-800 transition-colors"
                         >
                           {t("bonevision.view3dModel")}
                         </button>
+                      </div>
+
+                      <div
+                        className={`mt-8 pt-6 border-t ${isDarkMode ? "border-slate-800" : "border-slate-200"
+                          }`}
+                      >
+                        <div className="flex items-center justify-between gap-4 flex-wrap">
+                          <div>
+                            <p
+                              className={`text-sm font-bold ${isDarkMode ? "text-slate-100" : "text-slate-900"
+                                }`}
+                            >
+                              整張 X 光影像測驗
+                            </p>
+
+                            <p
+                              className={`mt-1 text-xs leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"
+                                }`}
+                            >
+                              根據目前影像中的所有辨識框，自動產生互動式選擇題。
+                            </p>
+                          </div>
+
+                          <button
+                            onClick={handleStartQuiz}
+                            disabled={loadingQuiz}
+                            className="inline-flex items-center justify-center rounded-2xl px-6 py-3
+        bg-emerald-400 text-slate-950 text-sm font-bold
+        hover:bg-emerald-300 transition-colors
+        disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {loadingQuiz ? "載入測驗..." : "開始測驗"}
+                          </button>
+                        </div>
                       </div>
 
 
@@ -2096,6 +2380,264 @@ function BoneVisionPageInner() {
               className={`shrink-0 px-8 py-4 border-t text-xs ${modalBorderClass} ${modalTextSubClass}`}
             >
               按 ESC 可關閉
+            </div>
+          </div>
+        </div>
+      )}
+      {isQuizOpen && quizData && (
+        <div
+          className={`fixed inset-0 z-[100] flex items-center justify-center p-6 ${isDarkMode ? "bg-black/70" : "bg-black/45"
+            }`}
+        >
+          <div
+            className={`w-full max-w-6xl h-[88vh] rounded-[32px] overflow-hidden flex shadow-2xl border ${isDarkMode
+              ? "border-slate-800 bg-slate-950 text-slate-100"
+              : "border-slate-200 bg-white text-slate-900"
+              }`}
+          >
+            {/* 左邊 */}
+            <div
+              className={`w-[48%] border-r p-6 flex flex-col ${isDarkMode ? "border-slate-800" : "border-slate-200"
+                }`}
+            >
+              <div
+                className={`text-lg font-bold mb-4 ${isDarkMode ? "text-white" : "text-slate-900"
+                  }`}
+              >
+                骨骼辨識測驗
+              </div>
+
+              <div
+                className={`flex-1 flex items-center justify-center rounded-3xl overflow-hidden ${isDarkMode ? "bg-slate-900" : "bg-slate-100"
+                  }`}
+              >
+                <div ref={quizDisplayRef} className="relative">
+                  <img
+                    src={previewUrl || ""}
+                    alt="quiz"
+                    className="max-w-full max-h-[520px] object-contain"
+                    onLoad={measureQuizLayout}
+                  />
+
+                  {(() => {
+                    const q = quizData?.questions?.[quizIndex];
+                    const poly = q?.poly || [];
+                    const points = quizPolyToPoints(poly);
+
+                    if (!points) return null;
+
+                    return (
+                      <svg
+                        className="absolute inset-0 w-full h-full pointer-events-none"
+                        viewBox={`0 0 ${quizImgBox.width || 100} ${quizImgBox.height || 100}`}
+                        preserveAspectRatio="none"
+                        style={{ zIndex: 20 }}
+                      >
+                        <polygon
+                          points={points}
+                          fill="rgba(34, 211, 238, 0.20)"
+                          stroke="#22d3ee"
+                          strokeWidth={4}
+                          className="drop-shadow-[0_0_14px_rgba(34,211,238,0.9)]"
+                        />
+                      </svg>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              <div
+                className={`mt-4 text-xs ${isDarkMode ? "text-slate-400" : "text-slate-500"
+                  }`}
+              >
+                題目 {quizIndex + 1} / {quizData.questions.length}
+              </div>
+            </div>
+
+            {/* 右邊 */}
+            <div
+              className={`flex-1 p-8 overflow-y-auto ${isDarkMode ? "bg-slate-950" : "bg-slate-50"
+                }`}
+            >
+              {!quizFinished ? (
+                (() => {
+                  const q = quizData.questions[quizIndex];
+                  const selectedAnswer = quizAnswers[quizIndex];
+                  const hasAnswered = Boolean(selectedAnswer);
+
+                  return (
+                    <>
+                      <div
+                        className="
+                    inline-flex items-center rounded-full
+                    bg-cyan-500/10 text-cyan-400
+                    px-3 py-1 text-xs font-semibold mb-4
+                  "
+                      >
+                        骨骼測驗
+                      </div>
+
+                      <h2
+                        className={`text-2xl font-bold leading-relaxed ${isDarkMode ? "text-white" : "text-slate-900"
+                          }`}
+                      >
+                        {q.question}
+                      </h2>
+
+                      <div className="mt-8 space-y-4">
+                        {q.options.map((opt: string) => {
+                          const isSelected = selectedAnswer === opt;
+                          const isCorrect = opt === q.correct_answer;
+                          const isWrongSelected = isSelected && !isCorrect;
+
+                          return (
+                            <button
+                              key={opt}
+                              disabled={hasAnswered}
+                              onClick={() => {
+                                setQuizAnswers((prev) => ({
+                                  ...prev,
+                                  [quizIndex]: opt,
+                                }));
+                              }}
+                              className={`
+                          w-full rounded-2xl border px-5 py-4 text-left transition-all
+                          disabled:cursor-default
+                          ${hasAnswered && isCorrect
+                                  ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                                  : hasAnswered && isWrongSelected
+                                    ? "border-red-400 bg-red-50 text-red-600"
+                                    : isSelected
+                                      ? "border-cyan-400 bg-cyan-50 text-cyan-700"
+                                      : isDarkMode
+                                        ? "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
+                                }
+                        `}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span>{opt}</span>
+
+                                {hasAnswered && isCorrect && (
+                                  <span className="text-sm font-bold">✓ 正確</span>
+                                )}
+
+                                {hasAnswered && isWrongSelected && (
+                                  <span className="text-sm font-bold">✕ 錯誤</span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {hasAnswered && (
+                        <div
+                          className={`
+                      mt-6 rounded-2xl border px-5 py-4 text-sm leading-relaxed
+                      ${selectedAnswer === q.correct_answer
+                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                              : "border-red-300 bg-red-50 text-red-600"
+                            }
+                    `}
+                        >
+                          <div className="font-bold mb-1">
+                            {selectedAnswer === q.correct_answer
+                              ? "答對了！"
+                              : "答錯了"}
+                          </div>
+
+                          <div>正確答案：{q.correct_answer}</div>
+
+                          {q.explanation && (
+                            <div className="mt-2 opacity-90">
+                              說明：{q.explanation}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="mt-8 flex justify-between">
+                        <button
+                          onClick={() => setIsQuizOpen(false)}
+                          className={`px-5 py-3 rounded-2xl border ${isDarkMode
+                            ? "border-slate-700 text-slate-300 hover:bg-slate-800"
+                            : "border-slate-300 text-slate-600 hover:bg-slate-100"
+                            }`}
+                        >
+                          關閉
+                        </button>
+
+                        <button
+                          disabled={!hasAnswered}
+                          onClick={() => {
+                            if (selectedAnswer === q.correct_answer) {
+                              setQuizScore((prev) => prev + 1);
+                            }
+
+                            if (quizIndex + 1 >= quizData.questions.length) {
+                              setQuizFinished(true);
+                            } else {
+                              setQuizIndex((prev) => prev + 1);
+
+                              requestAnimationFrame(() => {
+                                measureQuizLayout();
+                              });
+                            }
+                          }}
+                          className="
+                      px-6 py-3 rounded-2xl
+                      bg-cyan-500 text-slate-950 font-semibold
+                      hover:bg-cyan-400
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                    "
+                        >
+                          {quizIndex + 1 >= quizData.questions.length
+                            ? "完成測驗"
+                            : "下一題"}
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  <div className="mb-6 flex justify-center">
+                    <video
+                      src="/video/800171160.433056.mp4"
+                      autoPlay
+                      muted
+                      playsInline
+                      className="w-40 h-40 object-contain"
+                    />
+                  </div>
+
+                  <h2
+                    className={`text-3xl font-bold ${isDarkMode ? "text-white" : "text-slate-900"
+                      }`}
+                  >
+                    測驗完成
+                  </h2>
+
+                  <p
+                    className={`mt-4 text-xl ${isDarkMode ? "text-cyan-300" : "text-cyan-600"
+                      }`}
+                  >
+                    得分：{quizScore} / {quizData.questions.length}
+                  </p>
+
+                  <button
+                    onClick={() => setIsQuizOpen(false)}
+                    className="
+                mt-8 px-6 py-3 rounded-2xl
+                bg-cyan-500 text-slate-950 font-semibold
+                hover:bg-cyan-400
+              "
+                  >
+                    完成
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

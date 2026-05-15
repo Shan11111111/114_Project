@@ -19,6 +19,7 @@ from .bone_service import get_bone_info, assign_spine_levels
 from .image_service import save_case_and_detections
 from .history_router import router as history_router
 from .image_preview_router import router as image_preview_router
+from .quiz_router import router as quiz_router
 
 router = APIRouter(
     tags=["s1_detection"]
@@ -29,6 +30,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 # 把獨立的 router 掛進 s1 router
 router.include_router(history_router)
 router.include_router(image_preview_router)
+router.include_router(quiz_router)
 
 # 用相對於本檔案的位置找 best.pt
 BASE_DIR = Path(__file__).resolve().parent

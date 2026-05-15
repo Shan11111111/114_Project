@@ -4,6 +4,8 @@ import uuid
 import json
 from typing import List, Dict, Any, Optional
 
+from matplotlib.pyplot import box
+
 from db import get_connection
 
 
@@ -162,7 +164,7 @@ def insert_image_detections(
                 box.get("small_bone_id")
                 or bone_info.get("small_bone_id")
             )
-
+            sub_label = box.get("sub_label")
             confidence = float(box.get("conf", 0.0) or 0.0)
             cls_id = box.get("cls_id")
             label41 = int(cls_id) if cls_id is not None else 0
@@ -190,6 +192,7 @@ def insert_image_detections(
                     ImageCaseId,
                     BoneId,
                     SmallBoneId,
+                    SubLabel,
                     Label41,
                     Confidence,
                     X1, Y1, X2, Y2,
@@ -200,12 +203,13 @@ def insert_image_detections(
                     CreatedAt,
                     CreatedByUserId
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), ?)
                 """,
                 (
                     image_case_id,
                     bone_id,
                     small_bone_id,
+                    sub_label,
                     label41,
                     confidence,
                     x1, y1, x2, y2,
