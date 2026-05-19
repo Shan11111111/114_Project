@@ -63,6 +63,9 @@ export const messages: Record<AppLocale, Record<string, string>> = {
     "llm.backToList": "返回列表",
     "llm.pressEscToClose": "提示：按 ESC 可關閉",
     "llm.language": "語言",
+    "llm.generatingQuiz": "正在產生骨骼學習測驗...",
+    "llm.generatingQuizDesc": "題目整理中，完成後會自動轉成可點選的測驗卡。",
+    "llm.source": "來源",
     "welcomeText": `我聽 Bone寶 說，你是我們系統的新住民！
 我是知識小罐頭 GalaBone RAG，很高興認識你。
 
@@ -257,6 +260,9 @@ export const messages: Record<AppLocale, Record<string, string>> = {
     "llm.backToList": "Back to list",
     "llm.pressEscToClose": "Tip: Press ESC to close",
     "llm.language": "Language",
+    "llm.generatingQuiz": "Generating bone learning quiz...",
+    "llm.generatingQuizDesc": "Questions are being prepared and will automatically turn into interactive quiz cards.",
+    "llm.source": "Source",
     "welcomeText": `Hi, I’m GalaBone, your orthopedic knowledge assistant.
 
 GalaBone helps users understand medical reports, clinical notes, and bone-related findings from X-ray analysis.
@@ -364,7 +370,7 @@ Instructions:
     "bonevision.noEnglishName": "No English name provided",
     "bonevision.noRegion": "Uncategorized region",
     "bonevision.noDescription": "No description available",
-    "bonevision.exampleLibrary": "Example Image Library",
+    "bonevision.exampleLibrary": "Example Image Gallery",
     "bonevision.exampleLibraryDesc": "Use these images directly for detection or download them locally",
     "bonevision.searchExamplePlaceholder": "Search by bone name, English name, region, or description",
     "bonevision.searchExampleHint": "Search Chinese names, English names, or bone regions in the library.",

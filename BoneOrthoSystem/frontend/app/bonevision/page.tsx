@@ -1953,21 +1953,32 @@ function BoneVisionPageInner() {
                       <hr className="border-slate-800" />
 
                       <p>
-                        <span className="text-slate-400">{t("bonevision.boneName")}{"："}</span>
-                        <span className="font-semibold text-slate-100">
-                          {cleanBoneZh(activeBox.bone_info?.bone_zh) ?? "—"}{" "}
+                        <span className="text-slate-400">
+                          {t("bonevision.boneName")}：
                         </span>
-                        <span className="text-slate-500">
-                          {cleanText(activeBox.bone_info?.bone_en)
-                            ? `(${cleanText(activeBox.bone_info?.bone_en)})`
-                            : ""}
-                        </span>
-                      </p>
 
+                        <span className="font-semibold text-slate-100">
+                          {locale === "en-US"
+                            ? cleanText(activeBox.bone_info?.bone_en) ||
+                            boneCategoryEnMap[
+                            cleanBoneZh(activeBox.bone_info?.bone_zh)
+                            ] ||
+                            "—"
+                            : cleanBoneZh(activeBox.bone_info?.bone_zh) || "—"}
+                        </span>
+
+                        {locale !== "en-US" &&
+                          cleanText(activeBox.bone_info?.bone_en) && (
+                            <span className="text-slate-500">
+                              {" "}
+                              ({cleanText(activeBox.bone_info?.bone_en)})
+                            </span>
+                          )}
+                      </p>
                       <p>
                         <span className="text-slate-400">{t("bonevision.region")}{"："}</span>
                         <span className="text-slate-100">
-                          {activeBox.bone_info?.bone_region ?? "—"}
+                          {getLocalizedRegion(activeBox.bone_info?.bone_region) || "—"}
                         </span>
                       </p>
 
@@ -2495,20 +2506,37 @@ function BoneVisionPageInner() {
                               </div>
                             ) : (
                               <div className="space-y-3">
-                                {selectedHistoryDetail.detections.map((d, idx) => (
-                                  <div
-                                    key={d.detection_id}
-                                    className={`rounded-2xl border px-4 py-3 ${isDarkMode ? "border-slate-800" : "border-slate-200"}`}
-                                  >
-                                    <div className="text-sm font-semibold">
-                                      {d.bone_info?.bone_zh ||
-                                        (d.label41 != null ? `label41=${d.label41}` : `Detection ${idx + 1}`)}
+                                {selectedHistoryDetail.detections.map((det) => {
+                                  const detZh = cleanBoneZh(det.bone_info?.bone_zh);
+                                  const detEn = cleanText(det.bone_info?.bone_en);
+
+                                  const detName =
+                                    locale === "en-US"
+                                      ? detEn || boneCategoryEnMap[detZh] || detZh || "Detection"
+                                      : detZh || "辨識項目";
+
+                                  return (
+                                    <div
+                                      key={det.detection_id}
+                                      className={`rounded-2xl border px-4 py-3 ${isDarkMode
+                                        ? "border-slate-800 bg-slate-900"
+                                        : "border-slate-200 bg-white"
+                                        }`}
+                                    >
+                                      <p className="font-semibold">
+                                        {detName}
+                                        {det.label41 ? ` (${det.label41})` : ""}
+                                      </p>
+
+                                      <p className={`mt-1 text-sm ${modalTextSubClass}`}>
+                                        {locale === "en-US" ? "Confidence" : "信心值"}:{" "}
+                                        {typeof det.confidence === "number"
+                                          ? det.confidence.toFixed(3)
+                                          : "—"}
+                                      </p>
                                     </div>
-                                    <div className={`mt-1 text-xs ${modalTextSubClass}`}>
-                                      confidence: {typeof d.confidence === "number" ? d.confidence.toFixed(3) : "—"}
-                                    </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )}
                           </div>

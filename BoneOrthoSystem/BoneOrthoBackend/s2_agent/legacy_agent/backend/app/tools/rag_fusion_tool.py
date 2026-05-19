@@ -413,6 +413,7 @@ def build_learning_prompt_from_evidence(
     context: str,
     language_rule: str,
     mode: str,
+    response_language: str = "zh-TW",
 ) -> Tuple[str, str]:
     """
     根據已檢索 evidence 產生：
@@ -448,6 +449,19 @@ def build_learning_prompt_from_evidence(
 )
 
     if mode == "quiz":
+        is_english = response_language == "en-US"
+
+        true_false_rule = (
+            '4) true_false 的 options 必須是 '
+            '[{"key":"O","text":"True"},{"key":"X","text":"False"}]，'
+            'answer 必須是 O 或 X。\n'
+            if is_english
+            else
+            '4) true_false 的 options 必須是 '
+            '[{"key":"O","text":"正確"},{"key":"X","text":"錯誤"}]，'
+            'answer 必須是 O 或 X。\n'
+        )
+
         system = (
             base_system
             + "你的本輪任務不是一般回答，而是根據檢索資料幫學生設計骨骼學習測驗。\n"
@@ -485,7 +499,7 @@ def build_learning_prompt_from_evidence(
             "1) 請出 5 題。\n"
             "2) 至少 3 題 single_choice、1 題 true_false、1 題 short_answer。\n"
             "3) single_choice 必須有 A/B/C/D 四個選項，answer 必須是 A/B/C/D 其中一個。\n"
-            "4) true_false 的 options 必須是 [{\"key\":\"O\",\"text\":\"正確\"},{\"key\":\"X\",\"text\":\"錯誤\"}]，answer 必須是 O 或 X。\n"
+            + true_false_rule +
             "5) short_answer 的 options 請給空陣列 []，answer 請盡量簡短，方便前端比對。\n"
             "6) 題目必須貼近骨頭學習，例如位置、功能、相鄰構造、影像辨識、臨床意義。\n"
             "7) 每題都要有 explanation。\n"
@@ -1138,6 +1152,7 @@ def prepare_auto_fusion_answer(
         context=context,
         language_rule=language_rule,
         mode=learning_mode,
+        response_language=response_language,
     )
 
 

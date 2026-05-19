@@ -416,6 +416,9 @@ function looksLikeQuizJson(content: string) {
 }
 
 function QuizGeneratingCard() {
+  const { locale } = useLocale();
+  const text = i18nMessages[locale] ?? i18nMessages["zh-TW"];
+
   return (
     <div
       className="rounded-2xl border px-4 py-3 text-sm"
@@ -424,17 +427,16 @@ function QuizGeneratingCard() {
         backgroundColor: "rgba(148,163,184,0.08)",
       }}
     >
-      <div className="font-semibold">正在產生骨骼學習測驗…</div>
+      <div className="font-semibold">
+        {text["llm.generatingQuiz"]}
+      </div>
+
       <div className="mt-1 text-xs opacity-60">
-        題目整理中，完成後會自動轉成可點選的測驗卡。
+        {text["llm.generatingQuizDesc"]}
       </div>
     </div>
   );
 }
-
-
-
-
 
 function toAbsUrl(maybeUrl?: string) {
   if (!maybeUrl) return "";
@@ -1291,10 +1293,13 @@ function QuizCard({
   quiz: QuizData;
   onRequestNewQuiz?: () => void;
 }) {
+  const { locale } = useLocale();
+
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [showEncourageToast, setShowEncourageToast] = useState(false);
 
+  const isEn = locale === "en-US";
   const totalQuestions = Math.max(quiz.questions.length, 1);
 
   const score = quiz.questions.reduce((sum, q, index) => {
@@ -1307,51 +1312,44 @@ function QuizCard({
   const accuracy = Math.round((score / totalQuestions) * 100);
 
   function getEncourageText(rate: number) {
-    if (rate === 100) {
-      return "太棒了，竟然全部答對！骨頭知識直接滿血復活 🦴";
+    if (isEn) {
+      if (rate === 100) return "Amazing! You answered everything correctly! 🦴";
+      if (rate >= 70) return "So close! You already mastered most of the concepts!";
+      if (rate >= 40) return "Keep going! You're improving steadily.";
+      return "Don't give up! Review the explanations and try again.";
     }
 
-    if (rate >= 70) {
-      return "差一點！還是很棒，已經掌握大部分重點了！";
-    }
-
-    if (rate >= 40) {
-      return "別灰心！繼續嘗試，下一輪一定更穩。";
-    }
-
+    if (rate === 100) return "太棒了，竟然全部答對！骨頭知識直接滿血復活 🦴";
+    if (rate >= 70) return "差一點！還是很棒，已經掌握大部分重點了！";
+    if (rate >= 40) return "別灰心！繼續嘗試，下一輪一定更穩。";
     return "別灰心，繼續嘗試！先把錯題解析看懂就很賺。";
+  }
+
+  function getLevelText(rate: number) {
+    if (isEn) {
+      if (rate === 100) return "Perfect";
+      if (rate >= 70) return "Almost Perfect";
+      if (rate >= 40) return "Keep Going";
+      return "Try Again";
+    }
+
+    if (rate === 100) return "完美掌握";
+    if (rate >= 70) return "差一點滿分";
+    if (rate >= 40) return "繼續加油";
+    return "再試一次";
   }
 
   function getEncourageColor(rate: number) {
     if (rate === 100) {
-      return {
-        bg: "rgba(34,197,94,0.12)",
-        border: "rgba(34,197,94,0.28)",
-        text: "#16a34a",
-      };
+      return { bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.28)", text: "#16a34a" };
     }
-
     if (rate >= 70) {
-      return {
-        bg: "rgba(59,130,246,0.12)",
-        border: "rgba(59,130,246,0.28)",
-        text: "#2563eb",
-      };
+      return { bg: "rgba(59,130,246,0.12)", border: "rgba(59,130,246,0.28)", text: "#2563eb" };
     }
-
     if (rate >= 40) {
-      return {
-        bg: "rgba(245,158,11,0.12)",
-        border: "rgba(245,158,11,0.30)",
-        text: "#d97706",
-      };
+      return { bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.30)", text: "#d97706" };
     }
-
-    return {
-      bg: "rgba(239,68,68,0.10)",
-      border: "rgba(239,68,68,0.25)",
-      text: "#ef4444",
-    };
+    return { bg: "rgba(239,68,68,0.10)", border: "rgba(239,68,68,0.25)", text: "#ef4444" };
   }
 
   const encourageText = getEncourageText(accuracy);
@@ -1389,14 +1387,16 @@ function QuizCard({
             color: encourageColor.text,
           }}
         >
-          <div className="font-bold">答題完成！</div>
+          <div className="font-bold">
+            {isEn ? "Quiz Completed!" : "答題完成！"}
+          </div>
           <div className="mt-1 leading-relaxed">{encourageText}</div>
         </div>
       )}
 
       <div>
         <div className="text-sm font-bold">
-          {quiz.title || "骨骼學習測驗"}
+          {quiz.title || (isEn ? "Bone Learning Quiz" : "骨骼學習測驗")}
         </div>
 
         {submitted && (
@@ -1410,10 +1410,10 @@ function QuizCard({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-bold">
-                  答對率：{accuracy}%
+                  {isEn ? "Accuracy" : "答對率"}：{accuracy}%
                 </div>
                 <div className="mt-1 text-xs opacity-75">
-                  得分：{score} / {quiz.questions.length}
+                  {isEn ? "Score" : "得分"}：{score} / {quiz.questions.length}
                 </div>
               </div>
 
@@ -1424,13 +1424,7 @@ function QuizCard({
                   backgroundColor: "rgba(255,255,255,0.45)",
                 }}
               >
-                {accuracy === 100
-                  ? "完美掌握"
-                  : accuracy >= 70
-                    ? "差一點滿分"
-                    : accuracy >= 40
-                      ? "繼續加油"
-                      : "再試一次"}
+                {getLevelText(accuracy)}
               </div>
             </div>
 
@@ -1516,8 +1510,8 @@ function QuizCard({
                 {(q.options?.length
                   ? q.options
                   : [
-                    { key: "O", text: "正確" },
-                    { key: "X", text: "錯誤" },
+                    { key: "O", text: isEn ? "True" : "正確" },
+                    { key: "X", text: isEn ? "False" : "錯誤" },
                   ]
                 ).map((opt) => {
                   const active = userAnswer === opt.key;
@@ -1565,7 +1559,7 @@ function QuizCard({
                   borderColor: "rgba(148,163,184,0.25)",
                   color: "var(--foreground)",
                 }}
-                placeholder="輸入你的答案"
+                placeholder={isEn ? "Enter your answer" : "輸入你的答案"}
               />
             )}
 
@@ -1579,14 +1573,20 @@ function QuizCard({
                 }}
               >
                 <div style={{ color: isCorrect ? "#16a34a" : "#ef4444" }}>
-                  {isCorrect ? "答對了 ✅" : `答錯了，正確答案：${q.answer}`}
+                  {isCorrect
+                    ? isEn
+                      ? "Correct ✅"
+                      : "答對了 ✅"
+                    : isEn
+                      ? `Incorrect. Correct answer: ${q.answer}`
+                      : `答錯了，正確答案：${q.answer}`}
                 </div>
 
                 <div className="mt-1 opacity-80">{q.explanation}</div>
 
                 {q.source_hint && (
                   <div className="mt-1 opacity-50">
-                    來源提示：{q.source_hint}
+                    {isEn ? "Source" : "來源提示"}：{q.source_hint}
                   </div>
                 )}
               </div>
@@ -1606,7 +1606,7 @@ function QuizCard({
               color: "white",
             }}
           >
-            送出答案
+            {isEn ? "Submit Answers" : "送出答案"}
           </button>
         ) : (
           <button
@@ -1621,7 +1621,7 @@ function QuizCard({
               borderColor: "rgba(148,163,184,0.25)",
             }}
           >
-            重新作答
+            {isEn ? "Retry" : "重新作答"}
           </button>
         )}
 
@@ -1635,7 +1635,7 @@ function QuizCard({
               backgroundColor: "rgba(59,130,246,0.10)",
             }}
           >
-            再出一組題目
+            {isEn ? "Generate Another Quiz" : "再出一組題目"}
           </button>
         )}
       </div>
