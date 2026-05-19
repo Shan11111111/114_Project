@@ -2245,14 +2245,15 @@ function LLMClient() {
   const router = useRouter();
 
   useEffect(() => {
-    const bone = searchParams.get("bone");
-    if (!bone) return;
-    if (bonePrefillDoneRef.current === bone) return;
+    const q = searchParams.get("q") || searchParams.get("question") || "";
 
-    bonePrefillDoneRef.current = bone;
-    setDraftText(`請介紹${bone}，並說明它的位置、功能與常見相關問題。`);
+    if (!q.trim()) return;
+    if (bonePrefillDoneRef.current === q) return;
+
+    bonePrefillDoneRef.current = q;
+    setDraftText(q.trim());
     router.replace("/llm");
-  }, [searchParams]);
+  }, [searchParams, router]);
 
 
   const [isNavigating, setIsNavigating] = useState(false);
@@ -5788,7 +5789,10 @@ function LLMClient() {
                   key={`${q}-${i}`}
                   type="button"
                   disabled={loading}
-                  onClick={() => reallySendMessage(undefined, q, "block")}
+                  onClick={() => {
+                    setDraftText(q);
+                    reallySendMessage(undefined, q, "block");
+                  }}
                   className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80 disabled:opacity-50"
                   style={{
                     borderColor: "rgba(148,163,184,0.35)",

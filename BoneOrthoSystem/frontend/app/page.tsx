@@ -1,97 +1,160 @@
 "use client";
 
 import Link from "next/link";
+import "./home.css";
+import HomeBoneModel from "./components/HomeBoneModel";
+const boneBaby = "/bone-baby";
 
 export default function Home() {
   return (
-    <main
-      className="min-h-screen flex flex-col transition-colors duration-300"
-      style={{
-        backgroundColor: "var(--background)",
-        color: "var(--foreground)",
-      }}
-    >
-      {/* Hero Section */}
-      <section className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-10 px-8">
-        <div className="max-w-xl space-y-5">
-          <h1 className="text-3xl lg:text-4xl font-bold leading-tight">
-            讓骨科資訊
-            <span className="text-cyan-400"> 更直覺、好理解</span>
+    <main className="home-page">
+      <section className="home-hero">
+        <div className="home-hero-text">
+
+          <h1>
+            學習骨骼知識，
+            <br />
+            從 <span>探索</span> 開始
           </h1>
 
-          <p className="text-slate-300 text-sm lg:text-base">
-           GalaBone整合 YOLO 與多模態 AI，
-           快速在 X 光中定位骨骼並生成資料庫導向的解說，
-           搭配互動標註與 3D 模型展示，讓判讀與教學一站完成。
+          <p className="home-desc">
+            透過 3D 骨骼模型、X 光影像辨識與 AI 小助手，
+            讓骨骼知識變得更直覺、更好懂。
           </p>
 
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/bonevision"
-              className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-semibold shadow-[0_0_25px_rgba(34,211,238,0.8)] transition"
-            >
-              進入骨骼辨識頁面
+          <div className="home-actions">
+            <Link href="/3d" className="home-action-btn action-3d">
+              <span>01</span>
+              探索 3D 骨骼模型
             </Link>
-            <button className="px-4 py-2.5 rounded-xl border border-slate-700 hover:border-cyan-400/70 text-slate-200 text-sm transition">
-              了解 GalaBone 概念
-            </button>
-          </div>
 
-          <div className="text-xs text-slate-500">
-           
+            <Link href="/bonevision" className="home-action-btn action-xray">
+              <span>02</span>
+              上傳 X 光影像
+            </Link>
+
+            <Link href="/llm" className="home-action-btn action-ai">
+              <span>03</span>
+              知識小罐頭
+            </Link>
           </div>
         </div>
 
-        {/* 右側示意卡片 */}
-        <div className="w-full max-w-sm">
-          <div
-            className="relative rounded-3xl p-4 overflow-hidden transition-colors duration-300"
-            style={{
-              backgroundColor: "var(--card-bg)",
-              border: "1px solid var(--card-border)",
-            }}
-          >
-            {/* 上面淡淡漸層（也吃變數顏色） */}
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background:
-                  "linear-gradient(135deg, rgba(56,189,248,0.10), transparent 40%, var(--card-bg))",
-              }}
-            />
+        <div className="home-hero-visual">
+          <div className="home-skeleton-circle">
+            <HomeBoneModel />
+          </div>
+          <img
+            className="home-bone-baby hero-baby"
+            src="/status/bone_baby.PNG"
+            alt="Bone寶"
+          />
+        </div>
+        <a href="#home-more" className="home-scroll-more">
+          <span>往下探索更多</span>
+          <i>⌄</i>
+        </a>
+      </section>
 
-            <div className="relative">
-              <p
-                className="text-xs mb-2"
-                style={{ color: "var(--text-medium)" }}
-              >
-                預覽 · BoneVision
-              </p>
+      <section id="home-more" className="home-content-screen">
+        <section className="home-feature-grid">
+          <Link href="/3d" className="home-feature-card green">
+            <div>
+              <p className="home-feature-title">3D 骨骼模型</p>
+              <p>360° 旋轉觀察，認識身體中的重要骨頭。</p>
+            </div>
+            <img src={`${boneBaby}/Bone_baby_2.webp`} alt="3D 骨骼模型" />
+          </Link>
 
-              <div
-                className="aspect-[3/4] rounded-2xl flex items-center justify-center transition-colors duration-300"
-                style={{
-                  backgroundColor: "var(--card-inner-bg)",
-                  border: "1px solid var(--card-border)",
-                }}
-              >
-                <span
-                  className="text-[11px]"
-                  style={{ color: "var(--text-weak)" }}
-                >
-                  之後會在這裡顯示 X 光與偵測框
-                </span>
-              </div>
+          <Link href="/bonevision" className="home-feature-card blue">
+            <div>
+              <p className="home-feature-title">X 光影像辨識</p>
+              <p>上傳 X 光片，快速了解骨骼位置與名稱。</p>
+            </div>
+            <img src={`${boneBaby}/Bone_baby_9.webp`} alt="X 光辨識" />
+          </Link>
 
-              <p
-                className="mt-3 text-[11px]"
-                style={{ color: "var(--text-weak)" }}
-              >
-                在 /bonevision 頁面中，你將可以上傳 X 光影像，並查看骨骼偵測結果與說明。
-              </p>
+          <Link href="/llm" className="home-feature-card purple">
+            <div>
+              <p className="home-feature-title">AI 小助手</p>
+              <p>遇到不懂的骨骼知識，可以直接問 Bone寶。</p>
+            </div>
+            <img src={`${boneBaby}/Bone_baby_4.webp`} alt="AI 小助手" />
+          </Link>
+        </section>
+
+        <section className="home-journey">
+          <h2>你的學習旅程</h2>
+
+          <div className="home-steps">
+            <div className="home-step">
+              <img src={`${boneBaby}/Bone_baby_5.webp`} alt="" />
+              <b>上傳資料</b>
+              <span>支援圖片與文件</span>
+            </div>
+
+            <div className="home-step">
+              <img src={`${boneBaby}/Bone_baby_9.webp`} alt="" />
+              <b>AI / X 光辨識</b>
+              <span>快速定位骨骼位置</span>
+            </div>
+
+            <div className="home-step">
+              <img src={`${boneBaby}/Bone_baby_3.webp`} alt="" />
+              <b>AI 解說</b>
+              <span>用簡單方式理解知識</span>
+            </div>
+
+            <div className="home-step">
+              <img src={`${boneBaby}/Bone_baby_6.webp`} alt="" />
+              <b>整理重點</b>
+              <span>吸收文件摘要</span>
+            </div>
+
+            <div className="home-step">
+              <img src={`${boneBaby}/Bone_baby_8.webp`} alt="" />
+              <b>匯出分享</b>
+              <span>留下你的學習紀錄</span>
             </div>
           </div>
-        </div>
+        </section>
+
+        <section className="home-info-grid">
+          <div className="home-info-card">
+            <img src={`${boneBaby}/Bone_baby_8.webp`} alt="" />
+            <div>
+              <h3>小提醒會保護好你的回憶！</h3>
+              <p>學習紀錄可以被保存，方便之後回來複習。</p>
+            </div>
+          </div>
+
+          <div className="home-info-card">
+            <img src={`${boneBaby}/Bone_baby_7.webp`} alt="" />
+            <div>
+              <h3>文件太長也不用怕</h3>
+              <p>AI 可以幫你整理摘要，快速抓到重點。</p>
+            </div>
+          </div>
+
+          <div className="home-info-card">
+            <img src={`${boneBaby}/Bone_baby_3.webp`} alt="" />
+            <div>
+              <h3>問題可以直接問</h3>
+              <p>用聊天方式學骨骼知識，降低學習門檻。</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="home-cta">
+          <div>
+            <h2>準備好開始你的骨骼探索之旅了嗎？</h2>
+            <p>Bone寶已經迫不及待想和你一起學習！</p>
+          </div>
+
+          <Link href="/3d" className="home-cta-btn">
+            立即開始探索
+          </Link>
+        </section>
       </section>
     </main>
   );

@@ -86,21 +86,17 @@ export default function Navbar() {
           color: "var(--navbar-text)",
         }}
       >
-        <Link href="/" className="navbar-brand flex items-center gap-3">
-          <div
-            className="navbar-logo w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0"
-            style={{
-              backgroundColor: "var(--navbar-logo-bg)",
-              color: "var(--navbar-logo-text)",
-              fontSize: "18px",
-              lineHeight: "1",
-            }}
-          >
-            G
-          </div>
-          <span className="navbar-title text-base font-semibold">GalaBone</span>
-        </Link>
+        <Link href="/" className="navbar-brand flex items-center gap-0">
+          <img
+            src="/status/bone_baby.PNG"
+            alt="BoneBaby"
+            className="w-14 h-14 object-contain shrink-0"
+          />
 
+          <span className="navbar-title text-base font-semibold">
+            GalaBone
+          </span>
+        </Link>
         {/* 桌機版導覽 */}
         <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-7 text-[14px] whitespace-nowrap">          <Link href="/" className="hover-link">
           <b>{t["nav.home"]}</b>
@@ -110,12 +106,12 @@ export default function Navbar() {
             <b>{t["nav.boneModel3d"]}</b>
           </Link>
 
-          <Link href="/bonevision" className="hover-link">
-            <b>{t["nav.boneDetection"]}</b>
-          </Link>
-
           <Link href="/llm" className="hover-link">
             <b>{t["nav.boneKnowledge"]}</b>
+          </Link>
+
+          <Link href="/bonevision" className="hover-link">
+            <b>{t["nav.boneDetection"]}</b>
           </Link>
 
           {mounted && canAccessMaterials && (
@@ -155,7 +151,7 @@ export default function Navbar() {
               EN
             </button>
           </div>
-          
+
           {mounted && (
             <button
               onClick={toggleTheme}

@@ -12,6 +12,8 @@ import React, {
 import { useRouter, useSearchParams } from "next/navigation";
 import { getUser } from "../lib/auth";
 
+import { X } from "lucide-react";
+
 import {
   type AppLocale,
   getSavedLocale,
@@ -148,7 +150,7 @@ export default function BoneVisionPage() {
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center text-sm text-slate-400">
-          載入 Bone Vision...
+          Loading Bone Vision...
         </div>
       }
     >
@@ -248,6 +250,65 @@ function BoneVisionPageInner() {
     return value.replace(/\s*[\(（]\d+[\)）]\s*$/, "").trim();
   };
 
+  /* =========================
+     Bone category translation
+  ========================= */
+
+  const boneCategoryEnMap: Record<string, string> = {
+    顱骨: "Skull",
+    頸椎: "Cervical Vertebrae",
+    胸椎: "Thoracic Vertebrae",
+    腰椎: "Lumbar Vertebrae",
+    鎖骨: "Clavicle",
+    肩胛骨: "Scapula",
+    肱骨: "Humerus",
+    尺骨: "Ulna",
+    橈骨: "Radius",
+    腕骨: "Carpal Bones",
+    掌骨: "Metacarpals",
+    指骨: "Phalanges",
+    肋骨: "Ribs",
+    胸骨: "Sternum",
+    股骨: "Femur",
+    脛骨: "Tibia",
+    腓骨: "Fibula",
+  };
+
+  const regionEnMap: Record<string, string> = {
+    軀幹骨: "Axial Skeleton",
+    上肢骨: "Upper Limbs",
+    下肢骨: "Lower Limbs",
+  };
+
+  const getLocalizedBoneName = (
+    zh?: string | null,
+    en?: string | null
+  ) => {
+    const cleanZh = cleanBoneZh(zh);
+    const cleanEn = cleanText(en);
+
+    if (locale === "en-US") {
+      return (
+        cleanEn ||
+        boneCategoryEnMap[cleanZh] ||
+        cleanZh ||
+        t("bonevision.uncategorized")
+      );
+    }
+
+    return cleanZh || t("bonevision.uncategorized");
+  };
+
+  const getLocalizedRegion = (region?: string | null) => {
+    if (!region) return t("bonevision.noRegion");
+
+    if (locale === "en-US") {
+      return regionEnMap[region] || region;
+    }
+
+    return region;
+  };
+
   const cleanText = (value?: string | null) => {
     if (!value) return "";
     return value.replace(/\s*[\(（][^\)）]*[\)）]\s*$/, "").trim();
@@ -264,7 +325,7 @@ function BoneVisionPageInner() {
   };
 
   const getSampleCategoryName = (img: SampleImage) => {
-    return img.bone_zh ? cleanBoneZh(img.bone_zh) : "未分類";
+    return img.bone_zh ? cleanBoneZh(img.bone_zh) : t("bonevision.uncategorized");
   };
 
   const SAMPLE_SEARCH_STOP_WORDS = [
@@ -656,11 +717,19 @@ function BoneVisionPageInner() {
 
   const getDisplayBoneName = (box: DetectionBox) => {
     const zh = cleanBoneZh(box.bone_info?.bone_zh);
+    const en = cleanText(box.bone_info?.bone_en);
+
+    if (locale === "en-US") {
+      return en || boneCategoryEnMap[zh] || box.cls_name;
+    }
+
     if (zh && zh !== "未分類") {
       return zh;
     }
+
     return box.cls_name;
   };
+
   const formatDateTime = (value?: string | null) => {
     if (!value) return "—";
     const d = new Date(value);
@@ -865,7 +934,7 @@ function BoneVisionPageInner() {
         setSamples(items);
       } catch (err) {
         console.error("loadSamples failed:", err);
-        setErrorMsg("範例影像庫載入失敗");
+        setErrorMsg(t("bonevision.sampleLoadFailed"));
       }
     };
 
@@ -975,7 +1044,7 @@ function BoneVisionPageInner() {
     console.log(">>> safeUserId =", safeUserId);
 
     if (!safeUserId) {
-      setHistoryError("目前登入資訊中沒有可用的數字 user_id");
+      setHistoryError(t("bonevision.invalidUserId"));
       setHistoryList([]);
       setLoadingHistory(false);
       return;
@@ -1040,11 +1109,11 @@ function BoneVisionPageInner() {
     const safeUserId = getCurrentUserId();
 
     if (!safeUserId) {
-      alert("目前登入資訊異常，請重新登入後再刪除");
+      alert(t("bonevision.invalidLoginState"));
       return;
     }
 
-    const ok = window.confirm("確定要刪除這筆歷史紀錄嗎？");
+    const ok = window.confirm(t("bonevision.confirmDeleteHistory"));;
     if (!ok) return;
 
     try {
@@ -1071,7 +1140,7 @@ function BoneVisionPageInner() {
       setSelectedHistoryId(null);
       setSelectedHistoryDetail(null);
 
-      alert("刪除成功");
+      alert(t("bonevision.deleteSuccess"));
     } catch (err: any) {
       console.error(err);
       alert(err.message ?? "刪除失敗");
@@ -1169,7 +1238,7 @@ function BoneVisionPageInner() {
       setErrorMsg(null);
 
       const res = await fetch(`${API_BASE}${sample.download_url}`);
-      if (!res.ok) throw new Error("無法載入範例圖片");
+      if (!res.ok) throw new Error(t("bonevision.sampleLoadFailed"));
 
       const blob = await res.blob();
       const sampleFile = new File([blob], sample.filename, {
@@ -1184,7 +1253,7 @@ function BoneVisionPageInner() {
       await detectWithFile(sampleFile);
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message ?? "使用範例圖片辨識失敗");
+      setErrorMsg(err.message ?? t("bonevision.sampleDetectFailed"));
     } finally {
       setLoading(false);
     }
@@ -1214,7 +1283,7 @@ function BoneVisionPageInner() {
 
   const handleDetect = async () => {
     if (!file) {
-      alert("請先選擇 X 光圖片");
+      alert(t("bonevision.selectImageFirst"));
       return;
     }
 
@@ -1234,12 +1303,11 @@ function BoneVisionPageInner() {
     console.log("imageCaseId =", imageCaseId);
 
     const quizUrl =
-      `http://140.136.155.157:8000/quiz/generate-from-case?image_case_id=${imageCaseId}&limit=5`;
-
+      `/api/quiz/generate-from-case?image_case_id=${imageCaseId}&limit=5&locale=${locale}`;
     console.log("API url =", quizUrl);
 
     if (!imageCaseId) {
-      alert("目前沒有可測驗的辨識結果");
+      alert(t("bonevision.noQuizData"));
       return;
     }
 
@@ -1309,7 +1377,7 @@ function BoneVisionPageInner() {
     activeId !== null ? detections.find((b) => b.id === activeId) ?? null : null;
 
   const filterOptions: SampleCategory[] = [
-    "全部",
+    t("bonevision.all"),
     ...Array.from(
       new Set(
         samples
@@ -1670,67 +1738,79 @@ function BoneVisionPageInner() {
             {detections.length === 0 ? (
               <div
                 className={`mt-3 rounded-3xl border p-6 ${isDarkMode
-                    ? "border-slate-800 bg-slate-900/60"
-                    : "border-slate-200 bg-slate-50"
+                  ? "border-slate-800 bg-slate-900/60"
+                  : "border-slate-200 bg-slate-50"
                   }`}
               >
                 <div className="flex items-start gap-4">
-                  <div
-                    className={`shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center ${isDarkMode
-                        ? "bg-cyan-500/10 text-cyan-300"
-                        : "bg-cyan-100 text-cyan-600"
-                      }`}
-                  >
-                    <ScanSearch className="w-5 h-5" />
+                  <div className="shrink-0 flex items-center justify-center">
+                    <img
+                      src={
+                        rawResponse
+                          ? "/status/Bone_baby_cry.png"
+                          : "/status/bone_baby.PNG"
+                      }
+                      alt="status"
+                      className={`
+    object-contain
+    select-none
+    pointer-events-none
+    drop-shadow-xl
+    ${rawResponse ? "w-32 h-32" : "w-32 h-32"}
+  `}
+                      draggable={false}
+                    />
                   </div>
 
                   <div>
                     {!rawResponse ? (
                       <>
                         <h3 className={`text-sm font-bold ${isDarkMode ? "text-slate-100" : "text-slate-800"}`}>
-                          準備開始骨骼辨識
+                          {t("bonevision.readyTitle")}
                         </h3>
 
                         <p className={`mt-2 text-sm leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
-                          上傳 X 光影像後，點選「開始辨識（模型）」即可查看 AI 標註結果。
+                          {t("bonevision.readyDesc1")}
                         </p>
 
                         <p className={`mt-2 text-sm leading-relaxed ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>
-                          建議使用清晰、骨骼區域完整入鏡的影像；也可以先用左側的「查看範例影像庫」體驗流程。
-                        </p>
-                      </>
+                          {t("bonevision.readyDesc2")}
+                        </p>                      </>
                     ) : (
                       <>
                         <h3 className={`text-sm font-bold ${isDarkMode ? "text-amber-300" : "text-amber-700"}`}>
-                          這張影像沒有辨識出骨骼
+                          {t("bonevision.noBoneTitle")}
                         </h3>
 
                         <p className={`mt-2 text-sm leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
-                          可能是影像不夠清晰、骨骼區域被裁切，或圖片內容不是系統目前支援的 X 光骨骼類型。
+                          {t("bonevision.noBoneDesc1")}
                         </p>
 
                         <p className={`mt-2 text-sm leading-relaxed ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>
-                          建議換一張骨骼更完整、對比更明顯的 X 光影像，或先使用範例影像庫確認辨識流程。
-                        </p>
-                      </>
+                          {t("bonevision.noBoneDesc2")}
+                        </p>                      </>
                     )}
 
                     <div className="mt-4 flex flex-wrap gap-2">
                       {[
-                        rawResponse ? "請更換圖片" : "上傳後開始辨識",
-                        "清晰 X 光",
-                        "骨骼完整入鏡",
-                        "可使用範例影像",
+                        rawResponse ?
+                          t("bonevision.tipChangeImage")
+                          : t("bonevision.tipUploadDetect"),
+
+                        t("bonevision.tipClearXray"),
+                        t("bonevision.tipFullBone"),
+                        t("bonevision.tipUseSamples"),
+
                       ].map((tip) => (
                         <span
                           key={tip}
                           className={`rounded-full px-3 py-1 text-xs ${rawResponse
-                              ? isDarkMode
-                                ? "bg-amber-500/10 text-amber-300"
-                                : "bg-amber-50 text-amber-700 border border-amber-200"
-                              : isDarkMode
-                                ? "bg-slate-800 text-slate-300"
-                                : "bg-white text-slate-500 border border-slate-200"
+                            ? isDarkMode
+                              ? "bg-amber-500/10 text-amber-300"
+                              : "bg-amber-50 text-amber-700 border border-amber-200"
+                            : isDarkMode
+                              ? "bg-slate-800 text-slate-300"
+                              : "bg-white text-slate-500 border border-slate-200"
                             }`}
                         >
                           {tip}
@@ -1817,27 +1897,47 @@ function BoneVisionPageInner() {
                                   : "font-semibold text-slate-800"
                               }
                             >
-                              conf（Confidence）
+                              conf (Confidence)
                             </span>
 
                             <br />
                             <br />
 
-                            AI 對這次辨識結果的信心程度。
-
-                            數值越接近 1，
-                            代表模型越確定這個骨骼辨識是正確的。
-
-                            <br />
-                            <br />
-
-                            一般來說：
-                            <br />
-                            0.9↑ = 非常高信心
-                            <br />
-                            0.7 ~ 0.9 = 可接受
-                            <br />
-                            0.5↓ = 建議人工再確認
+                            {locale === "en-US" ? (
+                              <>
+                                The AI confidence level for this detection result.
+                                <br />
+                                <br />
+                                The closer the value is to 1, the more certain the model is that the
+                                bone detection is correct.
+                                <br />
+                                <br />
+                                General guide:
+                                <br />
+                                0.9↑ = Very high confidence
+                                <br />
+                                0.7 ~ 0.9 = Acceptable
+                                <br />
+                                0.5↓ = Manual review recommended
+                              </>
+                            ) : (
+                              <>
+                                AI 對這次辨識結果的信心程度。
+                                <br />
+                                <br />
+                                數值越接近 1，
+                                代表模型越確定這個骨骼辨識是正確的。
+                                <br />
+                                <br />
+                                一般來說：
+                                <br />
+                                0.9↑ = 非常高信心
+                                <br />
+                                0.7 ~ 0.9 = 可接受
+                                <br />
+                                0.5↓ = 建議人工再確認
+                              </>
+                            )}
                           </div>
                         </div>
                       </p>
@@ -1927,26 +2027,25 @@ function BoneVisionPageInner() {
                               className={`text-sm font-bold ${isDarkMode ? "text-slate-100" : "text-slate-900"
                                 }`}
                             >
-                              整張 X 光影像測驗
+                              {t("bonevision.quizTitle")}
                             </p>
 
                             <p
                               className={`mt-1 text-xs leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"
                                 }`}
                             >
-                              根據目前影像中的所有辨識框，自動產生互動式選擇題。
+                              {t("bonevision.quizDesc")}
                             </p>
                           </div>
-
                           <button
                             onClick={handleStartQuiz}
                             disabled={loadingQuiz}
                             className="inline-flex items-center justify-center rounded-2xl px-6 py-3
-        bg-emerald-400 text-slate-950 text-sm font-bold
-        hover:bg-emerald-300 transition-colors
-        disabled:opacity-50 disabled:cursor-not-allowed"
+  bg-emerald-400 text-slate-950 text-sm font-bold
+  hover:bg-emerald-300 transition-colors
+  disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {loadingQuiz ? "載入測驗..." : "開始測驗"}
+                            {loadingQuiz ? t("bonevision.loadingQuiz") : t("bonevision.startQuiz")}
                           </button>
                         </div>
                       </div>
@@ -1955,7 +2054,7 @@ function BoneVisionPageInner() {
                     </>
                   ) : (
                     <p className="text-xs text-slate-500">
-                      請從上方選擇一個偵測框，這裡會顯示該部位的資料。
+                      {t("bonevision.selectDetectionBox")}
                     </p>
                   )}
                 </div>
@@ -1987,18 +2086,30 @@ function BoneVisionPageInner() {
               className={`relative shrink-0 flex items-start justify-between gap-4 px-7 py-6 border-b ${modalBorderClass}`}
             >
               <div>
-                <h3 className="text-2xl font-bold tracking-tight">範例影像庫</h3>
+                <h3 className="text-2xl font-bold tracking-tight">  {t("bonevision.exampleLibrary")}</h3>
                 <p className={`text-sm mt-2 ${modalTextSubClass}`}>
-                  可直接使用該部位影像進行辨識，或下載到本機
+                  {t("bonevision.exampleLibraryDesc")}
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() => setIsGalleryOpen(false)}
-                className={`px-5 py-3 rounded-2xl border text-sm font-medium transition-colors ${modalButtonClass}`}
+                aria-label={t("bonevision.close")}
+                title={t("bonevision.close")}
+                className={`
+    absolute top-6 right-6
+    flex items-center justify-center
+    w-12 h-12 rounded-2xl border
+    transition-all duration-200
+    hover:scale-105
+
+    ${isDarkMode
+                    ? "border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200"
+                    : "border-slate-200 bg-white hover:bg-slate-100 text-slate-700"}
+  `}
               >
-                關閉
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -2010,12 +2121,12 @@ function BoneVisionPageInner() {
                     : "border-slate-300 bg-white text-slate-900"
                     }`}
                 >
-                  <span className="text-sm opacity-70">搜尋</span>
+                  <span className="text-sm opacity-70">{t("bonevision.search")}</span>
 
                   <input
                     value={galleryKeyword}
                     onChange={(e) => setGalleryKeyword(e.target.value)}
-                    placeholder="可搜尋骨骼中文名稱、英文名稱、部位或口語描述"
+                    placeholder={t("bonevision.searchExamplePlaceholder")}
                     className={`flex-1 bg-transparent text-sm outline-none ${isDarkMode ? "placeholder:text-slate-500" : "placeholder:text-slate-400"
                       }`}
                   />
@@ -2029,13 +2140,13 @@ function BoneVisionPageInner() {
                         : "border-slate-300 text-slate-600 hover:bg-slate-100"
                         }`}
                     >
-                      清除
+                      {t("bonevision.clear")}
                     </button>
                   )}
                 </div>
 
                 <p className={`mt-2 text-xs ${modalTextSubClass}`}>
-                  可搜尋目前範例影像庫中的骨骼中文名稱、英文名稱或部位。
+                  {t("bonevision.searchExampleHint")}
                 </p>
               </div>
 
@@ -2051,7 +2162,11 @@ function BoneVisionPageInner() {
                 >
                   {filterOptions.map((option) => (
                     <option key={option} value={option}>
-                      {option}
+                      {option === "全部" || option === t("bonevision.all")
+                        ? t("bonevision.all")
+                        : locale === "en-US"
+                          ? boneCategoryEnMap[option] || option
+                          : option}
                     </option>
                   ))}
                 </select>
@@ -2069,7 +2184,12 @@ function BoneVisionPageInner() {
                       : filterInactiveClass
                       }`}
                   >
-                    {option}
+                    {option === "全部" || option === t("bonevision.all")
+                      ? t("bonevision.all")
+                      : locale === "en-US"
+                        ? boneCategoryEnMap[option] || option
+                        : option}
+
                   </button>
                 ))}
               </div>
@@ -2081,8 +2201,8 @@ function BoneVisionPageInner() {
               {filteredSamples.length === 0 ? (
                 <div className={`text-sm text-center py-12 ${modalTextSubClass}`}>
                   {galleryKeyword.trim()
-                    ? `查無「${galleryKeyword}」符合的範例影像，請改用骨骼名稱、英文名稱或分類按鈕搜尋。`
-                    : "目前這個分類尚無範例影像"}
+                    ? t("bonevision.noMatchedSamples").replace("{keyword}", galleryKeyword)
+                    : t("bonevision.noSamplesInCategory")}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -2095,7 +2215,7 @@ function BoneVisionPageInner() {
                         <div
                           className={`absolute top-4 left-4 z-10 rounded-full px-3 py-1 text-[11px] border ${categoryBadgeClass}`}
                         >
-                          {sample.bone_zh ? cleanBoneZh(sample.bone_zh) : "未分類"}
+                          {sample.bone_zh ? getLocalizedBoneName(sample.bone_zh, sample.bone_en) : t("bonevision.uncategorized")}
                         </div>
 
                         <div
@@ -2103,7 +2223,7 @@ function BoneVisionPageInner() {
                         >
                           <img
                             src={`${API_BASE}${sample.preview_url}`}
-                            alt={sample.bone_zh ? cleanBoneZh(sample.bone_zh) : sample.name}
+                            alt={sample.bone_zh ? getLocalizedBoneName(sample.bone_zh, sample.bone_en) : sample.name}
                             className="max-h-[245px] max-w-[88%] object-contain"
                           />
                         </div>
@@ -2111,19 +2231,21 @@ function BoneVisionPageInner() {
 
                       <div className="p-5">
                         <h4 className="text-xl font-semibold">
-                          {sample.bone_zh ? cleanBoneZh(sample.bone_zh) : sample.name}
+                          {sample.bone_zh ? getLocalizedBoneName(sample.bone_zh, sample.bone_en) : sample.name}
                         </h4>
 
                         <p className={`mt-2 text-sm ${modalTextSubClass}`}>
-                          {cleanText(sample.bone_en) || "未提供英文名稱"}
+                          {cleanText(sample.bone_en) || t("bonevision.noEnglishName")}
                         </p>
 
                         <p className={`mt-1 text-xs ${modalTextSubClass}`}>
-                          {sample.bone_region || "未分類區域"}
+                          {locale === "en-US"
+                            ? t("bonevision.noDescription")
+                            : sample.bone_desc || t("bonevision.noDescription")}
                         </p>
 
                         <p className={`mt-2 text-xs line-clamp-2 ${modalTextSubClass}`}>
-                          {sample.bone_desc || "目前無描述"}
+                          {sample.bone_desc || t("bonevision.noDescription")}
                         </p>
 
                         <div className="mt-5 grid grid-cols-2 gap-3">
@@ -2132,7 +2254,8 @@ function BoneVisionPageInner() {
                             onClick={() => handleUseSampleImage(sample)}
                             className="rounded-2xl py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
                           >
-                            使用此照片
+                            {t("bonevision.useThisImage")}
+
                           </button>
 
                           <button
@@ -2140,7 +2263,7 @@ function BoneVisionPageInner() {
                             onClick={() => handleDownloadSampleImage(sample)}
                             className={`rounded-2xl py-3 text-sm font-semibold border transition-colors ${secondaryActionClass}`}
                           >
-                            下載照片
+                            {t("bonevision.downloadImage")}
                           </button>
                         </div>
                       </div>
@@ -2151,497 +2274,519 @@ function BoneVisionPageInner() {
             </div>
           </div>
         </div>
-      )}
+      )
+      }
 
 
-      {isHistoryOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className={`absolute inset-0 ${isDarkMode ? "bg-black/70" : "bg-black/35"}`}
-            onClick={() => setIsHistoryOpen(false)}
-          />
+      {
+        isHistoryOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className={`absolute inset-0 ${isDarkMode ? "bg-black/70" : "bg-black/35"}`}
+              onClick={() => setIsHistoryOpen(false)}
+            />
 
-          <div
-            className={`relative w-full max-w-7xl h-[88vh] rounded-[28px] shadow-2xl border ${modalSurfaceClass} flex flex-col overflow-hidden`}
-          >
-            <div className={`shrink-0 px-7 py-6 border-b ${modalBorderClass}`}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-2xl font-bold tracking-tight">歷史紀錄</h3>
-                  <p className={`text-sm mt-2 ${modalTextSubClass}`}>
-                    查看個人辨識歷程與後續紀錄
+            <div
+              className={`relative w-full max-w-7xl h-[88vh] rounded-[28px] shadow-2xl border ${modalSurfaceClass} flex flex-col overflow-hidden`}
+            >
+              <div className={`shrink-0 px-7 py-6 border-b ${modalBorderClass}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className={`text-sm mt-2 ${modalTextSubClass}`}>
+                      {t("bonevision.historySubtitle")}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsHistoryOpen(false)}
+                    aria-label={t("bonevision.close")}
+                    title={t("bonevision.close")}
+                    className={`
+    flex items-center justify-center
+    w-12 h-12 rounded-2xl border
+    transition-all duration-200
+    hover:scale-105
+    ${isDarkMode
+                        ? "border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200"
+                        : "border-slate-200 bg-white hover:bg-slate-100 text-slate-700"}
+  `}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {!currentUser ? (
+                <div className="flex-1 min-h-0 px-8 py-16 flex flex-col items-center justify-center text-center overflow-y-auto">
+                  <p className="text-lg font-semibold">
+                    {t("bonevision.loginRequiredHistory")}
+
                   </p>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryOpen(false)}
-                  className={`px-5 py-3 rounded-2xl border text-sm font-medium transition-colors ${modalButtonClass}`}
-                >
-                  關閉
-                </button>
-              </div>
-            </div>
+                  <p className={`mt-2 text-sm ${modalTextSubClass}`}>
+                    {t("bonevision.loginRequiredHistoryDesc")}
 
-            {!currentUser ? (
-              <div className="flex-1 min-h-0 px-8 py-16 flex flex-col items-center justify-center text-center overflow-y-auto">
-                <p className="text-lg font-semibold">
-                  請先登入或註冊後查看歷史紀錄
-                </p>
+                  </p>
 
-                <p className={`mt-2 text-sm ${modalTextSubClass}`}>
-                  登入後即可查看個人辨識歷程與後續紀錄
-                </p>
+                  <div className="mt-6 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.location.href = "https://140.136.155.157/auth?mode=login";
+                      }}
+                      className="rounded-2xl px-6 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
+                    >
+                      {t("bonevision.goLogin")}
+                    </button>
 
-                <div className="mt-6 flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.location.href = "https://140.136.155.157/auth?mode=login";
-                    }}
-                    className="rounded-2xl px-6 py-3 text-sm font-semibold bg-cyan-500 text-slate-900 hover:bg-cyan-400 transition-colors"
-                  >
-                    前往登入
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.location.href = "https://140.136.155.157/auth?mode=register";
-                    }}
-                    className={`rounded-2xl px-6 py-3 text-sm font-semibold border transition-colors ${secondaryActionClass}`}
-                  >
-                    前往註冊
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className={`flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[340px_minmax(0,1fr)] ${modalSubBgClass}`}>
-                <div className={`border-r ${modalBorderClass} flex flex-col min-h-0`}>
-                  <div className="shrink-0 p-4">
-                    <input
-                      type="text"
-                      value={historyKeyword}
-                      onChange={(e) => setHistoryKeyword(e.target.value)}
-                      placeholder="搜尋歷史紀錄"
-                      className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none ${isDarkMode
-                        ? "border-slate-700 bg-slate-900 text-slate-100 placeholder:text-slate-500"
-                        : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
-                        }`}
-                    />
-                  </div>
-
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-4 space-y-3">
-                    {loadingHistory && (
-                      <div className={`text-sm ${modalTextSubClass}`}>載入中...</div>
-                    )}
-
-                    {!loadingHistory && historyError && (
-                      <div className="text-sm text-red-400 whitespace-pre-wrap break-words">
-                        {historyError}
-                      </div>
-                    )}
-
-                    {!loadingHistory && !historyError && filteredHistoryList.length === 0 && (
-                      <div className={`text-sm ${modalTextSubClass}`}>尚無歷史紀錄</div>
-                    )}
-
-                    {!loadingHistory &&
-                      !historyError &&
-                      filteredHistoryList.map((item) => {
-                        const selected = selectedHistoryId === item.image_case_id;
-                        return (
-                          <button
-                            key={item.image_case_id}
-                            type="button"
-                            onClick={() => loadHistoryDetail(item.image_case_id)}
-                            className={`w-full text-left rounded-2xl border p-4 transition-colors ${selected
-                              ? isDarkMode
-                                ? "border-cyan-400 bg-cyan-500/10"
-                                : "border-cyan-500 bg-cyan-50"
-                              : isDarkMode
-                                ? "border-slate-800 bg-slate-900 hover:bg-slate-800"
-                                : "border-slate-200 bg-white hover:bg-slate-50"
-                              }`}
-                          >
-                            <div className="text-sm font-semibold">
-                              {item.image_name || `案例 ${item.image_case_id}`}
-                            </div>
-                            <div className={`mt-1 text-xs ${modalTextSubClass}`}>
-                              {formatDateTime(item.created_at)}
-                            </div>
-                            <div className="mt-2 text-xs text-cyan-400">
-                              偵測數量：{item.detection_count ?? 0}
-                            </div>
-                          </button>
-                        );
-                      })}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.location.href = "https://140.136.155.157/auth?mode=register";
+                      }}
+                      className={`rounded-2xl px-6 py-3 text-sm font-semibold border transition-colors ${secondaryActionClass}`}
+                    >
+                      {t("bonevision.goRegister")}
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex flex-col min-h-0">
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6">
-                    {!selectedHistoryDetail ? (
-                      <div className={`h-full flex items-center justify-center text-sm ${modalTextSubClass}`}>
-                        請從左側選擇一筆歷史紀錄
-                      </div>
-                    ) : loadingHistoryDetail ? (
-                      <div className={`text-sm ${modalTextSubClass}`}>載入詳細資料中...</div>
-                    ) : (
-                      <div className="space-y-5 pb-2">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className={`text-sm ${modalTextSubClass}`}>
-                              {formatDateTime(selectedHistoryDetail.created_at)}
-                            </div>
-                            <h4 className="mt-1 text-2xl font-bold">
-                              {selectedHistoryDetail.image_name || `案例 ${selectedHistoryDetail.image_case_id}`}
-                            </h4>
-                            <div className={`mt-2 text-sm ${modalTextSubClass}`}>
-                              偵測數量：{selectedHistoryDetail.detection_count ?? 0}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                applyHistoryDetailToCanvas(selectedHistoryDetail);
-                                setIsHistoryOpen(false);
-                                router.push(`/bonevision?caseId=${selectedHistoryDetail.image_case_id}`);
-                              }}
-                              className="flex items-center gap-2 rounded-2xl bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-cyan-400 transition-colors"
-                            >
-                              回到辨識
-                            </button>
-
-                            <button
-                              type="button"
-                              disabled={loadingHistoryDetail}
-                              onClick={() => handleDeleteHistory(selectedHistoryDetail.image_case_id)}
-                              className="flex items-center gap-2 rounded-2xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
-                            >
-                              刪除
-                            </button>
-                          </div>
-                        </div>
-
-                        {selectedHistoryDetail.bone_image_id != null && (
-                          <div className={`rounded-3xl border p-4 ${cardClass}`}>
-                            <div className={`mb-3 text-sm ${modalTextSubClass}`}>影像預覽</div>
-                            <div className="flex items-center justify-center">
-                              <img
-                                src={`${HISTORY_IMAGE_URL}/${selectedHistoryDetail.bone_image_id}`}
-                                alt={selectedHistoryDetail.image_name || "history preview"}
-                                className="max-h-[280px] max-w-full object-contain rounded-2xl"
-                                onError={(e) => {
-                                  console.error("history preview failed:", {
-                                    bone_image_id: selectedHistoryDetail.bone_image_id,
-                                    src: (e.currentTarget as HTMLImageElement).src,
-                                    detail: selectedHistoryDetail,
-                                  });
-                                }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        <div className={`rounded-3xl border p-4 ${cardClass}`}>
-                          <div className={`mb-3 text-sm ${modalTextSubClass}`}>辨識項目</div>
-                          {selectedHistoryDetail.detections.length === 0 ? (
-                            <div className={`text-sm ${modalTextSubClass}`}>這筆紀錄沒有 detection。</div>
-                          ) : (
-                            <div className="space-y-3">
-                              {selectedHistoryDetail.detections.map((d, idx) => (
-                                <div
-                                  key={d.detection_id}
-                                  className={`rounded-2xl border px-4 py-3 ${isDarkMode ? "border-slate-800" : "border-slate-200"}`}
-                                >
-                                  <div className="text-sm font-semibold">
-                                    {d.bone_info?.bone_zh ||
-                                      (d.label41 != null ? `label41=${d.label41}` : `Detection ${idx + 1}`)}
-                                  </div>
-                                  <div className={`mt-1 text-xs ${modalTextSubClass}`}>
-                                    confidence: {typeof d.confidence === "number" ? d.confidence.toFixed(3) : "—"}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div
-              className={`shrink-0 px-8 py-4 border-t text-xs ${modalBorderClass} ${modalTextSubClass}`}
-            >
-              按 ESC 可關閉
-            </div>
-          </div>
-        </div>
-      )}
-      {isQuizOpen && quizData && (
-        <div
-          className={`fixed inset-0 z-[100] flex items-center justify-center p-6 ${isDarkMode ? "bg-black/70" : "bg-black/45"
-            }`}
-        >
-          <div
-            className={`w-full max-w-6xl h-[88vh] rounded-[32px] overflow-hidden flex shadow-2xl border ${isDarkMode
-              ? "border-slate-800 bg-slate-950 text-slate-100"
-              : "border-slate-200 bg-white text-slate-900"
-              }`}
-          >
-            {/* 左邊 */}
-            <div
-              className={`w-[48%] border-r p-6 flex flex-col ${isDarkMode ? "border-slate-800" : "border-slate-200"
-                }`}
-            >
-              <div
-                className={`text-lg font-bold mb-4 ${isDarkMode ? "text-white" : "text-slate-900"
-                  }`}
-              >
-                骨骼辨識測驗
-              </div>
-
-              <div
-                className={`flex-1 flex items-center justify-center rounded-3xl overflow-hidden ${isDarkMode ? "bg-slate-900" : "bg-slate-100"
-                  }`}
-              >
-                <div ref={quizDisplayRef} className="relative">
-                  <img
-                    src={previewUrl || ""}
-                    alt="quiz"
-                    className="max-w-full max-h-[520px] object-contain"
-                    onLoad={measureQuizLayout}
-                  />
-
-                  {(() => {
-                    const q = quizData?.questions?.[quizIndex];
-                    const poly = q?.poly || [];
-                    const points = quizPolyToPoints(poly);
-
-                    if (!points) return null;
-
-                    return (
-                      <svg
-                        className="absolute inset-0 w-full h-full pointer-events-none"
-                        viewBox={`0 0 ${quizImgBox.width || 100} ${quizImgBox.height || 100}`}
-                        preserveAspectRatio="none"
-                        style={{ zIndex: 20 }}
-                      >
-                        <polygon
-                          points={points}
-                          fill="rgba(34, 211, 238, 0.20)"
-                          stroke="#22d3ee"
-                          strokeWidth={4}
-                          className="drop-shadow-[0_0_14px_rgba(34,211,238,0.9)]"
-                        />
-                      </svg>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              <div
-                className={`mt-4 text-xs ${isDarkMode ? "text-slate-400" : "text-slate-500"
-                  }`}
-              >
-                題目 {quizIndex + 1} / {quizData.questions.length}
-              </div>
-            </div>
-
-            {/* 右邊 */}
-            <div
-              className={`flex-1 p-8 overflow-y-auto ${isDarkMode ? "bg-slate-950" : "bg-slate-50"
-                }`}
-            >
-              {!quizFinished ? (
-                (() => {
-                  const q = quizData.questions[quizIndex];
-                  const selectedAnswer = quizAnswers[quizIndex];
-                  const hasAnswered = Boolean(selectedAnswer);
-
-                  return (
-                    <>
-                      <div
-                        className="
-                    inline-flex items-center rounded-full
-                    bg-cyan-500/10 text-cyan-400
-                    px-3 py-1 text-xs font-semibold mb-4
-                  "
-                      >
-                        骨骼測驗
-                      </div>
-
-                      <h2
-                        className={`text-2xl font-bold leading-relaxed ${isDarkMode ? "text-white" : "text-slate-900"
+              ) : (
+                <div className={`flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[340px_minmax(0,1fr)] ${modalSubBgClass}`}>
+                  <div className={`border-r ${modalBorderClass} flex flex-col min-h-0`}>
+                    <div className="shrink-0 p-4">
+                      <input
+                        type="text"
+                        value={historyKeyword}
+                        onChange={(e) => setHistoryKeyword(e.target.value)}
+                        placeholder={t("bonevision.searchHistory")}
+                        className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none ${isDarkMode
+                          ? "border-slate-700 bg-slate-900 text-slate-100 placeholder:text-slate-500"
+                          : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
                           }`}
-                      >
-                        {q.question}
-                      </h2>
+                      />
+                    </div>
 
-                      <div className="mt-8 space-y-4">
-                        {q.options.map((opt: string) => {
-                          const isSelected = selectedAnswer === opt;
-                          const isCorrect = opt === q.correct_answer;
-                          const isWrongSelected = isSelected && !isCorrect;
+                    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-4 space-y-3">
+                      {loadingHistory && (
+                        <div className={`text-sm ${modalTextSubClass}`}>{t("bonevision.loading")}
+                        </div>
+                      )}
 
+                      {!loadingHistory && historyError && (
+                        <div className="text-sm text-red-400 whitespace-pre-wrap break-words">
+                          {historyError}
+                        </div>
+                      )}
+
+                      {!loadingHistory && !historyError && filteredHistoryList.length === 0 && (
+                        <div className={`text-sm ${modalTextSubClass}`}>{t("bonevision.noHistory")}
+                        </div>
+                      )}
+
+                      {!loadingHistory &&
+                        !historyError &&
+                        filteredHistoryList.map((item) => {
+                          const selected = selectedHistoryId === item.image_case_id;
                           return (
                             <button
-                              key={opt}
-                              disabled={hasAnswered}
-                              onClick={() => {
-                                setQuizAnswers((prev) => ({
-                                  ...prev,
-                                  [quizIndex]: opt,
-                                }));
-                              }}
-                              className={`
-                          w-full rounded-2xl border px-5 py-4 text-left transition-all
-                          disabled:cursor-default
-                          ${hasAnswered && isCorrect
-                                  ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                                  : hasAnswered && isWrongSelected
-                                    ? "border-red-400 bg-red-50 text-red-600"
-                                    : isSelected
-                                      ? "border-cyan-400 bg-cyan-50 text-cyan-700"
-                                      : isDarkMode
-                                        ? "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-                                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
-                                }
-                        `}
+                              key={item.image_case_id}
+                              type="button"
+                              onClick={() => loadHistoryDetail(item.image_case_id)}
+                              className={`w-full text-left rounded-2xl border p-4 transition-colors ${selected
+                                ? isDarkMode
+                                  ? "border-cyan-400 bg-cyan-500/10"
+                                  : "border-cyan-500 bg-cyan-50"
+                                : isDarkMode
+                                  ? "border-slate-800 bg-slate-900 hover:bg-slate-800"
+                                  : "border-slate-200 bg-white hover:bg-slate-50"
+                                }`}
                             >
-                              <div className="flex items-center justify-between gap-3">
-                                <span>{opt}</span>
-
-                                {hasAnswered && isCorrect && (
-                                  <span className="text-sm font-bold">✓ 正確</span>
-                                )}
-
-                                {hasAnswered && isWrongSelected && (
-                                  <span className="text-sm font-bold">✕ 錯誤</span>
-                                )}
+                              <div className="text-sm font-semibold">
+                                {item.image_name || `${t("bonevision.case")} ${item.image_case_id}`}
+                              </div>
+                              <div className={`mt-1 text-xs ${modalTextSubClass}`}>
+                                {formatDateTime(item.created_at)}
+                              </div>
+                              <div className="mt-2 text-xs text-cyan-400">
+                                {t("bonevision.detectCount")}:{item.detection_count ?? 0}
                               </div>
                             </button>
                           );
                         })}
-                      </div>
+                    </div>
+                  </div>
 
-                      {hasAnswered && (
-                        <div
-                          className={`
-                      mt-6 rounded-2xl border px-5 py-4 text-sm leading-relaxed
-                      ${selectedAnswer === q.correct_answer
-                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                              : "border-red-300 bg-red-50 text-red-600"
-                            }
-                    `}
-                        >
-                          <div className="font-bold mb-1">
-                            {selectedAnswer === q.correct_answer
-                              ? "答對了！"
-                              : "答錯了"}
+                  <div className="flex flex-col min-h-0">
+                    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6">
+                      {!selectedHistoryDetail ? (
+                        <div className={`h-full flex items-center justify-center text-sm ${modalTextSubClass}`}>
+                          {t("bonevision.selectHistory")}
+                        </div>
+                      ) : loadingHistoryDetail ? (
+                        <div className={`text-sm ${modalTextSubClass}`}>{t("bonevision.loadingDetail")}</div>
+                      ) : (
+                        <div className="space-y-5 pb-2">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className={`text-sm ${modalTextSubClass}`}>
+                                {formatDateTime(selectedHistoryDetail.created_at)}
+                              </div>
+                              <h4 className="mt-1 text-2xl font-bold">
+                                {selectedHistoryDetail.image_name || `案例 ${selectedHistoryDetail.image_case_id}`}
+                              </h4>
+                              <div className={`mt-2 text-sm ${modalTextSubClass}`}>
+                                {t("bonevision.detectCount")}：{selectedHistoryDetail.detection_count ?? 0}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  applyHistoryDetailToCanvas(selectedHistoryDetail);
+                                  setIsHistoryOpen(false);
+                                  router.push(`/bonevision?caseId=${selectedHistoryDetail.image_case_id}`);
+                                }}
+                                className="flex items-center gap-2 rounded-2xl bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-cyan-400 transition-colors"
+                              >
+                                {t("bonevision.backToDetection")}
+
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={loadingHistoryDetail}
+                                onClick={() => handleDeleteHistory(selectedHistoryDetail.image_case_id)}
+                                className="flex items-center gap-2 rounded-2xl border border-red-300 px-5 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                              >
+                                {t("bonevision.delete")}
+
+                              </button>
+                            </div>
                           </div>
 
-                          <div>正確答案：{q.correct_answer}</div>
-
-                          {q.explanation && (
-                            <div className="mt-2 opacity-90">
-                              說明：{q.explanation}
+                          {selectedHistoryDetail.bone_image_id != null && (
+                            <div className={`rounded-3xl border p-4 ${cardClass}`}>
+                              <div className={`mb-3 text-sm ${modalTextSubClass}`}>{t("bonevision.imagePreview")}
+                              </div>
+                              <div className="flex items-center justify-center">
+                                <img
+                                  src={`${HISTORY_IMAGE_URL}/${selectedHistoryDetail.bone_image_id}`}
+                                  alt={selectedHistoryDetail.image_name || "history preview"}
+                                  className="max-h-[280px] max-w-full object-contain rounded-2xl"
+                                  onError={(e) => {
+                                    console.error("history preview failed:", {
+                                      bone_image_id: selectedHistoryDetail.bone_image_id,
+                                      src: (e.currentTarget as HTMLImageElement).src,
+                                      detail: selectedHistoryDetail,
+                                    });
+                                  }}
+                                />
+                              </div>
                             </div>
                           )}
+
+                          <div className={`rounded-3xl border p-4 ${cardClass}`}>
+                            <div className={`mb-3 text-sm ${modalTextSubClass}`}>{t("bonevision.detectionItems")}
+                            </div>
+                            {selectedHistoryDetail.detections.length === 0 ? (
+                              <div className={`text-sm ${modalTextSubClass}`}>{t("bonevision.noDetectionInRecord")}
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {selectedHistoryDetail.detections.map((d, idx) => (
+                                  <div
+                                    key={d.detection_id}
+                                    className={`rounded-2xl border px-4 py-3 ${isDarkMode ? "border-slate-800" : "border-slate-200"}`}
+                                  >
+                                    <div className="text-sm font-semibold">
+                                      {d.bone_info?.bone_zh ||
+                                        (d.label41 != null ? `label41=${d.label41}` : `Detection ${idx + 1}`)}
+                                    </div>
+                                    <div className={`mt-1 text-xs ${modalTextSubClass}`}>
+                                      confidence: {typeof d.confidence === "number" ? d.confidence.toFixed(3) : "—"}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                      <div className="mt-8 flex justify-between">
-                        <button
-                          onClick={() => setIsQuizOpen(false)}
-                          className={`px-5 py-3 rounded-2xl border ${isDarkMode
-                            ? "border-slate-700 text-slate-300 hover:bg-slate-800"
-                            : "border-slate-300 text-slate-600 hover:bg-slate-100"
+              <div
+                className={`shrink-0 px-8 py-4 border-t text-xs ${modalBorderClass} ${modalTextSubClass}`}
+              >
+                {t("bonevision.pressEscToClose")}
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {
+        isQuizOpen && quizData && (
+          <div
+            className={`fixed inset-0 z-[100] flex items-center justify-center p-6 ${isDarkMode ? "bg-black/70" : "bg-black/45"
+              }`}
+          >
+            <div
+              className={`w-full max-w-6xl h-[88vh] rounded-[32px] overflow-hidden flex shadow-2xl border ${isDarkMode
+                ? "border-slate-800 bg-slate-950 text-slate-100"
+                : "border-slate-200 bg-white text-slate-900"
+                }`}
+            >
+              {/* 左邊 */}
+              <div
+                className={`w-[48%] border-r p-6 flex flex-col ${isDarkMode ? "border-slate-800" : "border-slate-200"
+                  }`}
+              >
+                <div
+                  className={`text-lg font-bold mb-4 ${isDarkMode ? "text-white" : "text-slate-900"
+                    }`}
+                >
+                  {t("bonevision.quizModalTitle")}
+                </div>
+
+                <div
+                  className={`flex-1 flex items-center justify-center rounded-3xl overflow-hidden ${isDarkMode ? "bg-slate-900" : "bg-slate-100"
+                    }`}
+                >
+                  <div ref={quizDisplayRef} className="relative">
+                    <img
+                      src={previewUrl || ""}
+                      alt="quiz"
+                      className="max-w-full max-h-[520px] object-contain"
+                      onLoad={measureQuizLayout}
+                    />
+
+                    {(() => {
+                      const q = quizData?.questions?.[quizIndex];
+                      const poly = q?.poly || [];
+                      const points = quizPolyToPoints(poly);
+
+                      if (!points) return null;
+
+                      return (
+                        <svg
+                          className="absolute inset-0 w-full h-full pointer-events-none"
+                          viewBox={`0 0 ${quizImgBox.width || 100} ${quizImgBox.height || 100}`}
+                          preserveAspectRatio="none"
+                          style={{ zIndex: 20 }}
+                        >
+                          <polygon
+                            points={points}
+                            fill="rgba(34, 211, 238, 0.20)"
+                            stroke="#22d3ee"
+                            strokeWidth={4}
+                            className="drop-shadow-[0_0_14px_rgba(34,211,238,0.9)]"
+                          />
+                        </svg>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div
+                  className={`mt-4 text-xs ${isDarkMode ? "text-slate-400" : "text-slate-500"
+                    }`}
+                >
+                  {t("bonevision.question")} {quizIndex + 1} / {quizData.questions.length}
+                </div>
+              </div>
+
+              {/* 右邊 */}
+              <div
+                className={`flex-1 p-8 overflow-y-auto ${isDarkMode ? "bg-slate-950" : "bg-slate-50"
+                  }`}
+              >
+                {!quizFinished ? (
+                  (() => {
+                    const q = quizData.questions[quizIndex];
+                    const selectedAnswer = quizAnswers[quizIndex];
+                    const hasAnswered = Boolean(selectedAnswer);
+
+                    return (
+                      <>
+                        <div
+                          className="
+                    inline-flex items-center rounded-full
+                    bg-cyan-500/10 text-cyan-400
+                    px-3 py-1 text-xs font-semibold mb-4
+                  "
+                        >
+                          {t("bonevision.quizTag")}
+                        </div>
+
+                        <h2
+                          className={`text-2xl font-bold leading-relaxed ${isDarkMode ? "text-white" : "text-slate-900"
                             }`}
                         >
-                          關閉
-                        </button>
+                          {q.question}
+                        </h2>
 
-                        <button
-                          disabled={!hasAnswered}
-                          onClick={() => {
-                            if (selectedAnswer === q.correct_answer) {
-                              setQuizScore((prev) => prev + 1);
-                            }
+                        <div className="mt-8 space-y-4">
+                          {q.options.map((opt: string) => {
+                            const isSelected = selectedAnswer === opt;
+                            const isCorrect = opt === q.correct_answer;
+                            const isWrongSelected = isSelected && !isCorrect;
 
-                            if (quizIndex + 1 >= quizData.questions.length) {
-                              setQuizFinished(true);
-                            } else {
-                              setQuizIndex((prev) => prev + 1);
+                            return (
+                              <button
+                                key={opt}
+                                disabled={hasAnswered}
+                                onClick={() => {
+                                  setQuizAnswers((prev) => ({
+                                    ...prev,
+                                    [quizIndex]: opt,
+                                  }));
+                                }}
+                                className={`
+                          w-full rounded-2xl border px-5 py-4 text-left transition-all
+                          disabled:cursor-default
+                          ${hasAnswered && isCorrect
+                                    ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                                    : hasAnswered && isWrongSelected
+                                      ? "border-red-400 bg-red-50 text-red-600"
+                                      : isSelected
+                                        ? "border-cyan-400 bg-cyan-50 text-cyan-700"
+                                        : isDarkMode
+                                          ? "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                                          : "border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
+                                  }
+                        `}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>{opt}</span>
 
-                              requestAnimationFrame(() => {
-                                measureQuizLayout();
-                              });
-                            }
-                          }}
-                          className="
+                                  {hasAnswered && isCorrect && (
+                                    <span className="text-sm font-bold">✓ {t("bonevision.correct")}</span>
+                                  )}
+
+                                  {hasAnswered && isWrongSelected && (
+                                    <span className="text-sm font-bold">✕ {t("bonevision.wrong")}</span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {hasAnswered && (
+                          <div
+                            className={`
+                      mt-6 rounded-2xl border px-5 py-4 text-sm leading-relaxed
+                      ${selectedAnswer === q.correct_answer
+                                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                : "border-red-300 bg-red-50 text-red-600"
+                              }
+                    `}
+                          >
+                            <div className="font-bold mb-1">
+                              {selectedAnswer === q.correct_answer
+                                ? t("bonevision.correctMessage")
+                                : t("bonevision.wrongAnswer")}
+                            </div>
+                            <div>{t("bonevision.correctAnswer")}：{q.correct_answer}</div>
+
+                            {q.explanation && (
+                              <div className="mt-2 opacity-90">
+                                {t("bonevision.explanation")}：{q.explanation}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="mt-8 flex justify-between">
+                          <button
+                            onClick={() => setIsQuizOpen(false)}
+                            className={`px-5 py-3 rounded-2xl border ${isDarkMode
+                              ? "border-slate-700 text-slate-300 hover:bg-slate-800"
+                              : "border-slate-300 text-slate-600 hover:bg-slate-100"
+                              }`}
+                          >
+                            {t("bonevision.close")}
+                          </button>
+
+                          <button
+                            disabled={!hasAnswered}
+                            onClick={() => {
+                              if (selectedAnswer === q.correct_answer) {
+                                setQuizScore((prev) => prev + 1);
+                              }
+
+                              if (quizIndex + 1 >= quizData.questions.length) {
+                                setQuizFinished(true);
+                              } else {
+                                setQuizIndex((prev) => prev + 1);
+
+                                requestAnimationFrame(() => {
+                                  measureQuizLayout();
+                                });
+                              }
+                            }}
+                            className="
                       px-6 py-3 rounded-2xl
                       bg-cyan-500 text-slate-950 font-semibold
                       hover:bg-cyan-400
                       disabled:opacity-50 disabled:cursor-not-allowed
                     "
-                        >
-                          {quizIndex + 1 >= quizData.questions.length
-                            ? "完成測驗"
-                            : "下一題"}
-                        </button>
-                      </div>
-                    </>
-                  );
-                })()
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center">
-                  <div className="mb-6 flex justify-center">
-                    <video
-                      src="/video/800171160.433056.mp4"
-                      autoPlay
-                      muted
-                      playsInline
-                      className="w-40 h-40 object-contain"
-                    />
-                  </div>
+                          >
+                            {quizIndex + 1 >= quizData.questions.length
+                              ? t("bonevision.finishQuiz")
+                              : t("bonevision.nextQuestion")}
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-center">
+                    <div className="mb-6 flex justify-center">
+                      <video
+                        src="/video/800171160.433056.mp4"
+                        autoPlay
+                        muted
+                        playsInline
+                        className="w-40 h-40 object-contain"
+                      />
+                    </div>
 
-                  <h2
-                    className={`text-3xl font-bold ${isDarkMode ? "text-white" : "text-slate-900"
-                      }`}
-                  >
-                    測驗完成
-                  </h2>
+                    <h2
+                      className={`text-3xl font-bold ${isDarkMode ? "text-white" : "text-slate-900"
+                        }`}
+                    >
+                      {t("bonevision.quizCompleted")}
+                    </h2>
 
-                  <p
-                    className={`mt-4 text-xl ${isDarkMode ? "text-cyan-300" : "text-cyan-600"
-                      }`}
-                  >
-                    得分：{quizScore} / {quizData.questions.length}
-                  </p>
+                    <p
+                      className={`mt-4 text-xl ${isDarkMode ? "text-cyan-300" : "text-cyan-600"
+                        }`}
+                    >
+                      {t("bonevision.score")}：{quizScore} / {quizData.questions.length}
+                    </p>
 
-                  <button
-                    onClick={() => setIsQuizOpen(false)}
-                    className="
+                    <button
+                      onClick={() => setIsQuizOpen(false)}
+                      className="
                 mt-8 px-6 py-3 rounded-2xl
                 bg-cyan-500 text-slate-950 font-semibold
                 hover:bg-cyan-400
               "
-                  >
-                    完成
-                  </button>
-                </div>
-              )}
+                    >
+                      {t("bonevision.finish")}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 }

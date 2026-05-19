@@ -121,13 +121,28 @@ def get_spine_options(sub_label: str) -> List[str]:
     return shuffle_options(sub, wrongs[:3])
 
 
-def get_spine_special_question(sub_label: Optional[str]) -> Optional[Dict[str, Any]]:
+def get_spine_special_question(
+    sub_label: Optional[str],
+    locale: str = "zh-TW",
+) -> Optional[Dict[str, Any]]:
     if not sub_label:
         return None
 
     sub = sub_label.upper().strip()
+    is_en = locale == "en-US"
 
     if sub == "C1":
+        if is_en:
+            correct = "Atlas"
+            wrongs = ["Axis", "Thoracic vertebra", "Lumbar vertebra"]
+            return {
+                "type": "spine_level_name",
+                "question": "What is another name for the C1 vertebra shown in the image?",
+                "correct_answer": correct,
+                "options": shuffle_options(correct, wrongs),
+                "explanation": "C1 is the first cervical vertebra, also known as the Atlas.",
+            }
+
         correct = "寰椎 Atlas"
         wrongs = ["樞椎 Axis", "胸椎 Thoracic vertebra", "腰椎 Lumbar vertebra"]
         return {
@@ -139,6 +154,17 @@ def get_spine_special_question(sub_label: Optional[str]) -> Optional[Dict[str, A
         }
 
     if sub == "C2":
+        if is_en:
+            correct = "Axis"
+            wrongs = ["Atlas", "Thoracic vertebra", "Lumbar vertebra"]
+            return {
+                "type": "spine_level_name",
+                "question": "What is another name for the C2 vertebra shown in the image?",
+                "correct_answer": correct,
+                "options": shuffle_options(correct, wrongs),
+                "explanation": "C2 is the second cervical vertebra, also known as the Axis.",
+            }
+
         correct = "樞椎 Axis"
         wrongs = ["寰椎 Atlas", "胸椎 Thoracic vertebra", "腰椎 Lumbar vertebra"]
         return {
@@ -151,10 +177,18 @@ def get_spine_special_question(sub_label: Optional[str]) -> Optional[Dict[str, A
 
     return {
         "type": "spine_level",
-        "question": "圖中高亮的脊椎分節是？",
+        "question": (
+            "Which spinal segment is highlighted in the image?"
+            if is_en
+            else "圖中高亮的脊椎分節是？"
+        ),
         "correct_answer": sub,
         "options": get_spine_options(sub),
-        "explanation": f"此辨識框目前標示為 {sub}。",
+        "explanation": (
+            f"This detection box is currently labeled as {sub}."
+            if is_en
+            else f"此辨識框目前標示為 {sub}。"
+        ),
     }
 
 
@@ -290,6 +324,7 @@ def generate_quiz(
 def generate_quiz_from_case(
     image_case_id: int = Query(...),
     limit: int = Query(5, ge=3, le=5),
+    locale: str = Query("zh-TW"),
 ):
     detections = query_all(
         """
@@ -323,6 +358,7 @@ def generate_quiz_from_case(
     selected = detections[:limit]
 
     questions: List[Dict[str, Any]] = []
+    is_en = locale == "en-US"
 
     for d in selected:
         bone_id = int(d["BoneId"])
@@ -331,6 +367,8 @@ def generate_quiz_from_case(
         bone_region = d.get("bone_region") or ""
         sub_label = d.get("SubLabel")
         poly = parse_poly(d.get("PolyJson"))
+
+        bone_name = bone_en if is_en and bone_en else bone_zh
 
         if sub_label:
             sub = str(sub_label).upper().strip()
@@ -341,14 +379,22 @@ def generate_quiz_from_case(
                 "bone_id": bone_id,
                 "sub_label": sub,
                 "poly": poly,
-                "question": f"圖中高亮的「{bone_zh}」是第幾節？",
+                "question": (
+                    f"Which segment is the highlighted {bone_name}?"
+                    if is_en
+                    else f"圖中高亮的「{bone_zh}」是第幾節？"
+                ),
                 "correct_answer": sub,
                 "options": get_spine_options(sub),
-                "explanation": f"此辨識框對應的分節為 {sub}。",
+                "explanation": (
+                    f"This detection box corresponds to {sub}."
+                    if is_en
+                    else f"此辨識框對應的分節為 {sub}。"
+                ),
             })
 
             if sub in ["C1", "C2"]:
-                special = get_spine_special_question(sub)
+                special = get_spine_special_question(sub, locale=locale)
                 if special:
                     special["detection_id"] = d["DetectionId"]
                     special["bone_id"] = bone_id
@@ -358,15 +404,15 @@ def generate_quiz_from_case(
 
             continue
 
-        wrong_zh = [
-            clean_bone_zh(v)
-            for v in get_wrong_bone_options(
-                correct_bone_id=bone_id,
-                field="bone_zh",
-                limit=3,
-                same_region=bone_region,
-            )
-        ]
+        wrong_options = get_wrong_bone_options(
+            correct_bone_id=bone_id,
+            field="bone_en" if is_en else "bone_zh",
+            limit=3,
+            same_region=bone_region,
+        )
+
+        if not is_en:
+            wrong_options = [clean_bone_zh(v) for v in wrong_options]
 
         questions.append({
             "type": "case_bone_name",
@@ -374,10 +420,18 @@ def generate_quiz_from_case(
             "bone_id": bone_id,
             "sub_label": sub_label,
             "poly": poly,
-            "question": "圖中高亮的骨骼是？",
-            "correct_answer": bone_zh,
-            "options": shuffle_options(bone_zh, wrong_zh),
-            "explanation": f"此辨識框對應的骨骼為「{bone_zh}」。",
+            "question": (
+                "Which bone is highlighted in the image?"
+                if is_en
+                else "圖中高亮的骨骼是？"
+            ),
+            "correct_answer": bone_name,
+            "options": shuffle_options(bone_name, wrong_options),
+            "explanation": (
+                f"The highlighted bone is {bone_name}."
+                if is_en
+                else f"此辨識框對應的骨骼為「{bone_zh}」。"
+            ),
         })
 
     random.shuffle(questions)
