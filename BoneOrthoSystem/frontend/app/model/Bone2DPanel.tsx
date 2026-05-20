@@ -18,6 +18,7 @@ type Bone2DRegionKey =
 type Props = {
     selectedBoneName?: string | null;
     onRegionClick?: (regionKey: Bone2DRegionKey) => void;
+    locale?: string;
 };
 
 type DotPosition = {
@@ -876,7 +877,8 @@ function hasView(target: Bone2DTarget | null, view: ViewMode) {
     return Boolean(target.backDot || target.backDotPair);
 }
 
-export default function Bone2DPanel({ selectedBoneName, onRegionClick }: Props) {
+export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }: Props) {
+    const isEn = locale === 'en-US';
     const boneKey = useMemo(
         () => normalizeBoneKey(selectedBoneName),
         [selectedBoneName]
@@ -925,15 +927,19 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick }: Props) 
         >
             <div className="mb-3 flex shrink-0 items-start justify-between gap-3 pr-12">
                 <div>
-                    <div className="text-lg font-bold text-slate-800">人體部位圖</div>
+                    <div className="text-lg font-bold text-slate-800">
+                        {isEn ? 'Body Map' : '人體部位圖'}
+                    </div>
                     <div className="text-xs leading-5 text-slate-500">
-                        依 3D 骨頭自動同步高亮對應部位
+                        {isEn
+                            ? 'Automatically highlights the matching body region from the 3D model'
+                            : '依 3D 骨頭自動同步高亮對應部位'}
                     </div>
                 </div>
 
                 {target && (
                     <div className="shrink-0 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                        {target.labelZh} / {target.labelEn}
+                        {isEn ? target.labelEn : `${isEn ? target.labelEn : target.labelZh} / ${target.labelEn}`}
                     </div>
                 )}
             </div>
@@ -951,7 +957,7 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick }: Props) 
                         !canFront ? 'cursor-not-allowed opacity-40' : '',
                     ].join(' ')}
                 >
-                    正面
+                    {isEn ? 'Front' : '正面'}
                 </button>
 
                 <button
@@ -966,7 +972,7 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick }: Props) 
                         !canBack ? 'cursor-not-allowed opacity-40' : '',
                     ].join(' ')}
                 >
-                    背面
+                    {isEn ? 'Back' : '背面'}
                 </button>
             </div>
 
@@ -1196,12 +1202,20 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick }: Props) 
 
             {target ? (
                 <div className="mt-3 shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                    目前已同步高亮：
+                    {isEn ? 'Currently highlighted:' : '目前已同步高亮：'}
+
                     <span className="ml-1 font-semibold text-slate-800">
-                        {target.labelZh}
+                        {isEn ? target.labelEn : target.labelZh}
                     </span>
-                    <span className="mx-1 text-slate-400">/</span>
-                    <span className="font-medium text-blue-700">{target.labelEn}</span>
+
+                    {!isEn && (
+                        <>
+                            <span className="mx-1 text-slate-400">/</span>
+                            <span className="font-medium text-blue-700">
+                                {target.labelEn}
+                            </span>
+                        </>
+                    )}
                 </div>
             ) : null}
         </aside>

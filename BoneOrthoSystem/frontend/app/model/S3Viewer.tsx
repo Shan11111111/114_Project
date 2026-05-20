@@ -1,6 +1,8 @@
 // frontend/app/model/S3Viewer.tsx
 'use client';
 
+import { useLocale } from "../context/LocaleContext";
+
 import Bone2DPanel from './Bone2DPanel';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // import { useSearchParams } from 'next/navigation';
@@ -1015,11 +1017,13 @@ function prettyForBase(base: string, fallbackZh: string, fallbackEn: string): { 
   return { zh: fallbackZh || key, en: fallbackEn || key };
 }
 
-function getTeachingLevelMeta(level?: string | null) {
+function getTeachingLevelMeta(level?: string | null, isEn?: boolean) {
   if (level === 'advanced') {
     return {
-      label: '進階觀察',
-      desc: '這類骨頭位置較深、形狀較特殊，或容易和附近骨頭混淆，適合進一步比較與觀察。',
+      label: isEn ? 'Depth View' : '進階觀察',
+      desc: isEn
+        ? 'These bones are deeper in position, more structurally complex, or easier to confuse with nearby bones. Suitable for advanced observation and comparison.'
+        : '這類骨頭位置較深、形狀較特殊，或容易和附近骨頭混淆，適合進一步比較與觀察。',
       bg: 'rgba(168,85,247,0.14)',
       color: '#7e22ce',
       border: 'rgba(168,85,247,0.22)',
@@ -1028,8 +1032,10 @@ function getTeachingLevelMeta(level?: string | null) {
 
   if (level === 'key') {
     return {
-      label: '重點骨頭',
-      desc: '這類骨頭和支撐、活動、常見辨認或臨床學習較有關，提供較完整的結構、功能與定位說明。',
+      label: isEn ? 'Vital Bone' : '重點骨頭',
+      desc: isEn
+        ? 'These bones are important for support, movement, recognition, and clinical learning, providing more complete structural and functional explanations.'
+        : '這類骨頭和支撐、活動、常見辨認或臨床學習較有關，提供較完整的結構、功能與定位說明。',
       bg: 'rgba(59,130,246,0.14)',
       color: '#1d4ed8',
       border: 'rgba(59,130,246,0.22)',
@@ -1037,8 +1043,10 @@ function getTeachingLevelMeta(level?: string | null) {
   }
 
   return {
-    label: '基礎認識',
-    desc: '提供這塊骨頭的基本介紹，適合先建立整體概念。',
+    label: isEn ? 'Basic Knowledge' : '基礎認識',
+    desc: isEn
+      ? 'Provides a basic introduction to this bone, suitable for building foundational understanding.'
+      : '提供這塊骨頭的基本介紹，適合先建立整體概念。',
     bg: 'rgba(100,116,139,0.12)',
     color: '#475569',
     border: 'rgba(100,116,139,0.2)',
@@ -1684,7 +1692,8 @@ function readStoredS3ViewerState(): StoredS3ViewerState {
 }
 
 export default function S3Viewer() {
-
+  const { locale } = useLocale();
+  const isEn = locale === "en-US";
   const router = useRouter();
   const [isNavigating, setIsNavigating] = useState(false);
   const [navigatingText, setNavigatingText] = useState("");
@@ -1955,13 +1964,14 @@ export default function S3Viewer() {
   const setTopView = useCallback(() => {
     fitModelFromDirection(new THREE.Vector3(0, 1, 0.001));
   }, [fitModelFromDirection]);
-  const viewButtons: [string, () => void][] = [
-    ['重置', resetView],
-    ['上', setTopView],
-    ['正', setFrontView],
-    ['背', setBackView],
-    ['右', setRightView],
-    ['左', setLeftView],
+
+  const viewButtons: [string, string, () => void][] = [
+    [isEn ? 'Reset' : '重置', isEn ? 'Reset ' : '重置視角', resetView],
+    [isEn ? 'Top' : '上', isEn ? 'Top' : '上視角', setTopView],
+    [isEn ? 'Front' : '正', isEn ? 'Front' : '正視角', setFrontView],
+    [isEn ? 'Back' : '背', isEn ? 'Back' : '背視角', setBackView],
+    [isEn ? 'Right' : '右', isEn ? 'Right' : '右視角', setRightView],
+    [isEn ? 'Left' : '左', isEn ? 'Left' : '左視角', setLeftView],
   ];
 
   const IMAGE_GALLERY_BONES_16 = new Set([
@@ -2036,8 +2046,9 @@ export default function S3Viewer() {
           onClick={() => {
             navigateWithBoneLoading(
               `/bonevision?openGallery=1&bone=${encodeURIComponent(imageGalleryBone)}`,
-              `正在開啟影像學習庫：${imageGalleryBone}`
-            );
+              isEn
+                ? `Opening image learning gallery: ${imageGalleryBone}`
+                : `正在開啟影像學習庫：${imageGalleryBone}`);
           }}
           className="rounded-lg px-3 py-1 text-xs font-semibold"
           style={{
@@ -2045,7 +2056,7 @@ export default function S3Viewer() {
             color: "#15803d",
           }}
         >
-          🩻 看影像
+          {isEn ? 'View Images' : '看影像'}
         </button>
       </div>
     );
@@ -2746,7 +2757,7 @@ export default function S3Viewer() {
             </div>
 
             <div className="text-sm font-semibold text-slate-800">
-              正在開啟學習場景
+              {isEn ? 'Opening learning scene' : '正在開啟學習場景'}
             </div>
 
             <div className="mt-1 text-xs text-slate-500">
@@ -2786,17 +2797,19 @@ export default function S3Viewer() {
           }}
         >
           <div style={{ fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap' }}>
-            骨架導覽
+            {isEn ? "Skeleton Guide" : "骨架導覽"}
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button style={sTopToggleBtn} onClick={toggleAllGroups}>
-              {allOpen ? '一鍵收起' : '一鍵展開'}
+              {allOpen
+                ? isEn ? 'Collapse All' : '一鍵收起'
+                : isEn ? 'Expand All' : '一鍵展開'}
             </button>
 
             <button
               onClick={() => setSidebarOpen(false)}
-              title="收合面板"
+              title={isEn ? 'Collapse panel' : '收合面板'}
               style={sIconBtn}
             >
               ×
@@ -2807,8 +2820,11 @@ export default function S3Viewer() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋骨頭：鎖骨、胸骨、肋骨、尺骨、股骨、髕骨..."
-          style={{
+          placeholder={
+            isEn
+              ? 'Search bones: clavicle, sternum, ribs, ulna, femur, patella...'
+              : '搜尋骨頭：鎖骨、胸骨、肋骨、尺骨、股骨、髕骨...'
+          } style={{
             width: '100%',
             padding: '10px 12px',
             borderRadius: 10,
@@ -2840,7 +2856,7 @@ export default function S3Viewer() {
                 onClick={() => toggleGroup(group.key)}
                 style={sGroupBtn(isOpen)}
               >
-                <span>{group.labelZh}</span>
+                <span>{isEn ? group.labelEn : group.labelZh}</span>
                 <span style={{ opacity: 0.75, fontSize: 12 }}>
                   {count}
                 </span>
@@ -2881,8 +2897,22 @@ export default function S3Viewer() {
                         ? boneInfo.bone_desc ?? ''
                         : displayItem?.bone_desc ?? '';
 
+                    const teachingIntro = isEn
+                      ? displayName.en
+                        ? `This section introduces ${displayName.en}, including its basic position, structure, and learning focus.`
+                        : displayTeaching?.IntroText ?? ''
+                      : displayTeaching?.IntroText ?? '';
+
+                    const teachingQuestions = isEn
+                      ? [
+                        `Where is ${displayName.en} located?`,
+                        `How can I distinguish ${displayName.en} from nearby bones?`,
+                        `How can I quickly locate ${displayName.en} in the 3D model?`,
+                      ]
+                      : parseSuggestedQuestions(displayTeaching?.SuggestedQuestions);
                     const teachingLevel = displayTeaching?.TeachingLevel ?? 'basic';
                     const isBasicTeaching = teachingLevel !== 'key' && teachingLevel !== 'advanced';
+
 
                     return (
                       <div
@@ -2899,7 +2929,9 @@ export default function S3Viewer() {
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                           <div>
-                            <div style={{ fontWeight: 900, fontSize: 15 }}>{card.displayZh}</div>
+                            <div style={{ fontWeight: 900, fontSize: 15 }}>
+                              {isEn ? card.displayEn : card.displayZh}
+                            </div>
                             <div style={{ fontSize: 12, opacity: 0.82 }}>{card.displayEn}</div>
                           </div>
 
@@ -2911,9 +2943,8 @@ export default function S3Viewer() {
                                 setExpandedCardId(cardId);
                                 selectSeries(card.series);
                               }}
-                              title="選取整組（全部亮）"
-                            >
-                              整組
+                              title={isEn ? 'Select whole group' : '選取整組（全部亮）'}                          >
+                              {isEn ? 'Group' : '整組'}
                             </button>
                           ) : null}
                         </div>
@@ -2969,7 +3000,7 @@ export default function S3Viewer() {
                                 }}
                                 title={card.C.mesh_name}
                               >
-                                選取
+                                {isEn ? 'Select' : '選取'}
                               </button>
                             ) : null}
 
@@ -2984,7 +3015,11 @@ export default function S3Viewer() {
                                     setSoloNormSet(null);
                                   }
                                 }}
-                                title={soloActive ? '顯示目前部位包的全部骨頭' : '只顯示目前選取的這顆骨頭'}
+                                title={
+                                  soloActive
+                                    ? isEn ? 'Show all bones in this body part' : '顯示目前部位包的全部骨頭'
+                                    : isEn ? 'Show only the selected bone' : '只顯示目前選取的這顆骨頭'
+                                }
                                 style={{
                                   height: 34,
                                   padding: '0 12px',
@@ -2998,7 +3033,9 @@ export default function S3Viewer() {
                                   whiteSpace: 'nowrap',
                                 }}
                               >
-                                {soloActive ? '顯示全部' : '只顯示此骨頭'}
+                                {soloActive
+                                  ? isEn ? 'Show All' : '顯示全部'
+                                  : isEn ? 'Isolate Bone' : '只顯示此骨頭'}
                               </button>
                             ) : null}
 
@@ -3054,8 +3091,9 @@ export default function S3Viewer() {
                           </div>
                         ) : (
                           <div style={sMini}>
-                            點「整組」會讓 {card.displayZh} ({card.order.join(', ')}) 全部一起亮；再點單顆會顯示該節資訊。
-                          </div>
+                            {isEn
+                              ? `Click “Group” to highlight all ${card.displayEn} (${card.order.join(', ')}). Click a single item to view its details.`
+                              : `點「整組」會讓 ${card.displayZh} (${card.order.join(', ')}) 全部一起亮；再點單顆會顯示該節資訊。`}                          </div>
                         )}
 
                         {/* Info */}
@@ -3064,9 +3102,9 @@ export default function S3Viewer() {
 
 
                             {loadingInfo && active ? (
-                              <div style={{ opacity: 0.7, fontSize: 13 }}>載入中…</div>
+                              <div style={{ opacity: 0.7, fontSize: 13 }}>{isEn ? 'Loading…' : '載入中…'}</div>
                             ) : !displayTeaching && !displayDesc ? (
-                              <div style={{ opacity: 0.7, fontSize: 13 }}>尚未載入資訊</div>
+                              <div style={{ opacity: 0.7, fontSize: 13 }}>{isEn ? 'No information loaded yet' : '尚未載入資訊'}</div>
                             ) : (
                               <div style={{ fontSize: 13, lineHeight: 1.55 }}>
                                 <div
@@ -3080,16 +3118,21 @@ export default function S3Viewer() {
                                 >
                                   <div style={{ minWidth: 0 }}>
                                     <div style={{ fontWeight: 900 }}>
-                                      {displayName.zh} / {displayName.en}
+                                      {isEn ? displayName.en : displayName.zh}
+                                      {!isEn ? ` / ${displayName.en}` : ''}
                                     </div>
                                     <div style={{ opacity: 0.85 }}>
-                                      {displayRegion}
+                                      {isEn
+                                        ? displayRegion
+                                          .replace('軀幹骨', 'Axial Skeleton')
+                                          .replace('上肢骨', 'Appendicular Skeleton - Upper Limb')
+                                          .replace('下肢骨', 'Appendicular Skeleton - Lower Limb')
+                                        : displayRegion}
                                     </div>
                                   </div>
 
                                   {displayTeaching ? (() => {
-                                    const levelMeta = getTeachingLevelMeta(displayTeaching.TeachingLevel);
-
+                                    const levelMeta = getTeachingLevelMeta(displayTeaching.TeachingLevel, isEn);
                                     return (
                                       <div
                                         style={{
@@ -3129,34 +3172,53 @@ export default function S3Viewer() {
                                     {displayTeaching?.IntroText ? (
                                       <div style={sTeachingSection}>
                                         <div style={sTeachingTitle}>
-                                          📖 {isBasicTeaching ? '簡短介紹' : '詳細介紹'}
+                                          {isBasicTeaching
+                                            ? isEn ? 'Brief Introduction' : '簡短介紹'
+                                            : isEn ? 'Detailed Introduction' : '詳細介紹'}
                                         </div>
-                                        <div style={sTeachingText}>{displayTeaching.IntroText}</div>
+                                        <div style={sTeachingText}>{teachingIntro}</div>
                                       </div>
                                     ) : null}
 
                                     {!isBasicTeaching && displayTeaching?.StructureFunctionText ? (
                                       <div style={sTeachingSection}>
-                                        <div style={sTeachingTitle}>🧠 結構與功能</div>
-                                        <div style={sTeachingText}>{displayTeaching.StructureFunctionText}</div>
+                                        <div style={sTeachingTitle}>
+                                          {isEn ? 'Structure & Function' : '結構與功能'}
+                                        </div>
+
+                                        <div style={sTeachingText}>
+                                          {isEn
+                                            ? `Learn the structural characteristics and functional role of ${displayName.en}.`
+                                            : displayTeaching.StructureFunctionText}
+                                        </div>
                                       </div>
                                     ) : null}
 
                                     {!isBasicTeaching && displayTeaching?.LearningText ? (
                                       <div style={sTeachingSection}>
-                                        <div style={sTeachingTitle}>📍 3D定位與辨認</div>
-                                        <div style={sTeachingText}>{displayTeaching.LearningText}</div>
+                                        <div style={sTeachingTitle}>
+                                          {isEn ? '3D Positioning & Recognition' : '3D定位與辨認'}
+                                        </div>
+
+                                        <div style={sTeachingText}>
+                                          {isEn
+                                            ? `Use the 3D model to observe the position, orientation, and surrounding anatomical relationships of ${displayName.en}.`
+                                            : displayTeaching.LearningText}
+                                        </div>
                                       </div>
                                     ) : null}
-
-                                    {parseSuggestedQuestions(displayTeaching?.SuggestedQuestions).length > 0 ? (
+                                    {teachingQuestions.length > 0 ? (
                                       <div style={sTeachingSection}>
-                                        <div style={sTeachingTitle}>🎯 小挑戰 / 延伸問題</div>
+                                        <div style={sTeachingTitle}>
+                                          {isEn ? 'Challenge / Follow-up Questions' : '小挑戰 / 延伸問題'}
+                                        </div>
                                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                          {parseSuggestedQuestions(displayTeaching?.SuggestedQuestions).map((question) => {
+                                          {teachingQuestions.map((question) => {
+                                            const boneLabel = isEn ? displayName.en : displayName.zh;
+
                                             const questionParams = new URLSearchParams({
                                               q: question,
-                                              bone: displayName.zh,
+                                              bone: boneLabel,
                                               bone_zh: displayName.zh,
                                               bone_en: displayName.en,
                                               mesh: selectedMeshName ?? displayItem?.mesh_name ?? '',
@@ -3169,15 +3231,20 @@ export default function S3Viewer() {
                                                 onClick={() => {
                                                   navigateWithBoneLoading(
                                                     `/llm?${questionParams.toString()}`,
-                                                    `正在開啟 GalaBone RAG：${question}`
+                                                    isEn
+                                                      ? `Opening GalaBone RAG: ${question}`
+                                                      : `正在開啟 GalaBone RAG：${question}`
                                                   );
                                                 }}
                                                 className="rounded-lg px-3 py-1 text-xs font-semibold"
                                                 style={{
                                                   backgroundColor: 'rgba(56,189,248,0.14)',
                                                   color: '#0369a1',
-                                                }}
-                                              >
+                                                  textAlign: 'left',
+                                                  justifyContent: 'flex-start',
+                                                  alignItems: 'flex-start',
+                                                  whiteSpace: 'normal',
+                                                }}                                              >
                                                 {question}
                                               </button>
                                             );
@@ -3225,7 +3292,7 @@ export default function S3Viewer() {
             boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
             backdropFilter: 'blur(10px)',
           }}        >
-          ☰ 選單
+          {isEn ? '☰ Menu' : '☰ 選單'}
         </button>
       )}
 
@@ -3265,11 +3332,11 @@ export default function S3Viewer() {
               backdropFilter: 'none',
             }}
           >
-            {viewButtons.map(([label, fn]) => (
+            {viewButtons.map(([label, title, fn]) => (
               <button
                 key={label}
                 onClick={fn}
-                title={`${label}視角`}
+                title={`${label}`}
                 style={{
                   height: 42,
                   borderRadius: 10,
@@ -3309,8 +3376,8 @@ export default function S3Viewer() {
           >
             <button
               type="button"
-              aria-label="操作說明"
-              title="操作說明"
+              aria-label={isEn ? 'Controls help' : '操作說明'}
+              title={isEn ? 'Controls help' : '操作說明'}
               onClick={(e) => {
                 e.stopPropagation();
                 setShowControlHelp((v) => !v);
@@ -3357,10 +3424,12 @@ export default function S3Viewer() {
                   whiteSpace: 'nowrap',
                 }}
               >
-                <div style={{ fontWeight: 900, marginBottom: 2 }}>操作說明</div>
-                <div>左鍵：旋轉</div>
-                <div>右鍵：平移</div>
-                <div>滾輪：縮放</div>
+                <div style={{ fontWeight: 900, marginBottom: 2 }}>
+                  {isEn ? 'Controls' : '操作說明'}
+                </div>
+                <div>{isEn ? 'Left: Rotate' : '左鍵：旋轉'}</div>
+                <div>{isEn ? 'Right: Pan' : '右鍵：平移'}</div>
+                <div>{isEn ? 'Wheel: Zoom' : '滾輪：縮放'}</div>
               </div>
             ) : null}
           </div>
@@ -3388,8 +3457,8 @@ export default function S3Viewer() {
           <button
             type="button"
             onClick={() => setShow2DPanel(false)}
-            title="收起人體部位圖"
-            aria-label="收起人體部位圖"
+            title={isEn ? 'Hide body map' : '收起人體部位圖'}
+            aria-label={isEn ? 'Hide body map' : '收起人體部位圖'}
             style={{
               position: 'absolute',
               top: 18,
@@ -3416,6 +3485,7 @@ export default function S3Viewer() {
           </button>
 
           <Bone2DPanel
+            locale={locale}
             selectedBoneName={
               [
                 selectedMeshName ? normalizeMeshName(selectedMeshName) : null,
@@ -3503,10 +3573,10 @@ export default function S3Viewer() {
           <button
             type="button"
             onClick={() => setShow2DPanel(true)}
-            title="顯示人體部位圖"
+            title={isEn ? 'Show body map' : '顯示人體部位圖'}
             style={{
               position: 'absolute',
-              top: 222,
+              top: 145,
               right: 24,
               zIndex: 80,
               height: 38,
@@ -3522,7 +3592,7 @@ export default function S3Viewer() {
               backdropFilter: 'blur(10px)',
             }}
           >
-            顯示部位圖
+            {isEn ? 'Show Body Map' : '顯示部位圖'}
           </button>
         )}
 
