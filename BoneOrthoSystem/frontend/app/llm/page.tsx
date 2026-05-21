@@ -3665,10 +3665,6 @@ function LLMClient() {
     setInputBoxHeight(newHeight);
   }
 
-  useEffect(() => {
-    if (activeView !== "llm") return;
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading, activeView]);
 
   useEffect(() => {
     requestAnimationFrame(() => autoResizeTextarea());

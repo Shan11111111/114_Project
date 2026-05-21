@@ -920,17 +920,31 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
     return (
         <aside
             className="
-        pointer-events-auto flex max-h-[calc(100dvh-104px)] w-full flex-col
-        rounded-[28px] border border-slate-200 bg-white p-4
-        text-slate-900 shadow-[0_16px_40px_rgba(15,23,42,0.12)]
-      "
+      pointer-events-auto flex max-h-[calc(100dvh-104px)] w-full flex-col
+      rounded-[28px] border p-5
+      shadow-[0_18px_45px_rgba(0,0,0,0.28)]
+    "
+            style={{
+                background: 'var(--panel-bg)',
+                borderColor: 'var(--panel-border)',
+                color: 'var(--panel-text)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+            }}
         >
-            <div className="mb-3 flex shrink-0 items-start justify-between gap-3 pr-12">
+            <div className="mb-4 flex shrink-0 items-start justify-between gap-3 pr-12">
                 <div>
-                    <div className="text-lg font-bold text-slate-800">
+                    <div
+                        className="text-lg font-bold"
+                        style={{ color: 'var(--panel-text)' }}
+                    >
                         {isEn ? 'Body Map' : '人體部位圖'}
                     </div>
-                    <div className="text-xs leading-5 text-slate-500">
+
+                    <div
+                        className="mt-1 text-xs leading-5"
+                        style={{ color: 'var(--muted-foreground, rgba(100,116,139,0.9))' }}
+                    >
                         {isEn
                             ? 'Automatically highlights the matching body region from the 3D model'
                             : '依 3D 骨頭自動同步高亮對應部位'}
@@ -938,24 +952,38 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                 </div>
 
                 {target && (
-                    <div className="shrink-0 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                        {isEn ? target.labelEn : `${isEn ? target.labelEn : target.labelZh} / ${target.labelEn}`}
+                    <div
+                        className="shrink-0 rounded-full px-3 py-1 text-xs font-medium"
+                        style={{
+                            background: 'rgba(59,130,246,0.16)',
+                            color: '#93c5fd',
+                            border: '1px solid rgba(147,197,253,0.25)',
+                        }}
+                    >
+                        {isEn ? target.labelEn : `${target.labelZh} / ${target.labelEn}`}
                     </div>
                 )}
             </div>
 
-            <div className="mb-3 grid shrink-0 grid-cols-2 rounded-2xl bg-slate-100 p-1">
+            <div
+                className="mb-4 grid shrink-0 grid-cols-2 overflow-hidden rounded-2xl p-1"
+                style={{
+                    background: 'var(--panel-btn-bg)',
+                    border: '1px solid var(--panel-border)',
+                }}
+            >
                 <button
                     type="button"
                     onClick={() => canFront && setView('front')}
                     disabled={!canFront}
-                    className={[
-                        'rounded-xl px-4 py-2 text-sm font-semibold transition',
-                        view === 'front'
-                            ? 'bg-blue-500 text-white shadow'
-                            : 'bg-transparent text-slate-600 hover:bg-white',
-                        !canFront ? 'cursor-not-allowed opacity-40' : '',
-                    ].join(' ')}
+                    className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+                    style={{
+                        background: view === 'front' ? '#3b82f6' : 'transparent',
+                        color: view === 'front' ? '#ffffff' : 'var(--panel-text)',
+                        boxShadow:'none',
+                        opacity: !canFront ? 0.4 : 1,
+                        cursor: !canFront ? 'not-allowed' : 'pointer',
+                    }}
                 >
                     {isEn ? 'Front' : '正面'}
                 </button>
@@ -964,26 +992,38 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                     type="button"
                     onClick={() => canBack && setView('back')}
                     disabled={!canBack}
-                    className={[
-                        'rounded-xl px-4 py-2 text-sm font-semibold transition',
-                        view === 'back'
-                            ? 'bg-blue-500 text-white shadow'
-                            : 'bg-transparent text-slate-600 hover:bg-white',
-                        !canBack ? 'cursor-not-allowed opacity-40' : '',
-                    ].join(' ')}
+                    className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+                    style={{
+                        background: view === 'back' ? '#3b82f6' : 'transparent',
+                        color: view === 'back' ? '#ffffff' : 'var(--panel-text)',
+                        boxShadow: view === 'back' ? '0 8px 20px rgba(59,130,246,0.32)' : 'none',
+                        opacity: !canBack ? 0.4 : 1,
+                        cursor: !canBack ? 'not-allowed' : 'pointer',
+                    }}
                 >
                     {isEn ? 'Back' : '背面'}
                 </button>
             </div>
 
-            <div className="min-h-0 flex-1 rounded-[26px] border border-slate-200 bg-slate-50 p-3">
+            <div
+                className="min-h-0 flex-1 rounded-[26px] border p-3"
+                style={{
+                    background: 'var(--panel-btn-bg)',
+                    borderColor: 'var(--panel-border)',
+                }}
+            >
                 {/*
           重點在這裡：
           1. 不再用固定 620px 大圖硬塞。
           2. 用 panel 剩餘高度 flex-1 自動縮放。
           3. object-contain 確保頭和腳完整出現。
         */}
-                <div className="relative h-full min-h-[300px] w-full overflow-hidden">
+                <div
+                    className="relative h-full min-h-[300px] w-full overflow-hidden rounded-[20px]"
+                    style={{
+                        background: 'var(--image-panel-bg, rgba(255,255,255,0.96))',
+                    }}
+                >
                     <style>{`
             @keyframes bone2dPulse {
               0% {
@@ -1016,8 +1056,12 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                         alt={view === 'front' ? 'Front body map' : 'Back body map'}
                         className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
                         draggable={false}
+                        style={{
+                            opacity: 0.96,
+                            filter: 'contrast(1.03) saturate(1.02)',
+                            transform: 'translateY(-6px) scale(1.01)',
+                        }}
                     />
-
                     {/* 2D 圖點擊區：只做分類導覽，不直接選 206 細項骨頭 */}
                     <div
                         className="absolute inset-0"
@@ -1177,8 +1221,8 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                             style={{
                                 left: `${dot.x}%`,
                                 top: `${dot.y}%`,
-                                width: 20,
-                                height: 20,
+                                width: 28,
+                                height: 28,
                                 borderRadius: 999,
                                 background:
                                     'radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(56,189,248,0.58) 34%, rgba(37,99,235,0.42) 62%, rgba(37,99,235,0) 72%)',
@@ -1201,17 +1245,30 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
             </div>
 
             {target ? (
-                <div className="mt-3 shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <div
+                    className="mt-3 shrink-0 rounded-2xl border px-3 py-2 text-xs"
+                    style={{
+                        background: 'var(--panel-btn-bg)',
+                        borderColor: 'var(--panel-border)',
+                        color: 'var(--panel-text)',
+                    }}
+                >
                     {isEn ? 'Currently highlighted:' : '目前已同步高亮：'}
 
-                    <span className="ml-1 font-semibold text-slate-800">
+                    <span
+                        className="ml-1 font-semibold"
+                        style={{ color: 'var(--panel-text)' }}
+                    >
                         {isEn ? target.labelEn : target.labelZh}
                     </span>
 
                     {!isEn && (
                         <>
                             <span className="mx-1 text-slate-400">/</span>
-                            <span className="font-medium text-blue-700">
+                            <span
+                                className="font-medium"
+                                style={{ color: '#3b82f6' }}
+                            >
                                 {target.labelEn}
                             </span>
                         </>
