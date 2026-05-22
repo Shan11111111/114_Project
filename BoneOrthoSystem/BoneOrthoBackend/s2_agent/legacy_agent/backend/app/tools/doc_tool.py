@@ -29,24 +29,92 @@ def _clean_text(t: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _is_metadata_line(line: str) -> bool:
+    """
+    過濾上傳檔/網頁常見的行政資訊。
+    目標：摘要只留文章重點，不把發布單位、點閱、日期、作者來源塞進去。
+    中英文都處理。
+    """
+    s = re.sub(r"^[\-•●○▪▫◆◇\s]+", "", (line or "").strip())
+    if not s:
+        return True
+
+    s_lower = s.lower()
+
+    # Excel / 表格標記或純表頭，不應出現在摘要裡
+    if re.match(r"^\[?sheet\]?\s*[:：]", s_lower) or re.match(r"^\[sheet\]", s_lower):
+        return True
+    compact_header = re.sub(r"\s+", " ", s_lower).strip()
+    table_headers = [
+        "category topic key point details suggested question",
+        "test item expected result",
+        "life stage goal methods",
+    ]
+    if compact_header in table_headers:
+        return True
+
+    # 日期 / 數字型資訊
+    date_patterns = [
+        r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b",
+        r"\bupdated\s*[:：]",
+        r"\bpublished\s*[:：]",
+        r"\bviews?\s*[:：]",
+        r"更新日期\s*[:：]",
+        r"發布日期\s*[:：]",
+        r"點閱次數\s*[:：]",
+        r"瀏覽次數\s*[:：]",
+    ]
+    if any(re.search(p, s_lower) for p in date_patterns):
+        return True
+
+    # 發布/作者/網站行政資訊
+    metadata_phrases = [
+        "publishing unit", "published by", "updated", "views",
+        "webpage content", "provided by", "listed in order of surname",
+        "director of", "department of", "hospital", "medical college",
+        "發布單位", "網頁內容", "共同提供", "依姓氏排列",
+        "資料來源", "製作單位", "核可", "編號", "copyright", "版權",
+    ]
+    if any(p in s_lower for p in metadata_phrases):
+        return True
+
+    # 純標題且太短，通常不是摘要重點；避免摘要第一條只有「Menopause and Osteoporosis」
+    title_like = [
+        "menopause and osteoporosis",
+        "更年期與骨質疏鬆",
+        "risk factors for osteoporosis",
+        "how to prevent osteoporosis",
+        "骨質疏鬆的危險因子",
+        "如何預防骨質疏鬆",
+    ]
+    if s_lower in title_like:
+        return True
+
+    return False
+
+
 def _drop_boilerplate_lines(lines: List[str]) -> List[str]:
     """
-    針對網頁抽字後常見雜訊做基本過濾（保守，不要誤刪太多）
+    針對網頁/文件抽字後常見雜訊做基本過濾。
+    保留真正衛教內容，移除日期、點閱、發布單位、作者欄位等行政資訊。
     """
     bad_phrases = [
         "熱門文章", "熱門話題", "分類", "標籤", "延伸閱讀",
         "按讚", "分享", "回到首頁", "上一頁", "下一頁",
         "訂閱", "登入", "註冊", "會員", "廣告", "cookie",
+        "menu", "home", "login", "subscribe", "share", "advertisement",
     ]
     out = []
     for ln in lines:
         s = ln.strip()
         if not s:
             continue
+        if _is_metadata_line(s):
+            continue
         # 太短、像導航
         if len(s) <= 2:
             continue
-        if any(p in s for p in bad_phrases):
+        if any(p.lower() in s.lower() for p in bad_phrases):
             # 但如果是「注意/警訊/就醫」這種關鍵字就留
             if any(k in s for k in ["注意", "警訊", "就醫", "回診", "禁忌", "不可", "避免"]):
                 out.append(s)
@@ -55,57 +123,113 @@ def _drop_boilerplate_lines(lines: List[str]) -> List[str]:
     return out
 
 
-def _make_summary(t: str, max_chars: int = 1200) -> str:
+def _format_summary_line(line: str) -> str:
     """
-    產出「像摘要」的條列重點：
-    - 先抓最常見的關鍵句（含：注意事項/適應症/步驟/警訊/何時就醫/禁忌）
-    - 不夠再補前段內容
+    把 Excel 表格列轉成比較像「文章重點」的句子。
+    例如：Category: ... | Topic: Spine | Key Point: ... | Details: ...
+    會變成：Spine：Osteoporosis commonly affects... Compression fractures...
+    """
+    s = (line or "").strip()
+    if "|" not in s or ":" not in s:
+        return s
+
+    fields: Dict[str, str] = {}
+    for part in s.split("|"):
+        if ":" not in part:
+            continue
+        k, v = part.split(":", 1)
+        k = k.strip().lower()
+        v = v.strip()
+        if k and v:
+            fields[k] = v
+
+    topic = fields.get("topic") or fields.get("主題") or fields.get("項目") or ""
+    key_point = fields.get("key point") or fields.get("重點") or fields.get("摘要") or ""
+    details = fields.get("details") or fields.get("detail") or fields.get("說明") or fields.get("內容") or ""
+
+    body_parts = []
+    if key_point:
+        body_parts.append(key_point)
+    if details and details not in key_point:
+        body_parts.append(details)
+
+    body = " ".join(body_parts).strip()
+    if topic and body:
+        return f"{topic}: {body}"
+    return body or s
+
+
+def _make_summary(t: str, max_chars: int = 2200) -> str:
+    """
+    產出文章重點摘要：
+    - 中英文文件都用同一套規則
+    - 不輸出日期、點閱數、發布單位、作者來源等行政資訊
+    - 優先抓疾病/風險/症狀/部位/預防/治療相關句
     """
     t = _clean_text(t)
     if not t:
         return ""
 
-    lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+    raw_lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+    if not raw_lines:
+        return ""
+
+    lines = _drop_boilerplate_lines(raw_lines)
     if not lines:
         return ""
 
-    # 網頁雜訊先砍一波
-    lines = _drop_boilerplate_lines(lines)
-
     keywords = [
+        # 中文衛教重點
         "注意", "警訊", "何時", "就醫", "回診", "傷口", "換藥", "浸泡",
         "消毒", "感染", "紅", "腫", "熱", "痛", "流膿", "發燒",
         "步驟", "方法", "需", "請", "避免", "不可", "禁忌",
         "目的", "適應", "適用", "處置", "藥", "敷料",
-        "風險", "症狀", "治療", "預防", "檢查",
+        "風險", "症狀", "治療", "預防", "檢查", "危險因子",
+        "骨質疏鬆", "骨鬆", "更年期", "停經", "雌激素", "骨質流失",
+        "骨密度", "骨折", "脊椎", "壓迫性骨折", "股骨", "髖骨", "手腕",
+        "鈣", "維他命", "維生素", "運動", "抽菸", "吸菸", "酗酒", "類固醇",
+
+        # English key points
+        "key point", "details", "risk", "risk factor", "symptom", "treatment", "therapy", "prevention", "prevent",
+        "screening", "check", "diagnosis", "osteoporosis", "osteopenia", "menopause",
+        "postmenopausal", "estrogen", "bone loss", "bone density", "fracture",
+        "compression fracture", "spine", "vertebra", "vertebrae", "hip", "femoral",
+        "femur", "wrist", "calcium", "vitamin d", "exercise", "smoking", "alcohol",
+        "corticosteroid", "steroid", "diabetes", "kidney disease", "dialysis",
     ]
 
-    picked = []
+    picked: List[str] = []
     seen = set()
 
+    def normalize_for_seen(line: str) -> str:
+        return re.sub(r"\s+", " ", line.strip().lower())
+
     def add(line: str):
-        s = line.strip()
-        if not s:
+        s = _format_summary_line(line.strip())
+        if not s or _is_metadata_line(s):
             return
-        if s in seen:
+        # 避免把表格殘片或單一欄位塞進摘要
+        if len(s) < 12 and not any(k in s for k in ["骨折", "骨鬆", "骨質疏鬆"]):
             return
-        seen.add(s)
+        key = normalize_for_seen(s)
+        if key in seen:
+            return
+        seen.add(key)
         picked.append(s)
 
-    # 1) 先抓含關鍵詞的句子
+    # 1) 優先抓含中英文關鍵詞的句子
     for ln in lines:
-        if any(k in ln for k in keywords):
+        low = ln.lower()
+        if any(k.lower() in low for k in keywords):
             add(ln)
-        if len(picked) >= 10:
+        if len(picked) >= 14:
             break
 
-    # 2) 不足的話，補前面幾行有資訊密度的
+    # 2) 不足的話，補前段有資訊量的內容，但仍過濾行政資訊
     if len(picked) < 6:
-        for ln in lines[:30]:
-            if any(x in ln for x in ["編號", "核可", "製作單位", "科別", "copyright"]):
-                continue
+        for ln in lines[:40]:
             add(ln)
-            if len(picked) >= 8:
+            if len(picked) >= 10:
                 break
 
     out = []
@@ -188,12 +312,50 @@ def _extract_xlsx(path: Path) -> str:
         import openpyxl
         wb = openpyxl.load_workbook(str(path), data_only=True)
         texts = []
+
         for ws in wb.worksheets:
             texts.append(f"[Sheet] {ws.title}")
-            for row in ws.iter_rows(values_only=True):
-                line = " ".join([str(x) for x in row if x is not None]).strip()
+
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                continue
+
+            # 找第一列有內容的 row 當表頭；如果不像表頭，仍用一般文字方式保底
+            header_row = None
+            header_idx = -1
+            for idx, row in enumerate(rows):
+                vals = [str(x).strip() for x in row if x is not None and str(x).strip()]
+                if vals:
+                    header_row = [str(x).strip() if x is not None else "" for x in row]
+                    header_idx = idx
+                    break
+
+            if header_row is None:
+                continue
+
+            headers = [h.strip() for h in header_row]
+            has_headers = sum(1 for h in headers if h) >= 2
+
+            for row in rows[header_idx + 1 if has_headers else header_idx:]:
+                cells = [str(x).strip() if x is not None else "" for x in row]
+                if not any(cells):
+                    continue
+
+                if has_headers:
+                    parts = []
+                    for h, c in zip(headers, cells):
+                        if h and c:
+                            parts.append(f"{h}: {c}")
+                    # 如果欄位數超過表頭，也把剩下有內容的 cell 留下
+                    if len(cells) > len(headers):
+                        parts.extend([c for c in cells[len(headers):] if c])
+                    line = " | ".join(parts).strip()
+                else:
+                    line = " ".join([c for c in cells if c]).strip()
+
                 if line:
                     texts.append(line)
+
         return "\n".join(texts)
     except Exception as e:
         raise RuntimeError(f"XLSX 解析失敗：{e}")
@@ -282,10 +444,39 @@ def is_enabled() -> bool:
     return os.getenv("S2_ENABLE_DOC_RAG", "0") == "1"
 
 
+def _normalize_token(tok: str) -> str:
+    """
+    很輕量的 token 正規化：
+    - 英文轉小寫
+    - 常見複數/時態做保守處理，避免 bones/fractures 跟 bone/fracture 完全對不上
+    - 中文仍維持單字切分，避免破壞你原本的中文 overlap 行為
+    """
+    t = (tok or "").strip().lower()
+    if not t:
+        return ""
+    if re.fullmatch(r"[a-z0-9]+", t):
+        if len(t) > 5 and t.endswith("ies"):
+            t = t[:-3] + "y"
+        elif len(t) > 4 and t.endswith("es"):
+            t = t[:-2]
+        elif len(t) > 3 and t.endswith("s"):
+            t = t[:-1]
+        elif len(t) > 5 and t.endswith("ed"):
+            t = t[:-2]
+        elif len(t) > 6 and t.endswith("ing"):
+            t = t[:-3]
+    return t
+
+
 def _tokenize(s: str) -> List[str]:
     s = (s or "").lower()
     parts = re.findall(r"[\u4e00-\u9fff]|[a-z0-9]+", s)
-    return [p for p in parts if p and p.strip()]
+    out: List[str] = []
+    for p in parts:
+        t = _normalize_token(p)
+        if t:
+            out.append(t)
+    return out
 
 
 def _overlap_score(q_tokens: List[str], d_tokens: List[str]) -> float:
@@ -296,6 +487,122 @@ def _overlap_score(q_tokens: List[str], d_tokens: List[str]) -> float:
     inter = len(qs & ds)
     denom = (len(qs) ** 0.7) * (len(ds) ** 0.3)
     return float(inter) / float(denom or 1.0)
+
+
+
+# ---------------------------------------------------------
+# ✅ Bilingual query expansion for Doc-RAG
+#   目的：
+#   - 使用者用中文問，但上傳文件是英文時，仍能撈到內容
+#   - 使用者用英文問，但資料是中文時，也補常見中文詞
+#   - 不取代向量資料庫，只補強你目前 jsonl overlap 檢索的弱點
+# ---------------------------------------------------------
+_DOC_QUERY_SYNONYMS: Dict[str, str] = {
+    # osteoporosis / menopause
+    "骨質疏鬆": "osteoporosis osteopenia low bone density bone loss 骨鬆 骨密度 骨質流失",
+    "骨质疏松": "osteoporosis osteopenia low bone density bone loss 骨鬆 骨密度 骨質流失",
+    "骨鬆": "osteoporosis osteopenia low bone density bone loss 骨質疏鬆 骨密度",
+    "骨密度": "bone mineral density bmd low bone density osteoporosis 骨質疏鬆",
+    "骨質流失": "bone loss osteoporosis estrogen menopause postmenopausal 骨質疏鬆",
+    "更年期": "menopause menopausal postmenopausal estrogen hormone hormone replacement therapy 停經 雌激素",
+    "停經": "menopause menopausal postmenopausal estrogen hormone hormone replacement therapy 更年期 雌激素",
+    "停經後": "postmenopausal after menopause estrogen bone loss osteoporosis",
+    "雌激素": "estrogen oestrogen female hormone menopause postmenopausal bone loss",
+    "荷爾蒙": "hormone estrogen hormone replacement therapy hrt menopause",
+
+    # anatomy / fracture sites
+    "脊椎": "spine vertebra vertebrae vertebral spinal compression fracture thoracic lumbar cervical 脊椎骨 椎骨",
+    "脊椎骨": "spine vertebra vertebrae vertebral spinal compression fracture",
+    "椎骨": "vertebra vertebrae spine vertebral compression fracture",
+    "頸椎": "cervical spine cervical vertebrae neck vertebra",
+    "胸椎": "thoracic spine thoracic vertebrae hunchback kyphosis",
+    "腰椎": "lumbar spine lumbar vertebrae lower back pain",
+    "肋骨": "rib ribs rib cage costal bone thoracic cage",
+    "骨盆": "pelvis pelvic bone hip",
+    "髖骨": "hip pelvis femoral head hip fracture",
+    "股骨": "femur femoral head thigh bone hip fracture",
+    "大腿骨": "femur femoral head thigh bone hip fracture",
+    "手腕": "wrist carpal bones wrist fracture distal radius",
+    "腕骨": "wrist carpal bones wrist fracture",
+    "骨折": "fracture broken bone compression fracture hip fracture wrist fracture",
+    "壓迫性骨折": "compression fracture vertebral compression fracture spine osteoporosis",
+
+    # risk factors / prevention
+    "鈣": "calcium dairy milk calcium intake",
+    "維他命d": "vitamin d vitamin d deficiency calcium bone density",
+    "維生素d": "vitamin d vitamin d deficiency calcium bone density",
+    "運動": "exercise physical activity weight bearing exercise",
+    "抽菸": "smoking tobacco risk factor osteoporosis",
+    "吸菸": "smoking tobacco risk factor osteoporosis",
+    "酗酒": "alcohol alcohol abuse risk factor osteoporosis",
+    "類固醇": "corticosteroid steroid glucocorticoid medication bone loss osteoporosis",
+    "糖尿病": "diabetes endocrine disease osteoporosis risk factor",
+    "洗腎": "dialysis kidney disease renal disease osteoporosis",
+    "預防": "prevention prevent calcium vitamin d exercise screening",
+    "治療": "treatment therapy hormone replacement therapy calcitonin fluoride medication",
+
+    # English -> Chinese補強
+    "osteoporosis": "骨質疏鬆 骨鬆 骨密度 bone loss low bone density",
+    "osteopenia": "骨質不足 骨密度 low bone density",
+    "menopause": "更年期 停經 postmenopausal estrogen",
+    "postmenopausal": "停經後 更年期 estrogen menopause",
+    "estrogen": "雌激素 荷爾蒙 menopause bone loss",
+    "spine": "脊椎 椎骨 vertebrae compression fracture",
+    "vertebra": "椎骨 脊椎 vertebrae spine",
+    "vertebrae": "椎骨 脊椎 vertebra spine",
+    "rib": "肋骨 ribs",
+    "ribs": "肋骨 rib",
+    "pelvis": "骨盆 pelvic hip",
+    "hip": "髖骨 股骨 femoral head hip fracture",
+    "femur": "股骨 大腿骨 femoral head",
+    "femoral": "股骨 femur femoral head",
+    "wrist": "手腕 腕骨 carpal",
+    "fracture": "骨折 compression fracture hip fracture wrist fracture",
+    "calcium": "鈣 鈣質 dairy milk",
+    "vitamin": "維他命 維生素 vitamin d",
+    "corticosteroid": "類固醇 steroid glucocorticoid",
+    "steroid": "類固醇 corticosteroid glucocorticoid",
+    "diabetes": "糖尿病 endocrine disease",
+}
+
+
+def expand_doc_query(query: str) -> str:
+    """
+    給 doc_tool.retrieve() 使用的查詢擴展。
+    這裡故意做成純規則，不碰 OpenAI、不碰 Qdrant，避免你原本本地 doc index 被改爆。
+    """
+    q = (query or "").strip()
+    if not q:
+        return ""
+
+    q_lower = q.lower()
+    extras: List[str] = []
+
+    for key, val in _DOC_QUERY_SYNONYMS.items():
+        k = key.lower()
+        if k in q_lower:
+            extras.append(val)
+
+    # 使用者只問「前面那個 / 這個 / 它」時，通常沒有足夠關鍵字。
+    # 這裡只補泛用骨科詞，避免完全查不到；真正上下文仍應由 main/rag_tool 把歷史問題合併進來。
+    vague_words = ["前面", "剛剛", "這個", "那個", "它", "this", "that", "it"]
+    if any(w in q_lower for w in vague_words):
+        extras.append("bone anatomy osteoporosis fracture spine rib hip wrist menopause")
+
+    if not extras:
+        return q
+
+    # 去重但保留順序
+    seen = set()
+    merged: List[str] = []
+    for item in extras:
+        for tok in item.split():
+            t = tok.strip()
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                merged.append(t)
+
+    return (q + "\n" + " ".join(merged)).strip()
 
 
 def _split_paragraphs(text: str) -> List[str]:
@@ -375,7 +682,8 @@ def index_document(
                 "source_type": source_type,
                 "chunk_index": i,
                 "text": ch,
-                "tokens": _tokenize(ch),
+                # 把 title 一起放進 tokens，讓「問檔名/主題」時也比較容易命中。
+                "tokens": _tokenize(ch + "\n" + (title or "")),
                 "url": url,
                 "conversation_id": conversation_id,
                 "user_id": user_id,
@@ -391,15 +699,27 @@ def retrieve(query: str, top_k: int = 6) -> List[Dict[str, Any]]:
     q = (query or "").strip()
     if not q:
         return []
-    q_tokens = _tokenize(q)
+
+    # ✅ 重要：先做中英雙語擴展
+    # 例：使用者問「肋骨與骨質疏鬆」，英文文件裡是 ribs / osteoporosis，原本 overlap 會撈不到。
+    expanded_q = expand_doc_query(q)
+    q_tokens = _tokenize(expanded_q)
     docs = _read_all_jsonl(INDEX_PATH)
 
     scored: List[Dict[str, Any]] = []
     for d in docs:
         d_tokens = d.get("tokens") or []
         s = _overlap_score(q_tokens, d_tokens)
+
+        # title 命中時給一點點加權，避免同主題文件分數太低。
+        title = d.get("title") or ""
+        title_score = _overlap_score(q_tokens, _tokenize(title))
+        if title_score > 0:
+            s += min(0.12, title_score * 0.25)
+
         if s <= 0:
             continue
+
         scored.append(
             {
                 "material_id": d.get("material_id"),
@@ -413,7 +733,24 @@ def retrieve(query: str, top_k: int = 6) -> List[Dict[str, Any]]:
         )
 
     scored.sort(key=lambda x: x["score"], reverse=True)
-    return scored[: max(1, int(top_k))]
+
+    # 避免同一個 chunk 因為重複索引被一直回傳。
+    deduped: List[Dict[str, Any]] = []
+    seen_keys = set()
+    for item in scored:
+        key = (
+            item.get("material_id"),
+            item.get("chunk_index"),
+            (item.get("text") or "")[:80],
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(item)
+        if len(deduped) >= max(1, int(top_k)):
+            break
+
+    return deduped
 
 
 # =========================================================
