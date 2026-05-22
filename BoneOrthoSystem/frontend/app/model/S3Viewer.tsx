@@ -1953,6 +1953,29 @@ export default function S3Viewer() {
     fitModelFromDirection(new THREE.Vector3(0, 0, -1));
   }, [fitModelFromDirection]);
 
+  const setViewOnly = useCallback((view: 'front' | 'back') => {
+    if (!controlsRef.current) return;
+
+    const controls = controlsRef.current;
+    const camera = controls.object;
+
+    const target = controls.target.clone();
+
+    const currentOffset = camera.position.clone().sub(target);
+    const distance = currentOffset.length();
+
+    if (distance === 0) return;
+
+    if (view === 'front') {
+      camera.position.set(target.x, target.y, target.z + distance);
+    } else {
+      camera.position.set(target.x, target.y, target.z - distance);
+    }
+
+    camera.lookAt(target);
+    controls.update();
+  }, []);
+
   const setLeftView = useCallback(() => {
     fitModelFromDirection(new THREE.Vector3(-1, 0, 0));
   }, [fitModelFromDirection]);
@@ -1965,13 +1988,29 @@ export default function S3Viewer() {
     fitModelFromDirection(new THREE.Vector3(0, 1, 0.001));
   }, [fitModelFromDirection]);
 
+  const setBottomView = useCallback(() => {
+    fitModelFromDirection(new THREE.Vector3(0, -1, 0.001));
+  }, [fitModelFromDirection]);
+
+  const setAngleView = useCallback(() => {
+    fitModelFromDirection(new THREE.Vector3(1, 0.45, 1));
+  }, [fitModelFromDirection]);
+
+  const resetAllView = useCallback(() => {
+    setSelectedMode({ kind: 'none' });
+    setBoneInfo(null);
+    setLoadingInfo(false);
+    setSoloNormSet(null);
+    resetView();
+  }, [resetView]);
+
   const viewButtons: [string, string, () => void][] = [
-    [isEn ? 'Reset' : '重置', isEn ? 'Reset ' : '重置視角', resetView],
-    [isEn ? 'Top' : '上', isEn ? 'Top' : '上視角', setTopView],
-    [isEn ? 'Front' : '正', isEn ? 'Front' : '正視角', setFrontView],
-    [isEn ? 'Back' : '背', isEn ? 'Back' : '背視角', setBackView],
-    [isEn ? 'Right' : '右', isEn ? 'Right' : '右視角', setRightView],
-    [isEn ? 'Left' : '左', isEn ? 'Left' : '左視角', setLeftView],
+    [isEn ? 'Reset' : '重置', isEn ? 'Reset view' : '重置視角', resetAllView],
+    [isEn ? 'Top' : '上', isEn ? 'Top view' : '上視角', setTopView],
+    [isEn ? 'Bottom' : '底', isEn ? 'Bottom view' : '底視角', setBottomView],
+    [isEn ? 'Angle' : '斜', isEn ? 'Angle view' : '斜視角', setAngleView],
+    [isEn ? 'Right' : '右', isEn ? 'Right view' : '右視角', setRightView],
+    [isEn ? 'Left' : '左', isEn ? 'Left view' : '左視角', setLeftView],
   ];
 
   const IMAGE_GALLERY_BONES_16 = new Set([
@@ -3305,153 +3344,27 @@ export default function S3Viewer() {
           height: '100%',
           background: 'var(--viewer-bg)',
         }}
-      ><div
-        className="s3-view-toolbar"
-        style={{
-          position: 'absolute',
-          top: 18,
-          right: 24,
-          zIndex: 24,
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 10,
-        }}
       >
-          {/* 視角工具列 */}
-          <div
-            className="s3-view-buttons"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, 62px)',
-              gap: 10,
-              padding: 0,
-              borderRadius: 0,
-              background: 'transparent',
-              border: 'none',
-              boxShadow: 'none',
-              backdropFilter: 'none',
-            }}
-          >
-            {viewButtons.map(([label, title, fn]) => (
-              <button
-                key={label}
-                onClick={fn}
-                title={`${label}`}
-                style={{
-                  height: 42,
-                  borderRadius: 10,
-                  background: 'var(--panel-btn-bg)',
-                  border: '1px solid var(--panel-border)',
-                  color: 'var(--panel-text)',
-                  backdropFilter: 'blur(8px)',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  boxShadow: '0 6px 16px rgba(0,0,0,0.14)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--panel-btn-open-bg)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'var(--panel-btn-bg)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* 操作說明：放在「重置」左邊 */}
-          <div
-            className="s3-control-help"
-            style={{
-              position: 'relative',
-              marginTop: 7,
-              flexShrink: 0,
-              order: -1,
-            }}
-            onMouseEnter={() => setShowControlHelp(true)}
-            onMouseLeave={() => setShowControlHelp(false)}
-          >
-            <button
-              type="button"
-              aria-label={isEn ? 'Controls help' : '操作說明'}
-              title={isEn ? 'Controls help' : '操作說明'}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowControlHelp((v) => !v);
-              }}
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 999,
-                border: '1px solid var(--panel-border)',
-                background: 'var(--panel-btn-bg)',
-                color: 'var(--panel-text)',
-                cursor: 'help',
-                fontWeight: 900,
-                fontSize: 13,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-                backdropFilter: 'blur(8px)',
-                opacity: 0.95,
-              }}
-            >
-              ?
-            </button>
-
-            {showControlHelp ? (
-              <div
-                role="tooltip"
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 8px)',
-                  right: 0,
-                  zIndex: 90,
-                  width: 96,
-                  padding: '5px 7px',
-                  borderRadius: 8,
-                  background: 'var(--panel-bg)',
-                  color: 'var(--panel-text)',
-                  border: '1px solid var(--panel-border)',
-                  boxShadow: '0 8px 18px rgba(15,23,42,0.14)',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  lineHeight: 1.35,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <div style={{ fontWeight: 900, marginBottom: 2 }}>
-                  {isEn ? 'Controls' : '操作說明'}
-                </div>
-                <div>{isEn ? 'Left: Rotate' : '左鍵：旋轉'}</div>
-                <div>{isEn ? 'Right: Pan' : '右鍵：平移'}</div>
-                <div>{isEn ? 'Wheel: Zoom' : '滾輪：縮放'}</div>
-              </div>
-            ) : null}
-          </div>
-
-        </div>
+        {/* 視角按鈕：統一放在人體圖下方 }
+ 
 
         {/* 右側 2D 正反面骨骼對應圖：可收合，但不改 Bone2DPanel 內部尺寸/座標 */}
         <div
           className="s3-2d-panel"
           style={{
             position: 'absolute',
-            top: 118,
-            right: show2DPanel ? 24 : -390,
-            zIndex: 18,
-            width: 360,
-            height: 'calc(100% - 142px)',
-            maxHeight: 660,
-            minHeight: 500,
-            pointerEvents: show2DPanel ? 'auto' : 'none',
-            opacity: show2DPanel ? 1 : 0,
-            transform: show2DPanel ? 'translateX(0)' : 'translateX(16px)',
-            transition: 'right 0.22s ease, opacity 0.18s ease, transform 0.22s ease',
+            top: 24,
+            right: show2DPanel ? 24 : -430,
+            width: 270,
+            height: 'calc(100dvh - 120px)',
+            display: 'flex',
+            flexDirection: 'column',
+            zIndex: 20,
+            transition: 'all .25s ease',
+            background: 'transparent',
+            boxShadow: 'none',
+            backdropFilter: 'none',
+            WebkitBackdropFilter: 'none',
           }}
         >
           <button
@@ -3461,15 +3374,16 @@ export default function S3Viewer() {
             aria-label={isEn ? 'Hide body map' : '收起人體部位圖'}
             style={{
               position: 'absolute',
-              top: 18,
-              right: 18,
-              zIndex: 80,
+              top: 24,
+              right: 24,
+              zIndex: 60,
+
               width: 34,
               height: 34,
               borderRadius: 10,
               border: '1px solid var(--panel-border)',
-              background: 'rgba(255,255,255,0.88)',
-              color: '#334155',
+              background: 'var(--panel-btn-bg)',
+              color: 'var(--panel-text)',
               cursor: 'pointer',
               fontWeight: 900,
               fontSize: 16,
@@ -3486,6 +3400,9 @@ export default function S3Viewer() {
 
           <Bone2DPanel
             locale={locale}
+            onViewChange={(view) => {
+              setViewOnly(view);
+            }}
             selectedBoneName={
               [
                 selectedMeshName ? normalizeMeshName(selectedMeshName) : null,
@@ -3498,10 +3415,24 @@ export default function S3Viewer() {
             onRegionClick={(regionKey) => {
               openNavGroupFrom2D(regionKey);
             }}
+            viewControls={
+              <div className="s3-view-controls-in-panel">
+                {viewButtons.map(([label, title, fn]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={fn}
+                    title={title}
+                    className="s3-view-control-card"
+                  >
+                    <span className="s3-view-control-icon">▥</span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            }
           />
         </div>
-
-
 
 
         <Canvas
@@ -3557,46 +3488,40 @@ export default function S3Viewer() {
 
           <Controls controlsRef={controlsRef} cameraRef={cameraRef} />
 
-          {!isMobile && (
-            <GizmoHelper alignment="bottom-right" margin={[110, 110]}>
-              <GizmoViewport
-                axisColors={['#f87171', '#4ade80', '#60a5fa']}
-                labelColor="#e5e7eb"
-              />
-            </GizmoHelper>
-          )}
 
           <Environment preset="city" />
         </Canvas>
 
-        {!show2DPanel && (
-          <button
-            type="button"
-            onClick={() => setShow2DPanel(true)}
-            title={isEn ? 'Show body map' : '顯示人體部位圖'}
-            style={{
-              position: 'absolute',
-              top: 145,
-              right: 24,
-              zIndex: 80,
-              height: 38,
-              padding: '0 14px',
-              borderRadius: 12,
-              border: '1px solid var(--panel-border)',
-              background: 'var(--panel-bg)',
-              color: 'var(--panel-text)',
-              cursor: 'pointer',
-              fontWeight: 900,
-              fontSize: 13,
-              boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
-              backdropFilter: 'blur(10px)',
-            }}
-          >
-            {isEn ? 'Show Body Map' : '顯示部位圖'}
-          </button>
-        )}
+        {
+          !show2DPanel && (
+            <button
+              type="button"
+              onClick={() => setShow2DPanel(true)}
+              title={isEn ? 'Show body map' : '顯示人體部位圖'}
+              style={{
+                position: 'absolute',
+                top: 145,
+                right: 24,
+                zIndex: 80,
+                height: 38,
+                padding: '0 14px',
+                borderRadius: 12,
+                border: '1px solid var(--panel-border)',
+                background: 'var(--panel-bg)',
+                color: 'var(--panel-text)',
+                cursor: 'pointer',
+                fontWeight: 900,
+                fontSize: 13,
+                boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
+                backdropFilter: 'blur(10px)',
+              }}
+            >
+              {isEn ? 'Show Body Map' : '顯示部位圖'}
+            </button>
+          )
+        }
 
-      </main>
-    </div>
+      </main >
+    </div >
   );
 }

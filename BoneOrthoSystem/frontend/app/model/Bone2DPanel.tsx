@@ -19,6 +19,8 @@ type Props = {
     selectedBoneName?: string | null;
     onRegionClick?: (regionKey: Bone2DRegionKey) => void;
     locale?: string;
+    viewControls?: React.ReactNode;
+    onViewChange?: (view: ViewMode) => void;
 };
 
 type DotPosition = {
@@ -455,8 +457,8 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         defaultView: 'front',
         //frontSingle: [`${HIGHLIGHT_DIR}/front_head.png`],
         //backSingle: [`${HIGHLIGHT_DIR}/back_head.png`],
-        frontDot: { x: 51, y: 9 },
-        backDot: { x: 49, y: 9 },
+        frontDot: { x: 51, y: 13 },
+        backDot: { x: 49, y: 13 },
     },
 
     middleEar: {
@@ -877,7 +879,14 @@ function hasView(target: Bone2DTarget | null, view: ViewMode) {
     return Boolean(target.backDot || target.backDotPair);
 }
 
-export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }: Props) {
+export default function Bone2DPanel({
+    selectedBoneName,
+    onRegionClick,
+    locale,
+    viewControls,
+    onViewChange,
+}: Props) {
+
     const isEn = locale === 'en-US';
     const boneKey = useMemo(
         () => normalizeBoneKey(selectedBoneName),
@@ -922,7 +931,6 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
             className="
       pointer-events-auto flex max-h-[calc(100dvh-104px)] w-full flex-col
       rounded-[28px] border p-5
-      shadow-[0_18px_45px_rgba(0,0,0,0.28)]
     "
             style={{
                 background: 'var(--panel-bg)',
@@ -932,15 +940,77 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                 WebkitBackdropFilter: 'blur(16px)',
             }}
         >
-            <div className="mb-4 flex shrink-0 items-start justify-between gap-3 pr-12">
+            <div className="mb-3 flex shrink-0 items-start justify-between gap-3 pr-12">
                 <div>
-                    <div
-                        className="text-lg font-bold"
-                        style={{ color: 'var(--panel-text)' }}
-                    >
-                        {isEn ? 'Body Map' : '人體部位圖'}
-                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <div
+                            className="text-lg font-bold"
+                            style={{ color: 'var(--panel-text)' }}
+                        >
+                            {isEn ? 'Body Map' : '人體部位圖'}
+                        </div>
 
+                        <div className="relative group">
+                            <button
+                                type="button"
+                                className="flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold transition"
+                                style={{
+                                    background:
+                                        document.documentElement.classList.contains('dark')
+                                            ? 'rgba(14,165,233,0.14)'
+                                            : 'rgba(56,189,248,0.10)',
+
+                                    color:
+                                        document.documentElement.classList.contains('dark')
+                                            ? '#38bdf8'
+                                            : '#0284c7',
+
+                                    border:
+                                        document.documentElement.classList.contains('dark')
+                                            ? '1px solid rgba(56,189,248,0.28)'
+                                            : '1px solid rgba(14,165,233,0.18)',
+
+                                    boxShadow:
+                                        document.documentElement.classList.contains('dark')
+                                            ? '0 0 16px rgba(56,189,248,0.18)'
+                                            : '0 4px 12px rgba(14,165,233,0.08)',
+                                }}                            >
+                                ?
+                            </button>
+
+                            <div
+                                className="
+    pointer-events-none absolute left-1/2 top-8 z-[999]
+    w-[118px] -translate-x-1/2 rounded-2xl
+    px-3 py-2 text-[10px]
+    opacity-0 shadow-xl transition-all duration-200
+    group-hover:translate-y-0
+    group-hover:opacity-100
+  "
+                                style={{
+                                    background: 'var(--panel-bg)',
+                                    border: '1px solid var(--panel-border)',
+                                    color: 'var(--panel-text)',
+                                    boxShadow: '0 10px 24px rgba(0,0,0,0.16)',
+                                    backdropFilter: 'blur(12px)',
+                                }}                            >
+                                <div
+                                    className="mb-1 text-center text-[11px] font-bold"
+                                    style={{
+                                        color: '#38bdf8',
+                                    }}
+                                >
+                                    操作提示
+                                </div>
+
+                                <div className="space-y-[2px] text-center leading-5">
+                                    <div>左鍵：旋轉</div>
+                                    <div>右鍵：平移</div>
+                                    <div>滾輪：縮放</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div
                         className="mt-1 text-xs leading-5"
                         style={{ color: 'var(--muted-foreground, rgba(100,116,139,0.9))' }}
@@ -951,7 +1021,7 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                     </div>
                 </div>
 
-                {target && (
+                {/*{target && (
                     <div
                         className="shrink-0 rounded-full px-3 py-1 text-xs font-medium"
                         style={{
@@ -963,50 +1033,88 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                         {isEn ? target.labelEn : `${target.labelZh} / ${target.labelEn}`}
                     </div>
                 )}
+            */}
             </div>
 
+            {viewControls ? (
+                <div className="mx-3 mb-3 shrink-0 ">
+                    {viewControls}
+                </div>
+            ) : null}
+
             <div
-                className="mb-4 grid shrink-0 grid-cols-2 overflow-hidden rounded-2xl p-1"
+                className="mx-3 mb-3 grid shrink-0 grid-cols-2 gap-2 rounded-[16px] p-1"
                 style={{
-                    background: 'var(--panel-btn-bg)',
+                    background: 'rgba(148, 163, 184, 0.14)',
                     border: '1px solid var(--panel-border)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
                 }}
             >
-                <button
-                    type="button"
-                    onClick={() => canFront && setView('front')}
-                    disabled={!canFront}
-                    className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+                <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                        if (!canFront) return;
+                        setView('front');
+                        onViewChange?.('front');
+                    }} onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ' ') && canFront) setView('front');
+                    }}
+                    className="flex items-center justify-center gap-1.5 rounded-[11px] px-2 py-1.5 text-sm font-bold transition"
                     style={{
-                        background: view === 'front' ? '#3b82f6' : 'transparent',
+                        background:
+                            view === 'front'
+                                ? 'linear-gradient(135deg, #7dd3fc, #38bdf8)'
+                                : 'transparent',
                         color: view === 'front' ? '#ffffff' : 'var(--panel-text)',
-                        boxShadow:'none',
+                        boxShadow:
+                            view === 'front'
+                                ? '0 6px 14px rgba(14, 165, 233, 0.18)'
+                                : 'none',
                         opacity: !canFront ? 0.4 : 1,
                         cursor: !canFront ? 'not-allowed' : 'pointer',
-                    }}
-                >
-                    {isEn ? 'Front' : '正面'}
-                </button>
+                        outline: 'none',
+                        userSelect: 'none',
+                    }}                >
+                    <span style={{ fontSize: 15 }}>♙</span>
+                    <span>{isEn ? 'Front' : '正面'}</span>
+                </div>
 
-                <button
-                    type="button"
-                    onClick={() => canBack && setView('back')}
-                    disabled={!canBack}
-                    className="rounded-xl px-4 py-2 text-sm font-semibold transition"
+                <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                        if (!canBack) return;
+                        setView('back');
+                        onViewChange?.('back');
+                    }}
+                    onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ' ') && canBack) setView('back');
+                    }}
+                    className="flex items-center justify-center gap-1.5 rounded-[11px] px-2 py-1.5 text-sm font-bold transition"
                     style={{
-                        background: view === 'back' ? '#3b82f6' : 'transparent',
+                        background:
+                            view === 'back'
+                                ? 'linear-gradient(135deg, #7dd3fc, #38bdf8)'
+                                : 'transparent',
                         color: view === 'back' ? '#ffffff' : 'var(--panel-text)',
-                        boxShadow: view === 'back' ? '0 8px 20px rgba(59,130,246,0.32)' : 'none',
+                        boxShadow:
+                            view === 'back'
+                                ? '0 6px 14px rgba(14, 165, 233, 0.18)'
+                                : 'none',
                         opacity: !canBack ? 0.4 : 1,
                         cursor: !canBack ? 'not-allowed' : 'pointer',
+                        outline: 'none',
+                        userSelect: 'none',
                     }}
                 >
-                    {isEn ? 'Back' : '背面'}
-                </button>
+                    <span style={{ fontSize: 15 }}>♙</span>
+                    <span>{isEn ? 'Back' : '背面'}</span>
+                </div>
             </div>
 
             <div
-                className="min-h-0 flex-1 rounded-[26px] border p-3"
+                className="mx-3 min-h-0 flex flex-1 flex-col rounded-[26px] border p-2"
                 style={{
                     background: 'var(--panel-btn-bg)',
                     borderColor: 'var(--panel-border)',
@@ -1019,8 +1127,7 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
           3. object-contain 確保頭和腳完整出現。
         */}
                 <div
-                    className="relative h-full min-h-[300px] w-full overflow-hidden rounded-[20px]"
-                    style={{
+                    className="relative flex flex-1 items-center justify-center overflow-hidden rounded-[14px]" style={{
                         background: 'var(--image-panel-bg, rgba(255,255,255,0.96))',
                     }}
                 >
@@ -1054,14 +1161,18 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                     <img
                         src={bodySrc}
                         alt={view === 'front' ? 'Front body map' : 'Back body map'}
-                        className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
+                        className="pointer-events-none select-none object-contain"
                         draggable={false}
                         style={{
+                            height: '100%',
+                            maxHeight: '100%',
+                            width: 'auto',
+                            maxWidth: '98%',
                             opacity: 0.96,
                             filter: 'contrast(1.03) saturate(1.02)',
-                            transform: 'translateY(-6px) scale(1.01)',
                         }}
                     />
+
                     {/* 2D 圖點擊區：只做分類導覽，不直接選 206 細項骨頭 */}
                     <div
                         className="absolute inset-0"
@@ -1071,11 +1182,18 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                         }}
                     >
                         {/* 頭頸部：頭、脖子 */}
-                        <button
-                            type="button"
+                        <div
+                            role="button"
+                            tabIndex={0}
                             aria-label="展開頭頸部骨頭分類"
                             title="展開頭頸部"
                             onClick={() => handleRegionClick('head-neck')}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    handleRegionClick('head-neck');
+                                }
+                            }}
                             className="absolute rounded-full"
                             style={{
                                 left: '36%',
@@ -1089,11 +1207,18 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                         />
 
                         {/* 胸背部：胸骨、肋骨中央、胸椎對應區；不要吃到肩膀、手臂、腹部 */}
-                        <button
-                            type="button"
+                        <div
+                            role="button"
+                            tabIndex={0}
                             aria-label="展開胸背部骨頭分類"
                             title="展開胸背部"
                             onClick={() => handleRegionClick('thorax-back')}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    handleRegionClick('thorax-back');
+                                }
+                            }}
                             className="absolute rounded-2xl"
                             style={{
                                 left: '42%',
@@ -1107,11 +1232,18 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                         />
 
                         {/* 畫面左側的人體上肢：包含肩膀、肱骨、前臂、手腕、手掌、手指 */}
-                        <button
-                            type="button"
+                        <div
+                            role="button"
+                            tabIndex={0}
                             aria-label="展開上肢骨頭分類"
                             title="展開上肢"
                             onClick={() => handleRegionClick('upper-limb')}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    handleRegionClick('upper-limb');
+                                }
+                            }}
                             className="absolute rounded-2xl"
                             style={{
                                 left: '13%',
@@ -1125,11 +1257,18 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                         />
 
                         {/* 畫面右側的人體上肢：包含肩膀、肱骨、前臂、手腕、手掌、手指 */}
-                        <button
-                            type="button"
+                        <div
+                            role="button"
+                            tabIndex={0}
                             aria-label="展開上肢骨頭分類"
                             title="展開上肢"
                             onClick={() => handleRegionClick('upper-limb')}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    handleRegionClick('upper-limb');
+                                }
+                            }}
                             className="absolute rounded-2xl"
                             style={{
                                 left: '60%',
@@ -1143,11 +1282,18 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                         />
 
                         {/* 骨盆：只框骨盆/髖部，不吃到左右手腕與大腿太多 */}
-                        <button
-                            type="button"
+                        <div
+                            role="button"
+                            tabIndex={0}
                             aria-label="展開骨盆骨頭分類"
                             title="展開骨盆"
                             onClick={() => handleRegionClick('pelvis')}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    handleRegionClick('pelvis');
+                                }
+                            }}
                             className="absolute rounded-2xl"
                             style={{
                                 left: '38%',
@@ -1161,11 +1307,18 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                         />
 
                         {/* 下肢 */}
-                        <button
-                            type="button"
+                        <div
+                            role="button"
+                            tabIndex={0}
                             aria-label="展開下肢骨頭分類"
                             title="展開下肢"
                             onClick={() => handleRegionClick('lower-limb')}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    handleRegionClick('lower-limb');
+                                }
+                            }}
                             className="absolute rounded-2xl"
                             style={{
                                 left: '35%',
@@ -1221,8 +1374,8 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                             style={{
                                 left: `${dot.x}%`,
                                 top: `${dot.y}%`,
-                                width: 28,
-                                height: 28,
+                                width: 12,
+                                height: 12,
                                 borderRadius: 999,
                                 background:
                                     'radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(56,189,248,0.58) 34%, rgba(37,99,235,0.42) 62%, rgba(37,99,235,0) 72%)',
@@ -1234,8 +1387,8 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                             <span
                                 className="absolute left-1/2 top-1/2 rounded-full border-2 border-sky-300"
                                 style={{
-                                    width: 34,
-                                    height: 34,
+                                    width: 0,
+                                    height: 0,
                                     animation: 'bone2dRing 1.05s ease-out infinite',
                                 }}
                             />
@@ -1246,7 +1399,7 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
 
             {target ? (
                 <div
-                    className="mt-3 shrink-0 rounded-2xl border px-3 py-2 text-xs"
+                    className="mx-3 mt-3 shrink-0 rounded-2xl border px-4 py-2 text-[10px]"
                     style={{
                         background: 'var(--panel-btn-bg)',
                         borderColor: 'var(--panel-border)',
@@ -1256,7 +1409,7 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                     {isEn ? 'Currently highlighted:' : '目前已同步高亮：'}
 
                     <span
-                        className="ml-1 font-semibold"
+                        className="ml-1 font-medium text-[10px]"
                         style={{ color: 'var(--panel-text)' }}
                     >
                         {isEn ? target.labelEn : target.labelZh}
@@ -1267,7 +1420,12 @@ export default function Bone2DPanel({ selectedBoneName, onRegionClick, locale }:
                             <span className="mx-1 text-slate-400">/</span>
                             <span
                                 className="font-medium"
-                                style={{ color: '#3b82f6' }}
+                                style={{
+                                    color:
+                                        document.documentElement.classList.contains('dark')
+                                            ? '#38bdf8'
+                                            : '#0b5980',
+                                }}
                             >
                                 {target.labelEn}
                             </span>

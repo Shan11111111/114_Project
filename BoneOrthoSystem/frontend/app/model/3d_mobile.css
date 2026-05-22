@@ -7,7 +7,7 @@
   }
 
   .s3-control-hint {
-    display: none !important;
+    display: flex !important;
   }
 
   .s3-bone-sidebar {
@@ -172,3 +172,4 @@
     font-size: 12px !important;
   }
 }
+

@@ -992,6 +992,7 @@ html.dark .mobile-user-card {
     height: 38px !important;
   }
 }
+
 /* =========================
    Navbar Language Toggle
 ========================= */
@@ -1097,6 +1098,7 @@ html.dark .lang-switch-item.active::after {
     font-size: 13px;
   }
 }
+
 /* Dark Mode */
 html.dark .lang-toggle {
   background: rgba(15, 23, 42, 0.72);
@@ -1848,4 +1850,37 @@ html.dark .materials-table-card input:focus {
     color: #e5e7eb !important;
   }
 
+}
+
+.s3-view-controls-in-panel {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.s3-view-control-card {
+  height: 38px;
+  font-size: 13px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-btn-bg);
+  color: var(--panel-text);
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.s3-view-control-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.16);
+}
+
+.s3-view-control-icon {
+  display: none;
 }
