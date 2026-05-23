@@ -2338,6 +2338,18 @@ export default function S3Viewer() {
       meshName: string,
       options: { scrollToCard?: boolean } = { scrollToCard: true }
     ) => {
+      const norm = normalizeMeshName(meshName);
+
+      if (
+        selectedMode.kind === "mesh" &&
+        normalizeMeshName(selectedMode.meshName) === norm
+      ) {
+        setSelectedMode({ kind: "none" });
+        setBoneInfo(null);
+        setSoloNormSet(null);
+        return;
+      }
+
       setSelectedMode({ kind: 'mesh', meshName });
       setTeachingLevelHelpOpen(false);
       setLoadingInfo(true);
@@ -3002,12 +3014,26 @@ export default function S3Viewer() {
                                 )}
                                 onClick={(e) => {
                                   e.stopPropagation();
+
+                                  const meshName = card.L!.mesh_name;
+
+                                  const isSame =
+                                    !!selectedMeshName &&
+                                    normalizeMeshName(selectedMeshName) === normalizeMeshName(meshName);
+
+                                  if (isSame) {
+                                    setSelectedMode({ kind: 'none' });
+                                    setBoneInfo(null);
+                                    setSoloNormSet(null);
+                                    return;
+                                  }
+
                                   setExpandedCardId(cardId);
-                                  selectByMeshName(card.L!.mesh_name, { scrollToCard: false });
+                                  selectByMeshName(meshName, { scrollToCard: false });
                                 }}
                                 title={card.L.mesh_name}
                               >
-                                L
+                                {isEn ? 'L' : '左'}
                               </button>
                             ) : null}
 
@@ -3018,12 +3044,26 @@ export default function S3Viewer() {
                                 )}
                                 onClick={(e) => {
                                   e.stopPropagation();
+
+                                  const meshName = card.R!.mesh_name;
+
+                                  const isSame =
+                                    !!selectedMeshName &&
+                                    normalizeMeshName(selectedMeshName) === normalizeMeshName(meshName);
+
+                                  if (isSame) {
+                                    setSelectedMode({ kind: 'none' });
+                                    setBoneInfo(null);
+                                    setSoloNormSet(null);
+                                    return;
+                                  }
+
                                   setExpandedCardId(cardId);
-                                  selectByMeshName(card.R!.mesh_name, { scrollToCard: false });
+                                  selectByMeshName(meshName, { scrollToCard: false });
                                 }}
                                 title={card.R.mesh_name}
                               >
-                                R
+                                {isEn ? 'R' : '右'}
                               </button>
                             ) : null}
 
@@ -3305,11 +3345,12 @@ export default function S3Viewer() {
                     );
                   })}
                 </div>
-              )}
+              )
+              }
             </div>
           );
         })}
-      </aside>
+      </aside >
       {!sidebarOpen && (
         <button
           className="s3-sidebar-open-btn"
@@ -3331,7 +3372,7 @@ export default function S3Viewer() {
             boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
             backdropFilter: 'blur(10px)',
           }}        >
-          {isEn ? '☰ Menu' : '☰ 選單'}
+          {isEn ? '☰ Menu' : '☰ 骨架導覽'}
         </button>
       )}
 
@@ -3377,7 +3418,6 @@ export default function S3Viewer() {
               top: 24,
               right: 24,
               zIndex: 60,
-
               width: 34,
               height: 34,
               borderRadius: 10,
@@ -3500,7 +3540,7 @@ export default function S3Viewer() {
               title={isEn ? 'Show body map' : '顯示人體部位圖'}
               style={{
                 position: 'absolute',
-                top: 145,
+                top: 24,
                 right: 24,
                 zIndex: 80,
                 height: 38,
