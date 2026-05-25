@@ -281,6 +281,34 @@ function normalizeBoneKey(name?: string | null) {
         return 'midFoot';
     }
 
+    // 足部跗骨要先於 wrist 判斷，避免腳的 Navicular / 舟狀骨被誤判成手腕
+    if (
+        raw.includes('foot') ||
+        raw.includes('feet') ||
+        raw.includes('lower limbs') ||
+        raw.includes('lower limb') ||
+        raw.includes('lowerlimbs') ||
+        raw.includes('lowerlimb') ||
+        raw.includes('下肢') ||
+        raw.includes('足') ||
+        raw.includes('腳') ||
+        raw.includes('tarsus') ||
+        raw.includes('tarsal') ||
+        raw.includes('calcaneus') ||
+        raw.includes('talus') ||
+        raw.includes('navicular') ||
+        raw.includes('cuboid') ||
+        raw.includes('cuneiform') ||
+        raw.includes('跗骨') ||
+        raw.includes('跟骨') ||
+        raw.includes('距骨') ||
+        raw.includes('舟狀骨') ||
+        raw.includes('立方骨') ||
+        raw.includes('楔狀骨')
+    ) {
+        return 'foot';
+    }
+
 
     /**
      * 指骨要先分出去。
@@ -457,8 +485,8 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         defaultView: 'front',
         //frontSingle: [`${HIGHLIGHT_DIR}/front_head.png`],
         //backSingle: [`${HIGHLIGHT_DIR}/back_head.png`],
-        frontDot: { x: 51, y: 13 },
-        backDot: { x: 49, y: 13 },
+        frontDot: { x: 50, y: 8 },
+        backDot: { x: 50, y: 8 },
     },
 
     middleEar: {
@@ -469,7 +497,7 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         // 正面圖用側邊位置表示中耳，不放在頭顱中心。
         frontDotPair: {
             left: { x: 54, y: 10 },
-            right: { x: 48, y: 10 },
+            right: { x: 46, y: 10 },
         },
     },
 
@@ -480,7 +508,7 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         defaultView: 'front',
 
         // 舌骨在下巴下方、頸部上方，只給正面。
-        frontDot: { x: 51, y: 15.5 },
+        frontDot: { x: 50.5, y: 15.5 },
     },
 
     clavicle: {
@@ -516,7 +544,7 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         labelEn: 'Sternum',
         defaultView: 'front',
         //frontSingle: [`${HIGHLIGHT_DIR}/front_sternum.png`],
-        frontDot: { x: 51, y: 25.5 },
+        frontDot: { x: 50.5, y: 25.5 },
     },
 
     upperRibs: {
@@ -560,28 +588,28 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         labelZh: '頸椎',
         labelEn: 'Cervical spine',
         defaultView: 'back',
-        backDot: { x: 49, y: 16 },
+        backDot: { x: 49.5, y: 16 },
     },
 
     thoracicSpine: {
         labelZh: '胸椎',
         labelEn: 'Thoracic spine',
         defaultView: 'back',
-        backDot: { x: 49, y: 24 },
+        backDot: { x: 49.5, y: 24 },
     },
 
     lumbarSpine: {
         labelZh: '腰椎',
         labelEn: 'Lumbar spine',
         defaultView: 'back',
-        backDot: { x: 49, y: 38 },
+        backDot: { x: 49.5, y: 38 },
     },
 
     sacrococcyx: {
         labelZh: '薦尾椎',
         labelEn: 'Sacrum / Coccyx',
         defaultView: 'back',
-        backDot: { x: 49, y: 50 },
+        backDot: { x: 49.5, y: 50 },
     },
 
     upperArm: {
@@ -597,11 +625,11 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_upperArm_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 63, y: 31 },
-            right: { x: 40, y: 31 },
+            left: { x: 61, y: 31 },
+            right: { x: 39, y: 31 },
         },
         backDotPair: {
-            left: { x: 37, y: 31 },
+            left: { x: 39, y: 31 },
             right: { x: 61, y: 31 },
         },
     },
@@ -619,11 +647,11 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_forearm_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 65, y: 40 },
+            left: { x: 64, y: 40 },
             right: { x: 37, y: 40 },
         },
         backDotPair: {
-            left: { x: 34, y: 40 },
+            left: { x: 36, y: 40 },
             right: { x: 63, y: 40 },
         },
     },
@@ -641,11 +669,11 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_wrist_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 68, y: 46 },
+            left: { x: 66, y: 46 },
             right: { x: 34, y: 46 },
         },
         backDotPair: {
-            left: { x: 32, y: 46 },
+            left: { x: 33, y: 46 },
             right: { x: 66, y: 46 },
         },
     },
@@ -663,11 +691,11 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_hand_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 70, y: 51 },
+            left: { x: 69, y: 51 },
             right: { x: 32, y: 51 },
         },
         backDotPair: {
-            left: { x: 30, y: 51 },
+            left: { x: 32, y: 51 },
             right: { x: 69, y: 51 },
         },
     },
@@ -679,11 +707,11 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         /* 指骨比掌骨更靠手指末端。
            原本 hand 座標不動，只新增 finger 獨立座標。 */
         frontDotPair: {
-            left: { x: 73, y: 56 },
+            left: { x: 71, y: 56 },
             right: { x: 30, y: 56 },
         },
         backDotPair: {
-            left: { x: 28, y: 56 },
+            left: { x: 30, y: 56 },
             right: { x: 71, y: 56 },
         },
     },
@@ -696,7 +724,7 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         //backSingle: [`${HIGHLIGHT_DIR}/back_pelvis.png`],
         frontDotPair: {
             left: { x: 57, y: 47 },
-            right: { x: 45, y: 47 },
+            right: { x: 43, y: 47 },
         },
         backDotPair: {
             left: { x: 44, y: 47 },
@@ -722,7 +750,7 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         },
         backDotPair: {
             left: { x: 43, y: 60 },
-            right: { x: 55, y: 60 },
+            right: { x: 56, y: 60 },
         },
     },
 
@@ -739,7 +767,7 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_knee_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 58, y: 71 },
+            left: { x: 57, y: 71 },
             right: { x: 44, y: 71 },
         },
         /*backDotPair: {
@@ -762,11 +790,11 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         },*/
         frontDotPair: {
             left: { x: 58, y: 81 },
-            right: { x: 44, y: 81 },
+            right: { x: 41, y: 81 },
         },
         backDotPair: {
             left: { x: 42, y: 81 },
-            right: { x: 56, y: 81 },
+            right: { x: 57, y: 81 },
         },
     },
 
