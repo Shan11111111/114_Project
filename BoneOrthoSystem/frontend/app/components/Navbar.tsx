@@ -121,6 +121,12 @@ export default function Navbar() {
           )}
 
           {mounted && isManager && (
+            <Link href="/eval-dashboard" className="hover-link">
+              <b>RAG 評估</b>
+            </Link>
+          )}
+
+          {mounted && isManager && (
             <Link href="/admin/users" className="hover-link">
               <b>{t["nav.accountManagement"]}</b>
             </Link>
@@ -270,6 +276,19 @@ export default function Navbar() {
                     }}
                   >
                     帳號管理
+                  </button>
+                )}
+
+                {isManager && (
+                  <button
+                    className="rounded-lg border px-3 py-2 text-sm"
+                    style={{ borderColor: "var(--card-border)" }}
+                    onClick={() => {
+                      setOpen(false);
+                      router.push("/eval-dashboard");
+                    }}
+                  >
+                    RAG指標評估
                   </button>
                 )}
 

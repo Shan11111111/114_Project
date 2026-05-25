@@ -46,7 +46,7 @@ except Exception:
     doc_rag_enabled = lambda: False  # type: ignore
 
 from .routers.export import router as export_router
-
+from s2_agent.evals.faithfulness_eval import evaluate_faithfulness
 
 # =========================================================
 # 找到 BoneOrthoBackend 專案根目錄（有 db.py 的那層）
@@ -672,6 +672,90 @@ def agent_chat_stream(req: ChatRequest):
 
             final_answer = "".join(full_answer_parts).strip()
 
+            # =========================================
+            # Faithfulness Evaluation (STREAM)
+            # =========================================
+
+            try:
+                contexts = []
+
+                for r in resources or []:
+                    text = (
+                        getattr(r, "snippet", None)
+                        or ""
+                    )
+
+                    if text:
+                        contexts.append({
+    "title": getattr(r, "title", ""),
+    "page": getattr(r, "page", ""),
+    "source_type": getattr(r, "source_type", ""),
+    "text": str(text),
+})
+
+                if contexts:
+                    # 只評估「1) 綜合回答」，不要把學習重點、注意事項、延伸問題算進去
+                    eval_answer = final_answer
+
+                    if "2) 骨骼學習重點" in eval_answer:
+                        eval_answer = eval_answer.split("2) 骨骼學習重點", 1)[0].strip()
+                    elif "3) 注意事項" in eval_answer:
+                        eval_answer = eval_answer.split("3) 注意事項", 1)[0].strip()
+
+                    faithfulness_result = evaluate_faithfulness(
+                        question=clean_q,
+                        answer=eval_answer,
+                        contexts=contexts,
+                    )
+                    
+                    # =========================================
+                    # Save Faithfulness Eval Log
+                    # =========================================
+
+                    try:
+                        from db import get_connection
+
+                        with get_connection() as conn:
+                            cur = conn.cursor()
+
+                            cur.execute("""
+                                INSERT INTO agent.RagEvalLog
+                                (
+                                    ConversationId,
+                                    UserId,
+                                    Question,
+                                    RagMode,
+                                    Faithfulness,
+                                    SupportedClaims,
+                                    TotalClaims,
+                                    EvalJson
+                                )
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            str(conversation_id) if conversation_id else None,
+                            user_id,
+                            clean_q,
+                            req.rag_mode,
+                            faithfulness_result.get("faithfulness"),
+                            faithfulness_result.get("supported_claims"),
+                            faithfulness_result.get("total_claims"),
+                            json.dumps(faithfulness_result, ensure_ascii=False)
+                            )
+
+                            conn.commit()
+
+                    except Exception as e:
+                        print("Save RagEvalLog failed:", e)
+
+                    print("\n==============================")
+                    print("FAITHFULNESS RESULT")
+                    print(json.dumps(faithfulness_result, ensure_ascii=False, indent=2))
+                    print("==============================\n")
+
+            except Exception as e:
+                print("Faithfulness eval failed:", e)
+                
+                
             reply = ChatMessage(role="assistant", type="text", content=final_answer)
             append_messages(session, [reply])
 
@@ -1003,6 +1087,93 @@ def agent_chat(req: ChatRequest):
 
             ans_text = _call_llm(system, prompt)
             ans_text_out = (ans_text or "").strip()
+            
+            # =========================================
+            # Faithfulness Evaluation
+            # =========================================
+
+            faithfulness_result = None
+
+            try:
+                contexts = []
+
+                for s in raw_sources or []:
+                    text = (
+                        s.get("snippet")
+                        or s.get("text")
+                        or s.get("content")
+                        or ""
+                    )
+
+                    if text:
+                        contexts.append({
+    "title": getattr(r, "title", ""),
+    "page": getattr(r, "page", ""),
+    "source_type": getattr(r, "source_type", ""),
+    "text": str(text),
+})
+
+                if contexts:
+                    # 只評估「1) 綜合回答」，不要把學習重點、注意事項、延伸問題算進去
+                    eval_answer = final_answer
+
+                    if "2) 骨骼學習重點" in eval_answer:
+                        eval_answer = eval_answer.split("2) 骨骼學習重點", 1)[0].strip()
+                    elif "3) 注意事項" in eval_answer:
+                        eval_answer = eval_answer.split("3) 注意事項", 1)[0].strip()
+
+                    faithfulness_result = evaluate_faithfulness(
+                        question=clean_q,
+                        answer=eval_answer,
+                        contexts=contexts,
+                    )
+                    
+                    # =========================================
+# Save Faithfulness Eval Log
+# =========================================
+
+                    try:
+                        from db import get_connection
+
+                        with get_connection() as conn:
+                            cur = conn.cursor()
+
+                            cur.execute("""
+                                INSERT INTO agent.RagEvalLog
+                                (
+                                    ConversationId,
+                                    UserId,
+                                    Question,
+                                    RagMode,
+                                    Faithfulness,
+                                    SupportedClaims,
+                                    TotalClaims,
+                                    EvalJson
+                                )
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            str(conversation_id) if conversation_id else None,
+                            user_id,
+                            clean_q,
+                            req.rag_mode,
+                            faithfulness_result.get("faithfulness"),
+                            faithfulness_result.get("supported_claims"),
+                            faithfulness_result.get("total_claims"),
+                            json.dumps(faithfulness_result, ensure_ascii=False)
+                            )
+
+                            conn.commit()
+
+                    except Exception as e:
+                        print("Save RagEvalLog failed:", e)
+
+                    print("\n==============================")
+                    print("FAITHFULNESS RESULT")
+                    print(json.dumps(faithfulness_result, ensure_ascii=False, indent=2))
+                    print("==============================\n")
+
+            except Exception as e:
+                print("Faithfulness eval failed:", e)
 
             reply = ChatMessage(role="assistant", type="text", content=ans_text_out)
             append_messages(session, [reply])
@@ -1165,7 +1336,94 @@ def agent_chat(req: ChatRequest):
         # ans_text_out = (ans_text or "").rstrip() + _format_sources_for_text(sources)
         ans_text_out = (ans_text or "").strip()
 
-        # 問題很短時，做較寬鬆的主題過濾，避免完全不相關來源混進來
+        # =========================================
+        # Faithfulness Evaluation
+        # =========================================
+
+        faithfulness_result = None
+
+        try:
+            contexts = []
+
+            for s in raw_sources or []:
+                text = (
+                    s.get("snippet")
+                    or s.get("text")
+                    or s.get("content")
+                    or ""
+                )
+
+                if text:
+                    contexts.append({
+    "title": getattr(r, "title", ""),
+    "page": getattr(r, "page", ""),
+    "source_type": getattr(r, "source_type", ""),
+    "text": str(text),
+})
+
+            if contexts:
+                # 只評估「1) 綜合回答」，不要把學習重點、注意事項、延伸問題算進去
+                eval_answer = final_answer
+
+                if "2) 骨骼學習重點" in eval_answer:
+                    eval_answer = eval_answer.split("2) 骨骼學習重點", 1)[0].strip()
+                elif "3) 注意事項" in eval_answer:
+                    eval_answer = eval_answer.split("3) 注意事項", 1)[0].strip()
+
+                faithfulness_result = evaluate_faithfulness(
+                    question=clean_q,
+                    answer=eval_answer,
+                    contexts=contexts,
+                )
+                
+                # =========================================
+# Save Faithfulness Eval Log
+# =========================================
+
+                try:
+                    from db import get_connection
+
+                    with get_connection() as conn:
+                        cur = conn.cursor()
+
+                        cur.execute("""
+                            INSERT INTO agent.RagEvalLog
+                            (
+                                ConversationId,
+                                UserId,
+                                Question,
+                                RagMode,
+                                Faithfulness,
+                                SupportedClaims,
+                                TotalClaims,
+                                EvalJson
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        str(conversation_id) if conversation_id else None,
+                        user_id,
+                        clean_q,
+                        req.rag_mode,
+                        faithfulness_result.get("faithfulness"),
+                        faithfulness_result.get("supported_claims"),
+                        faithfulness_result.get("total_claims"),
+                        json.dumps(faithfulness_result, ensure_ascii=False)
+                        )
+
+                        conn.commit()
+
+                except Exception as e:
+                    print("Save RagEvalLog failed:", e)
+
+                print("\n==============================")
+                print("FAITHFULNESS RESULT")
+                print(json.dumps(faithfulness_result, ensure_ascii=False, indent=2))
+                print("==============================\n")
+
+        except Exception as e:
+            print("Faithfulness eval failed:", e)
+
+        # 問題很短時...
         if len(clean_q) <= 2:
             filtered_sources = []
 
@@ -1185,7 +1443,7 @@ def agent_chat(req: ChatRequest):
                 if any(term in clean_q for term in group):
                     matched_terms.extend(group)
 
-            for s in sources or []:
+            for s in raw_sources or []:
                 blob = " ".join([
                     str(s.get("title") or ""),
                     str(s.get("snippet") or ""),

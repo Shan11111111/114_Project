@@ -309,23 +309,23 @@ function RoleCards({
     badge?: string;
   }> = [
     { r: "student", title: "student", desc: "學生/學習用途" },
-    {
-      r: "teacher",
-      title: "teacher",
-      desc: "教學/帶課（未來要審核）",
-      badge: "review",
-    },
-    {
-      r: "doctor",
-      title: "doctor",
-      desc: "專業醫療人員/醫師（未來要審核）",
-      badge: "review",
-    },
-    {
-      r: "assistant",
-      title: "assistant",
-      desc: "研究人員/專題成員/研究助理",
-    },
+    // {
+    //   r: "teacher",
+    //   title: "teacher",
+    //   desc: "教學/帶課（未來要審核）",
+    //   badge: "review",
+    // },
+    // {
+    //   r: "doctor",
+    //   title: "doctor",
+    //   desc: "專業醫療人員/醫師（未來要審核）",
+    //   badge: "review",
+    // },
+    // {
+    //   r: "assistant",
+    //   title: "assistant",
+    //   desc: "研究人員/專題成員/研究助理",
+    // },
   ];
 
   return (
