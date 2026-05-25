@@ -55,6 +55,39 @@ function normalizeBoneKey(name?: string | null) {
 
     const raw = name.toLowerCase();
 
+    // 腕骨特例要先判斷，避免「頭狀骨」被 raw.includes('頭') 誤判成 head
+    // 也避免手腕舟狀骨 Scaphoid 被下面 foot 判斷吃掉
+    if (
+        raw.includes('scaphoid') ||
+        raw.includes('lunate') ||
+        raw.includes('triquetrum') ||
+        raw.includes('pisiform') ||
+        raw.includes('trapezium') ||
+        raw.includes('trapezoid') ||
+        raw.includes('capitate') ||
+        raw.includes('hamate') ||
+        raw.includes('腕') ||
+        raw.includes('腕骨') ||
+        raw.includes('月狀骨') ||
+        raw.includes('三角骨') ||
+        raw.includes('豆狀骨') ||
+        raw.includes('大多角骨') ||
+        raw.includes('小多角骨') ||
+        raw.includes('頭狀骨') ||
+        raw.includes('鉤狀骨') ||
+        (
+            raw.includes('舟狀骨') &&
+            (
+                raw.includes('scaphoid') ||
+                raw.includes('upper limbs') ||
+                raw.includes('upper limb') ||
+                raw.includes('上肢')
+            )
+        )
+    ) {
+        return 'wrist';
+    }
+
     if (
         raw.includes('hyoid') ||
         raw.includes('hyoid bone') ||
@@ -281,7 +314,7 @@ function normalizeBoneKey(name?: string | null) {
         return 'midFoot';
     }
 
-    // 足部跗骨要先於 wrist 判斷，避免腳的 Navicular / 舟狀骨被誤判成手腕
+    // 足部跗骨：不能只看到「舟狀骨」就判 foot，因為手腕也有舟狀骨 Scaphoid
     if (
         raw.includes('foot') ||
         raw.includes('feet') ||
@@ -296,15 +329,48 @@ function normalizeBoneKey(name?: string | null) {
         raw.includes('tarsal') ||
         raw.includes('calcaneus') ||
         raw.includes('talus') ||
-        raw.includes('navicular') ||
         raw.includes('cuboid') ||
         raw.includes('cuneiform') ||
         raw.includes('跗骨') ||
         raw.includes('跟骨') ||
         raw.includes('距骨') ||
-        raw.includes('舟狀骨') ||
         raw.includes('立方骨') ||
-        raw.includes('楔狀骨')
+        raw.includes('楔狀骨') ||
+        (
+            raw.includes('navicular') &&
+            (
+                raw.includes('foot') ||
+                raw.includes('feet') ||
+                raw.includes('lower limbs') ||
+                raw.includes('lower limb') ||
+                raw.includes('lowerlimbs') ||
+                raw.includes('lowerlimb') ||
+                raw.includes('下肢') ||
+                raw.includes('tarsus') ||
+                raw.includes('tarsal') ||
+                raw.includes('跗骨') ||
+                raw.includes('足') ||
+                raw.includes('腳')
+            )
+        ) ||
+        (
+            raw.includes('舟狀骨') &&
+            (
+                raw.includes('navicular') ||
+                raw.includes('foot') ||
+                raw.includes('feet') ||
+                raw.includes('lower limbs') ||
+                raw.includes('lower limb') ||
+                raw.includes('lowerlimbs') ||
+                raw.includes('lowerlimb') ||
+                raw.includes('下肢') ||
+                raw.includes('tarsus') ||
+                raw.includes('tarsal') ||
+                raw.includes('跗骨') ||
+                raw.includes('足') ||
+                raw.includes('腳')
+            )
+        )
     ) {
         return 'foot';
     }
@@ -359,7 +425,6 @@ function normalizeBoneKey(name?: string | null) {
         raw.includes('hamate') ||
         raw.includes('腕') ||
         raw.includes('腕骨') ||
-        raw.includes('舟狀骨') ||
         raw.includes('月狀骨') ||
         raw.includes('三角骨') ||
         raw.includes('豆狀骨') ||
@@ -425,22 +490,61 @@ function normalizeBoneKey(name?: string | null) {
 
     if (
         raw.includes('foot') ||
+        raw.includes('feet') ||
+        raw.includes('lower limbs') ||
+        raw.includes('lower limb') ||
+        raw.includes('lowerlimbs') ||
+        raw.includes('lowerlimb') ||
+        raw.includes('下肢') ||
+        raw.includes('足') ||
+        raw.includes('腳') ||
+        raw.includes('tarsus') ||
         raw.includes('tarsal') ||
-        raw.includes('metatarsal') ||
-        raw.includes('metatarsals') ||
         raw.includes('calcaneus') ||
         raw.includes('talus') ||
-        raw.includes('navicular') ||
         raw.includes('cuboid') ||
         raw.includes('cuneiform') ||
-        raw.includes('足') ||
         raw.includes('跗骨') ||
         raw.includes('蹠骨') ||
         raw.includes('跟骨') ||
         raw.includes('距骨') ||
-        raw.includes('舟狀骨') ||
         raw.includes('立方骨') ||
-        raw.includes('楔狀骨')
+        raw.includes('楔狀骨') ||
+        (
+            raw.includes('navicular') &&
+            (
+                raw.includes('foot') ||
+                raw.includes('feet') ||
+                raw.includes('lower limbs') ||
+                raw.includes('lower limb') ||
+                raw.includes('lowerlimbs') ||
+                raw.includes('lowerlimb') ||
+                raw.includes('下肢') ||
+                raw.includes('tarsus') ||
+                raw.includes('tarsal') ||
+                raw.includes('跗骨') ||
+                raw.includes('足') ||
+                raw.includes('腳')
+            )
+        ) ||
+        (
+            raw.includes('舟狀骨') &&
+            (
+                raw.includes('navicular') ||
+                raw.includes('foot') ||
+                raw.includes('feet') ||
+                raw.includes('lower limbs') ||
+                raw.includes('lower limb') ||
+                raw.includes('lowerlimbs') ||
+                raw.includes('lowerlimb') ||
+                raw.includes('下肢') ||
+                raw.includes('tarsus') ||
+                raw.includes('tarsal') ||
+                raw.includes('跗骨') ||
+                raw.includes('足') ||
+                raw.includes('腳')
+            )
+        )
     ) {
         return 'foot';
     }
