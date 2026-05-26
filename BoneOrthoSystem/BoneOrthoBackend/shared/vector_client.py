@@ -1,4 +1,5 @@
 import os
+import json
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
@@ -23,6 +24,13 @@ DEFAULT_QUERY_SCORE_THRESHOLD = float(os.getenv("QDRANT_QUERY_SCORE_THRESHOLD", 
 DEFAULT_ENABLE_GIBBERISH_FILTER = os.getenv("QDRANT_ENABLE_GIBBERISH_FILTER", "0") == "1"
 DEFAULT_EXCLUDE_PLACEHOLDERS = os.getenv("QDRANT_EXCLUDE_PLACEHOLDERS", "1") == "1"
 DEFAULT_DEBUG = os.getenv("QDRANT_DEBUG", "0") == "1"
+
+# Qdrant 預設單次 JSON payload 上限約 32MB。
+# 這裡保守抓 20MB，避免臨界值爆掉。
+MAX_QDRANT_BATCH_BYTES = int(os.getenv("QDRANT_MAX_BATCH_BYTES", str(20 * 1024 * 1024)))
+
+# 避免單批 points 太多，即使 payload 不大也比較穩。
+MAX_QDRANT_BATCH_POINTS = int(os.getenv("QDRANT_MAX_BATCH_POINTS", "64"))
 
 
 def is_gibberish(text: str) -> bool:
@@ -119,8 +127,15 @@ class VectorStore:
 
             pid = d.get("id") or str(uuid4())
 
+            text = d.get("text", "") or ""
+
+            # 防止單一 chunk 太肥。正常 RAG chunk 不該大到幾萬字。
+            # 如果真的很大，先截斷避免 Qdrant payload 爆掉。
+            if isinstance(text, str) and len(text) > 12000:
+                text = text[:12000] + "\n...[TRUNCATED_FOR_QDRANT_PAYLOAD]"
+
             payload = {
-                "text": d.get("text", ""),
+                "text": text,
                 "material_id": d.get("material_id"),
                 "title": d.get("title"),
                 "type": d.get("type") or d.get("source_type"),
@@ -141,8 +156,64 @@ class VectorStore:
             print("⚠️ upsert_docs skipped: points is empty (all docs invalid/empty)")
             return
 
-        self.client.upsert(collection_name=QDRANT_COLLECTION, points=points)
+        def estimate_batch_size(batch_points: List[PointStruct]) -> int:
+            """
+            粗估 Qdrant upsert JSON 大小。
+            不需要百分百精準，只要避免超過 32MB 即可。
+            """
+            try:
+                data = {
+                    "points": [
+                        {
+                            "id": p.id,
+                            "vector": p.vector,
+                            "payload": p.payload,
+                        }
+                        for p in batch_points
+                    ]
+                }
+                return len(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
+            except Exception:
+                # 估算失敗就當作超大，強制切批
+                return MAX_QDRANT_BATCH_BYTES + 1
 
+        def flush_batch(batch_points: List[PointStruct], batch_no: int) -> None:
+            if not batch_points:
+                return
+
+            approx_mb = estimate_batch_size(batch_points) / 1024 / 1024
+            print(
+                f"[QDRANT] upsert batch {batch_no}: "
+                f"{len(batch_points)} points, approx={approx_mb:.2f}MB"
+            )
+
+            self.client.upsert(
+                collection_name=QDRANT_COLLECTION,
+                points=batch_points,
+            )
+
+        batch: List[PointStruct] = []
+        batch_no = 1
+        total_points = len(points)
+
+        for p in points:
+            candidate = batch + [p]
+            candidate_size = estimate_batch_size(candidate)
+
+            if batch and (
+                candidate_size > MAX_QDRANT_BATCH_BYTES
+                or len(candidate) > MAX_QDRANT_BATCH_POINTS
+            ):
+                flush_batch(batch, batch_no)
+                batch_no += 1
+                batch = [p]
+            else:
+                batch = candidate
+
+        if batch:
+            flush_batch(batch, batch_no)
+
+        print(f"[QDRANT] upsert_docs done: {total_points} points")
     # -----------------------------
     # Search (return raw points)
     # -----------------------------
