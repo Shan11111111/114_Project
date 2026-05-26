@@ -9,11 +9,12 @@ npm run start
 
 安裝套件
 npm i framer-motion
+npm install recharts
 
 連外
 npm run dev -- --hostname 0.0.0.0 --port 3000
 
-npx next dev -H 0.0.0.0 -p 3000
+npx next dev -H 0.0.0.0 -p 3000 
 
 
 http://localhost:3000/llm/materials   //上傳官方教材的前端(學生以外的使用者:老師，記得連)
