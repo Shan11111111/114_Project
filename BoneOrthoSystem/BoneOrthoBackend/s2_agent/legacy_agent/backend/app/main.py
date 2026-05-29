@@ -741,7 +741,44 @@ def agent_chat_stream(req: ChatRequest):
                             faithfulness_result.get("total_claims"),
                             json.dumps(faithfulness_result, ensure_ascii=False)
                             )
+                            
+                            unsupported_claims = faithfulness_result.get("unsupported_claims", [])
 
+                            for item in unsupported_claims:
+                                claim = item.get("claim", "")
+
+                                if not claim:
+                                    continue
+
+                                suggested_query = (
+                                    f"{claim} "
+                                    f"骨骼健康 骨質疏鬆 醫院衛教 PubMed "
+                                    f"bone health osteoporosis clinical education"
+                                )
+
+                                cur.execute("""
+                                    INSERT INTO agent.RagKnowledgeGap
+                                    (
+                                        ConversationId,
+                                        UserId,
+                                        Question,
+                                        Claim,
+                                        SuggestedQuery,
+                                        SourceSuggestion,
+                                        Status
+                                    )
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                str(conversation_id) if conversation_id else None,
+                                user_id,
+                                clean_q,
+                                claim,
+                                suggested_query,
+                                "PubMed / 醫院衛教資料 / 教材上傳",
+                                "pending_review"
+                                )
+                                
+                            
                             conn.commit()
 
                     except Exception as e:

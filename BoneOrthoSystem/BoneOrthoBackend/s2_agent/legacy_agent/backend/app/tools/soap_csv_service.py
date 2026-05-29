@@ -56,20 +56,34 @@ def _clean_text(text: str) -> str:
 
 def _normalize_row(row: Dict[str, Any]) -> Dict[str, str]:
     normalized = {str(k): _clean_text(str(v or "")) for k, v in row.items()}
-    
-    # 去識別化 - 保留藥物，隱藏個資
-    normalized[SOAP_ID_COL] = '[REDACTED]'  # RRN隱藏
+
+    # 去識別化：隱藏個資，但保留骨科診斷、症狀、用藥與處置內容
+    normalized[SOAP_ID_COL] = "[REDACTED]"
+
     for col in [SOAP_SUBJECTIVE_COL, SOAP_OBJECTIVE_COL, SOAP_ASSESSMENT_COL, SOAP_PLAN_COL]:
         if col in normalized:
             content = normalized[col]
-            # 移除病歷號
-            content = re.sub(r'[A-Z]{3}\d+', '[ID]', content)
-            # 匿名化診斷
-            content = re.sub(r'骨折|骨鬆症|骨質疏鬆|胸壁溫熱痛', '異常', content)
-            normalized[col] = content
-    
-    return normalized
 
+            # 移除可能的病歷號 / ID 格式
+            content = re.sub(r"[A-Z]{3}\d+", "[ID]", content)
+            content = re.sub(r"\b[A-Z][0-9]{9}\b", "[ID]", content)
+
+            # 移除台灣手機號碼
+            content = re.sub(r"09\d{8}", "[PHONE]", content)
+
+            # 移除可能的 email
+            content = re.sub(
+                r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+                "[EMAIL]",
+                content,
+            )
+
+            # 不要把骨折、骨質疏鬆、骨鬆症等診斷名稱改成「異常」
+            # 這些是教學與檢索關鍵字，保留才有學習價值
+
+            normalized[col] = content
+
+    return normalized
 
 def _load_soap_rows() -> List[Dict[str, str]]:
     if not SOAP_CSV_PATH.exists():
@@ -101,8 +115,10 @@ def _rewrite_to_soap_query(user_question: str) -> str:
                         "Focus on orthopedic and bone-related terms, symptoms, anatomical region, imaging findings, diagnosis, treatment, medication, follow-up, and rehabilitation. "
                         "Preserve important medical entities such as osteoporosis, fracture, spine, lumbar, cervical, knee, hip, radius, ulna, femur, tibia, pain, X-ray, DXA, surgery, medication, assessment, and plan. "
                         "If the user asks about a patient/case/SOAP record, include terms likely to appear in Subjective, Objective, Assessment, and Plan. "
-                        "Output 3 to 8 concise English keywords separated by spaces. "
-                        "Do not output explanation, punctuation-heavy text, or full sentences."
+                        "Output 3 to 12 concise Traditional Chinese and English keywords separated by spaces. "
+"Include both Chinese medical terms and common English equivalents when useful. "
+"For example: 骨質疏鬆 osteoporosis 骨折 fracture 腰椎 lumbar 疼痛 pain 用藥 medication 復健 rehabilitation. "
+"Do not output explanation, punctuation-heavy text, or full sentences."
                     ),
                 },
                 {"role": "user", "content": q},
