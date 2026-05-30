@@ -33,6 +33,15 @@ type KnowledgeGap = {
     created_at: string;
 };
 
+type GapCandidate = {
+    candidate_id: number;
+    source_type: string;
+    title: string;
+    url?: string;
+    summary: string;
+    score: number;
+};
+
 type QuickFilter =
     | 'all'
     | 'low'
@@ -127,6 +136,11 @@ export default function EvalDashboardPage() {
     const [autoRefresh, setAutoRefresh] = useState(false);
     const [keyword, setKeyword] = useState('');
     const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+    const [gapCandidates, setGapCandidates] = useState<GapCandidate[]>([]);
+    const [loadingCandidates, setLoadingCandidates] = useState(false);
+    const [approvingCandidateId, setApprovingCandidateId] = useState<number | null>(null);
+    const [gapBusyId, setGapBusyId] = useState<number | null>(null);
+    const [gapActionMessage, setGapActionMessage] = useState('');
 
     const PAGE_SIZE = 6;
     const [page, setPage] = useState(1);
@@ -258,12 +272,121 @@ export default function EvalDashboardPage() {
     function selectLog(log: EvalLog) {
         setSelectedLog(log);
         setSelectedGap(null);
+        setGapCandidates([]);
+        setGapActionMessage('');
     }
 
     function selectLogByEvalId(evalId: number | string | undefined) {
         if (!evalId) return;
         const target = logs.find((x) => String(x.eval_id) === String(evalId));
         if (target) selectLog(target);
+    }
+
+    async function loadGapCandidates(gapId: number) {
+        setLoadingCandidates(true);
+
+        try {
+            const res = await fetch(`${API_BASE}/eval-dashboard/gap-candidates/${gapId}`, {
+                cache: 'no-store',
+            });
+
+            if (!res.ok) throw new Error('load gap candidates failed');
+
+            const data = await res.json();
+            setGapCandidates(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error('loadGapCandidates failed:', err);
+            setGapCandidates([]);
+        } finally {
+            setLoadingCandidates(false);
+        }
+    }
+
+    async function prepareGapMaterial(gap: KnowledgeGap) {
+        setGapBusyId(gap.gap_id);
+        setGapActionMessage('');
+
+        try {
+            const res = await fetch(`${API_BASE}/eval-dashboard/knowledge-gaps/${gap.gap_id}/prepare-material`, {
+                method: 'POST',
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data?.detail || data?.message || 'prepare-material failed');
+            }
+
+            const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+            setGapCandidates(candidates);
+
+            await loadData();
+
+            setGapActionMessage(
+                candidates.length > 0
+                    ? `已找到 ${candidates.length} 筆候選教材，請逐筆審查後再匯入。`
+                    : '沒有找到候選教材，請換查詢詞或改查其他來源。'
+            );
+        } catch (err) {
+            console.error('prepareGapMaterial failed:', err);
+            setGapActionMessage('準備教材失敗，請確認後端 API、IIS Rewrite 或 PubMed 查詢。');
+        } finally {
+            setGapBusyId(null);
+        }
+    }
+
+    async function approveCandidate(candidateId: number) {
+        if (!selectedGap) return;
+
+        setApprovingCandidateId(candidateId);
+        setGapActionMessage('');
+
+        try {
+            const res = await fetch(`${API_BASE}/eval-dashboard/gap-candidates/${candidateId}/approve`, {
+                method: 'POST',
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data?.detail || data?.message || 'approve failed');
+            }
+
+            await loadData();
+            await loadGapCandidates(selectedGap.gap_id);
+
+            setGapActionMessage(
+                data?.index_ok
+                    ? '已審查匯入，並完成向量索引。'
+                    : `已匯入教材庫，但索引失敗：${data?.index_error || '請看後端 log'}`
+            );
+        } catch (err) {
+            console.error('approveCandidate failed:', err);
+            setGapActionMessage('審查匯入失敗，請確認 TeachingMaterial 欄位、uploads 權限或 Qdrant。');
+        } finally {
+            setApprovingCandidateId(null);
+        }
+    }
+
+    async function recheckGap(gap: KnowledgeGap) {
+        setGapBusyId(gap.gap_id);
+        setGapActionMessage('');
+        try {
+            const res = await fetch(`${API_BASE}/eval-dashboard/knowledge-gaps/${gap.gap_id}/recheck`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: gap.question, claim: gap.claim }),
+            });
+            if (!res.ok) throw new Error('recheck endpoint not ready');
+            await loadData();
+            await loadGapCandidates(gap.gap_id);
+            const data = await res.json().catch(() => null);
+            setGapActionMessage(data?.message || '已重新檢查候選教材，資料已更新。');
+        } catch (err) {
+            setGapActionMessage('重跑檢查需要後端 /recheck API；目前只能先查看缺口與草稿。');
+        } finally {
+            setGapBusyId(null);
+        }
     }
 
     return (
@@ -391,6 +514,9 @@ export default function EvalDashboardPage() {
                                                     onClick={() => {
                                                         setSelectedGap(gap);
                                                         setSelectedLog(null);
+                                                        setGapActionMessage('');
+                                                        setGapCandidates([]);
+                                                        loadGapCandidates(gap.gap_id);
                                                     }}
                                                     className={`w-full rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${selectedGap?.gap_id === gap.gap_id
                                                         ? 'border-orange-300 bg-orange-50 shadow-sm'
@@ -569,8 +695,8 @@ export default function EvalDashboardPage() {
                         {selectedGap ? (
                             <div className="flex h-full flex-col">
                                 <div className="border-b border-slate-200 p-5">
-                                    <div className="mb-2 flex items-center justify-between">
-                                        <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-black text-orange-700">待補教材</span>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-black text-orange-700">缺口修補流程</span>
                                         <button
                                             onClick={() => setSelectedGap(null)}
                                             className="rounded-full border border-slate-200 px-3 py-1 text-xs font-bold text-slate-500 hover:bg-slate-50"
@@ -578,47 +704,155 @@ export default function EvalDashboardPage() {
                                             關閉
                                         </button>
                                     </div>
-                                    <h2 className="text-xl font-black text-slate-950">知識缺口詳情</h2>
+                                    <h2 className="text-xl font-black text-slate-950">從缺口到入庫</h2>
+                                    <div className="mt-3 grid grid-cols-5 gap-1 text-center text-[10px] font-black text-slate-500">
+                                        {['缺口', '找資料', '草稿', '審查', '重測'].map((step, idx) => (
+                                            <div
+                                                key={step}
+                                                className={`rounded-full px-2 py-1 ${idx === 0
+                                                    ? 'bg-orange-100 text-orange-700'
+                                                    : gapCandidates.length > 0
+                                                        ? 'bg-emerald-100 text-emerald-700'
+                                                        : 'bg-slate-100 text-slate-400'
+                                                    }`}
+                                            >
+                                                {step}
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-                                    <div className="rounded-3xl bg-slate-50 p-4">
-                                        <div className="mb-1 text-xs font-black text-slate-400">原始問題</div>
-                                        <div className="text-sm font-semibold text-slate-800">{selectedGap.question}</div>
-                                    </div>
-
                                     <div className="rounded-3xl border border-rose-100 bg-rose-50 p-4">
-                                        <div className="mb-1 text-xs font-black text-rose-500">Unsupported Claim</div>
-                                        <div className="text-sm font-bold text-rose-900">{selectedGap.claim}</div>
+                                        <div className="mb-2 flex items-center justify-between">
+                                            <div className="text-xs font-black text-rose-500">需要補強的 Claim</div>
+                                            <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-rose-600">Gap #{selectedGap.gap_id}</span>
+                                        </div>
+                                        <div className="text-sm font-bold leading-6 text-rose-950">{selectedGap.claim}</div>
                                     </div>
 
-                                    <div className="rounded-3xl border border-orange-100 bg-orange-50 p-4">
-                                        <div className="mb-1 text-xs font-black text-orange-500">Suggested Query</div>
-                                        <div className="text-sm font-bold text-orange-900">{selectedGap.suggested_query}</div>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        <div className="rounded-3xl bg-slate-50 p-4">
+                                            <div className="mb-1 text-xs font-black text-slate-400">原始問題</div>
+                                            <div className="text-sm font-semibold text-slate-800">{selectedGap.question}</div>
+                                        </div>
+
+                                        <div className="rounded-3xl border border-orange-100 bg-orange-50 p-4">
+                                            <div className="mb-1 text-xs font-black text-orange-500">系統應該自動拿去查的關鍵字</div>
+                                            <div className="text-sm font-black leading-6 text-orange-950">{selectedGap.suggested_query || selectedGap.claim}</div>
+                                        </div>
                                     </div>
 
-                                    <div className="rounded-3xl bg-slate-50 p-4">
-                                        <div className="mb-1 text-xs font-black text-slate-400">建議來源</div>
-                                        <div className="text-sm font-semibold text-slate-700">{selectedGap.source_suggestion}</div>
+                                    <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
+                                        <div className="mb-4 flex items-center justify-between gap-3">
+                                            <div>
+                                                <div className="text-sm font-black text-slate-950">候選教材審查</div>
+                                                <div className="mt-1 text-xs font-bold text-slate-400">
+                                                    系統找到的資料要先審查，通過後才會寫入教材庫並嘗試進入向量資料庫。
+                                                </div>
+                                            </div>
+                                            {loadingCandidates && (
+                                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">
+                                                    載入中
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {gapCandidates.length === 0 ? (
+                                            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+                                                <div className="text-sm font-black text-slate-800">目前沒有候選教材</div>
+                                                <div className="mt-1 text-xs font-bold leading-5 text-slate-500">
+                                                    請先按「準備教材」，系統會用上方查詢詞去找可補證據的資料。
+                                                </div>
+                                                <button
+                                                    onClick={() => prepareGapMaterial(selectedGap)}
+                                                    disabled={gapBusyId === selectedGap.gap_id}
+                                                    className="mt-4 w-full rounded-2xl bg-orange-500 px-4 py-3 text-sm font-black text-white hover:bg-orange-600 disabled:opacity-50"
+                                                >
+                                                    {gapBusyId === selectedGap.gap_id ? '準備中...' : '準備教材'}
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {gapCandidates.map((candidate) => (
+                                                    <article
+                                                        key={candidate.candidate_id}
+                                                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                                                    >
+                                                        <div className="mb-2 flex items-center justify-between gap-2">
+                                                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-black text-emerald-700">
+                                                                {candidate.source_type || 'source'}
+                                                            </span>
+                                                            <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-black text-slate-700">
+                                                                Score {Number(candidate.score || 0).toFixed(2)}
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="text-sm font-black leading-5 text-slate-950">
+                                                            {candidate.title}
+                                                        </div>
+
+                                                        <div className="mt-3 max-h-32 overflow-y-auto rounded-xl bg-white p-3 text-xs font-semibold leading-5 text-slate-600">
+                                                            {candidate.summary || '沒有摘要內容'}
+                                                        </div>
+
+                                                        <div className="mt-3 grid grid-cols-2 gap-2">
+                                                            {candidate.url ? (
+                                                                <a
+                                                                    href={candidate.url}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-xs font-black text-slate-700 hover:bg-slate-100"
+                                                                >
+                                                                    開啟來源
+                                                                </a>
+                                                            ) : (
+                                                                <button
+                                                                    disabled
+                                                                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-300"
+                                                                >
+                                                                    無來源
+                                                                </button>
+                                                            )}
+
+                                                            <button
+                                                                onClick={() => approveCandidate(candidate.candidate_id)}
+                                                                disabled={approvingCandidateId === candidate.candidate_id}
+                                                                className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white hover:bg-slate-700 disabled:opacity-50"
+                                                            >
+                                                                {approvingCandidateId === candidate.candidate_id ? '匯入中...' : '審查匯入'}
+                                                            </button>
+                                                        </div>
+                                                    </article>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
+
+                                    {gapActionMessage && (
+                                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-600">
+                                            {gapActionMessage}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-3 border-t border-slate-200 p-5">
                                     <button
-                                        onClick={() => navigator.clipboard.writeText(selectedGap.suggested_query)}
-                                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                                        onClick={() => prepareGapMaterial(selectedGap)}
+                                        disabled={gapBusyId === selectedGap.gap_id}
+                                        className="rounded-2xl bg-orange-500 px-3 py-3 text-sm font-black text-white hover:bg-orange-600 disabled:opacity-50"
                                     >
-                                        複製搜尋詞
+                                        重新找資料
                                     </button>
-                                    <a
-                                        href={`/llm/materials?keyword=${encodeURIComponent(selectedGap.suggested_query)}`}
-                                        className="rounded-2xl bg-orange-500 px-4 py-3 text-center text-sm font-black text-white hover:bg-orange-600"
+                                    <button
+                                        onClick={() => recheckGap(selectedGap)}
+                                        disabled={gapBusyId === selectedGap.gap_id}
+                                        className="rounded-2xl bg-slate-950 px-3 py-3 text-sm font-black text-white hover:bg-slate-700 disabled:opacity-50"
                                     >
-                                        補充教材
-                                    </a>
+                                        重跑檢查
+                                    </button>
                                 </div>
-                            </div>
-                        ) : (
+                            </div>) : (
                             <div className="flex h-full flex-col">
                                 <div className="border-b border-slate-200 p-5">
                                     <div className="mb-2 flex items-center justify-between">
