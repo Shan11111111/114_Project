@@ -95,6 +95,14 @@ def evaluate_faithfulness(
 ) -> Dict[str, Any]:
 
     claims = split_claims(answer)
+    
+    print("\n========== FAITHFULNESS CONTEXT ==========")
+
+    for i, c in enumerate(contexts):
+        print(f"\n--- CONTEXT {i+1} ---")
+        print(json.dumps(c, ensure_ascii=False, indent=2))
+
+    print("=========================================\n")
 
     formatted_claims = "\n".join(
         [f"{idx+1}. {c}" for idx, c in enumerate(claims)]
@@ -112,17 +120,21 @@ text:
 """
     for i, c in enumerate(contexts)
 ])
+    
+    print("\n========== USER PROMPT ==========")
+    print(context_text[:5000])
+    print("=================================\n")
 
     user_prompt = f"""
-Question:
-{question}
+        Question:
+        {question}
 
-Claims:
-{formatted_claims}
+        Claims:
+        {formatted_claims}
 
-Contexts:
-{context_text}
-"""
+        Contexts:
+        {context_text}
+        """
 
     response = client.chat.completions.create(
         model=model,

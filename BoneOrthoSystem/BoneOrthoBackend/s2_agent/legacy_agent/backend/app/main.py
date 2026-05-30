@@ -678,20 +678,33 @@ def agent_chat_stream(req: ChatRequest):
 
             try:
                 contexts = []
+                has_3d_asset_only = False
 
-                for r in resources or []:
+                for s in raw_resources or []:
+                    
+                    source_type = str(s.get("source_type") or "").lower()
+
+                    # 3D 模型資源不是文字型 RAG evidence，不送進 Faithfulness
+                    if source_type == "3d_asset":
+                        has_3d_asset_only = True
+                        continue
+
                     text = (
-                        getattr(r, "snippet", None)
+                        s.get("text")
+                        or s.get("content")
+                        or s.get("snippet")
                         or ""
                     )
 
-                    if text:
-                        contexts.append({
-    "title": getattr(r, "title", ""),
-    "page": getattr(r, "page", ""),
-    "source_type": getattr(r, "source_type", ""),
-    "text": str(text),
-})
+                    if not text:
+                        continue
+
+                    contexts.append({
+                        "title": s.get("title", ""),
+                        "page": s.get("page", ""),
+                        "source_type": s.get("source_type", ""),
+                        "text": str(text),
+                    })
 
                 if contexts:
                     # 只評估「1) 綜合回答」，不要把學習重點、注意事項、延伸問題算進去
@@ -707,7 +720,11 @@ def agent_chat_stream(req: ChatRequest):
                         answer=eval_answer,
                         contexts=contexts,
                     )
-                    
+                else:
+                    if has_3d_asset_only:
+                        print("[FAITHFULNESS SKIP] only 3d_asset resources; skip text RAG faithfulness eval.")
+                    else:
+                        print("[FAITHFULNESS SKIP] no text RAG contexts.")
                     # =========================================
                     # Save Faithfulness Eval Log
                     # =========================================
@@ -757,17 +774,18 @@ def agent_chat_stream(req: ChatRequest):
                                 )
 
                                 cur.execute("""
-                                    INSERT INTO agent.RagKnowledgeGap
-                                    (
-                                        ConversationId,
-                                        UserId,
-                                        Question,
-                                        Claim,
-                                        SuggestedQuery,
-                                        SourceSuggestion,
-                                        Status
-                                    )
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                INSERT INTO agent.RagKnowledgeGap
+                                (
+                                    ConversationId,
+                                    UserId,
+                                    Question,
+                                    Claim,
+                                    SuggestedQuery,
+                                    SourceSuggestion,
+                                    Status
+                                )
+                                OUTPUT INSERTED.GapId
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 str(conversation_id) if conversation_id else None,
                                 user_id,
@@ -777,6 +795,47 @@ def agent_chat_stream(req: ChatRequest):
                                 "PubMed / 醫院衛教資料 / 教材上傳",
                                 "pending_review"
                                 )
+
+                                row = cur.fetchone()
+                                gap_id = int(row[0]) if row else None
+
+                                row = cur.fetchone()
+
+                                if row:
+                                    gap_id = int(row[0])
+                                    
+                                try:
+                                    from .tools.pubmed_tool import retrieve_pubmed_sources
+
+                                    pubmed_candidates = retrieve_pubmed_sources(
+                                        suggested_query,
+                                        max_results=3
+                                    )
+
+                                    for p in pubmed_candidates:
+
+                                        cur.execute("""
+                                        INSERT INTO agent.RagKnowledgeGapCandidate
+                                        (
+                                            GapId,
+                                            SourceType,
+                                            Title,
+                                            Url,
+                                            Summary,
+                                            Score
+                                        )
+                                        VALUES (?, ?, ?, ?, ?, ?)
+                                        """,
+                                        gap_id,
+                                        "pubmed",
+                                        p.get("title"),
+                                        p.get("url"),
+                                        p.get("abstract") or "",
+                                        95.0
+                                        )
+
+                                except Exception as e:
+                                    print("Gap candidate failed:", e)
                                 
                             
                             conn.commit()

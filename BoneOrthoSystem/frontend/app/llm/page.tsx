@@ -88,6 +88,22 @@ type QuizData = {
   questions: QuizQuestion[];
 };
 
+type FlashcardItem = {
+  id: string;
+  title: string;
+  front: string;
+  back: string;
+  hint?: string;
+  confusion?: string;
+};
+
+type FlashcardData = {
+  mode: "flashcards";
+  title: string;
+  cards: FlashcardItem[];
+};
+
+
 type ViewKey = "llm" | "assets";
 
 type HistoryThread = {
@@ -175,6 +191,12 @@ const WELCOME_TEXT = `嗨，我是 GalaBone LLM 知識小助手。
 5. 如果你有任何建議或回饋，歡迎告訴我們，讓 GalaBone 變得更好！
 期待能成為你在骨科領域的好幫手！
 `;
+
+const INTERNAL_ACTION_PREFIX = "[[GAB_INTERNAL_ACTION]]";
+
+function isInternalActionMessage(content?: string) {
+  return String(content || "").startsWith(INTERNAL_ACTION_PREFIX);
+}
 
 // ==============================
 //  後端 API（搬 C 的連線；不影響 D 的 UI）
@@ -397,6 +419,139 @@ function tryParseQuiz(content: string): QuizData | null {
   };
 }
 
+function tryParseFlashcardsJson(content: string): FlashcardData | null {
+  const raw = extractJsonObject(String(content || "").trim());
+  if (!raw) return null;
+
+  const data = safeJsonParse<any>(raw);
+  if (!data) return null;
+
+  const rawCards = Array.isArray(data.cards)
+    ? data.cards
+    : Array.isArray(data.flashcards)
+      ? data.flashcards
+      : [];
+
+  if (data.mode !== "flashcards" && data.mode !== "cards" && rawCards.length === 0) {
+    return null;
+  }
+
+  const cards: FlashcardItem[] = rawCards
+    .map((c: any, index: number) => ({
+      id: String(c.id || `card-${index + 1}`),
+      title: String(c.title || c.name || `卡片 ${index + 1}`).trim(),
+      front: String(c.front || c.question || c.learning_point || c.point || "").trim(),
+      back: String(c.back || c.answer || c.explanation || c.detail || "").trim(),
+      hint: c.hint ? String(c.hint).trim() : undefined,
+      confusion: c.confusion ? String(c.confusion).trim() : undefined,
+    }))
+    .filter((c: FlashcardItem) => c.front || c.back || c.hint || c.confusion);
+
+  if (!cards.length) return null;
+
+  return {
+    mode: "flashcards",
+    title: String(data.title || "骨骼學習記憶卡"),
+    cards,
+  };
+}
+
+function tryParseMarkdownFlashcards(content: string): FlashcardData | null {
+  const text = String(content || "").trim();
+  if (!text.includes("### 卡片")) return null;
+
+  const chunks = text
+    .split(/(?=###\s*卡片\s*\d+)/g)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  const cards: FlashcardItem[] = chunks
+    .map((chunk, index) => {
+      const titleMatch = chunk.match(/^###\s*(卡片\s*\d+[^\n]*)/m);
+      const title = titleMatch?.[1]?.trim() || `卡片 ${index + 1}`;
+
+      const body = chunk.replace(/^###\s*卡片\s*\d+[^\n]*\n?/m, "").trim();
+
+      const point =
+        body.match(/學習重點[:：]\s*([\s\S]*?)(?=\n\s*(記憶提示|容易混淆處)[:：]|$)/)?.[1]?.trim() ||
+        "";
+
+      const hint =
+        body.match(/記憶提示[:：]\s*([\s\S]*?)(?=\n\s*(容易混淆處|學習重點)[:：]|$)/)?.[1]?.trim() ||
+        "";
+
+      const confusion =
+        body.match(/容易混淆處[:：]\s*([\s\S]*?)(?=\n\s*(學習重點|記憶提示)[:：]|$)/)?.[1]?.trim() ||
+        "";
+
+      const plainLines = body
+        .split("\n")
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .filter((x) => !/^###\s*卡片\s*\d+/i.test(x));
+
+      const fallbackFront =
+        point ||
+        plainLines.find((x) => !x.startsWith("記憶提示") && !x.startsWith("容易混淆處")) ||
+        `${title} 的重點是什麼？`;
+
+      const fallbackBack =
+        hint ||
+        confusion ||
+        plainLines.slice(0, 3).join("\n") ||
+        "目前這張卡片沒有足夠內容，請重新產生記憶卡。";
+
+      return {
+        id: `md-card-${index + 1}`,
+        title,
+        front: fallbackFront,
+        back: fallbackBack,
+        hint,
+        confusion,
+      };
+    })
+    .filter((c) => c.front || c.back || c.confusion);
+
+  if (!cards.length) return null;
+
+  return {
+    mode: "flashcards",
+    title: "小罐頭記憶卡",
+    cards,
+  };
+}
+
+function tryParseFlashcards(content: string): FlashcardData | null {
+  return tryParseFlashcardsJson(content) || tryParseMarkdownFlashcards(content);
+}
+
+function looksLikeFlashcardFailure(content: string) {
+  const raw = String(content || "").trim();
+  if (!raw) return false;
+
+  const lower = raw.toLowerCase();
+
+  const hasFlashcardIntent =
+    raw.includes("記憶卡") ||
+    raw.includes("學習卡") ||
+    raw.includes("複習卡") ||
+    lower.includes("flashcard") ||
+    lower.includes("flashcards");
+
+  const hasFailureWords =
+    raw.includes("無法") ||
+    raw.includes("不能") ||
+    raw.includes("資料不足") ||
+    raw.includes("不足") ||
+    raw.includes("沒有足夠") ||
+    raw.includes("請重新") ||
+    lower.includes("cannot") ||
+    lower.includes("unable") ||
+    lower.includes("not enough");
+
+  return hasFlashcardIntent && hasFailureWords;
+}
+
 function looksLikeQuizJson(content: string) {
   const raw = String(content || "").trim();
   if (!raw) return false;
@@ -405,13 +560,102 @@ function looksLikeQuizJson(content: string) {
 
   return (
     lower.includes("```json") ||
-    lower.includes('"mode"') ||
+    (lower.includes('"mode"') && lower.includes('"quiz"')) ||
     lower.includes('"quiz"') ||
     lower.includes('"questions"') ||
     lower.includes('"question"') ||
     lower.includes('"options"') ||
     lower.includes('"answer"') ||
     lower.includes('"explanation"')
+  );
+}
+
+function FlashcardFailedCard({ onRetry }: { onRetry?: () => void }) {
+  const { locale } = useLocale();
+  const isEn = locale === "en-US";
+
+  return (
+    <div
+      className="rounded-3xl border px-4 py-4 text-sm"
+      style={{
+        borderColor: "rgba(245,158,11,0.30)",
+        background:
+          "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(251,191,36,0.08))",
+      }}
+    >
+      <div className="font-bold">
+        🦴 {isEn ? "Flashcards could not be generated" : "目前無法整理成學習記憶卡"}
+      </div>
+
+      <div className="mt-2 text-xs leading-relaxed opacity-75">
+        {isEn
+          ? "The answer may be too short, the evidence may be insufficient, or the response format could not be parsed."
+          : "可能原因是回答內容太短、來源資料不足，或後端回覆格式沒有符合記憶卡格式。"}
+      </div>
+
+      <div
+        className="mt-3 rounded-2xl px-3 py-2 text-xs leading-relaxed"
+        style={{ backgroundColor: "rgba(255,255,255,0.35)" }}
+      >
+        {isEn
+          ? "Tip: Ask a more specific bone-related question first, then generate flashcards again."
+          : "小提醒：可以先問一個更明確的骨骼問題，等小罐頭回答完整後，再按「整理成學習記憶卡」。"}
+      </div>
+
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-3 rounded-full border px-4 py-2 text-xs font-semibold hover:opacity-80"
+          style={{
+            borderColor: "rgba(245,158,11,0.35)",
+            backgroundColor: "rgba(255,255,255,0.35)",
+          }}
+        >
+          {isEn ? "Try again" : "重新產生記憶卡"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FlashcardGeneratingCard() {
+  const { locale } = useLocale();
+  const isEn = locale === "en-US";
+
+  return (
+    <div
+      className="rounded-2xl border px-4 py-3 text-sm"
+      style={{
+        borderColor: "rgba(168,85,247,0.25)",
+        backgroundColor: "rgba(168,85,247,0.08)",
+      }}
+    >
+      <div className="font-semibold">
+        {isEn ? "Generating flashcards..." : "正在整理學習記憶卡..."}
+      </div>
+
+      <div className="mt-1 text-xs opacity-60">
+        {isEn
+          ? "The cards are being organized. Please wait."
+          : "小罐頭正在把重點折成小卡片，稍等一下。"}
+      </div>
+    </div>
+  );
+}
+
+function looksLikeFlashcardJson(content: string) {
+  const raw = String(content || "").trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+
+  return (
+    lower.includes('"flashcards"') ||
+    lower.includes('"cards"') ||
+    lower.includes('"front"') ||
+    lower.includes('"back"') ||
+    lower.includes('"hint"') ||
+    lower.includes('"confusion"')
   );
 }
 
@@ -1643,6 +1887,167 @@ function QuizCard({
   );
 }
 
+function FlashcardDeck({ data }: { data: FlashcardData }) {
+  const { locale } = useLocale();
+  const isEn = locale === "en-US";
+  const [index, setIndex] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+
+  const cards = data.cards || [];
+  const total = cards.length;
+  const card = cards[index];
+
+  if (!card || total === 0) return null;
+
+  function go(delta: number) {
+    setFlipped(false);
+    setIndex((prev) => {
+      const next = prev + delta;
+      if (next < 0) return total - 1;
+      if (next >= total) return 0;
+      return next;
+    });
+  }
+
+  return (
+    <div
+      className="w-[min(70vw,60ch)] max-w-full rounded-3xl border p-4 space-y-3"
+      style={{
+        borderColor: "rgba(56,189,248,0.30)",
+        background:
+          "linear-gradient(135deg, rgba(56,189,248,0.12), rgba(168,85,247,0.10))",
+      }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-bold">
+            🦴 {data.title || (isEn ? "Bone Flashcards" : "小罐頭記憶卡")}
+          </div>
+          <div className="text-[11px] opacity-60 mt-1">
+            {isEn ? "Tap the card to flip it." : "點卡片可以翻面，像真的在背卡一樣。"}
+          </div>
+        </div>
+
+        <div className="text-xs opacity-70">
+          {index + 1} / {total}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setFlipped((v) => !v)}
+        className="w-full text-left rounded-3xl border px-5 py-5 transition duration-300"
+        style={{
+          minHeight: 190,
+          borderColor: flipped
+            ? "rgba(168,85,247,0.35)"
+            : "rgba(56,189,248,0.35)",
+          backgroundColor: flipped
+            ? "rgba(255,255,255,0.72)"
+            : "rgba(255,255,255,0.58)",
+          boxShadow: "0 18px 45px rgba(15,23,42,0.12)",
+          transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
+          transformStyle: "preserve-3d",
+        }}
+      >
+        <div
+          style={{
+            transform: flipped ? "rotateY(180deg)" : "none",
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-semibold opacity-60">
+              {flipped ? (isEn ? "Back" : "背面") : (isEn ? "Front" : "正面")}
+            </div>
+            <div className="rounded-full px-3 py-1 text-[11px] font-semibold"
+              style={{
+                backgroundColor: "rgba(56,189,248,0.14)",
+                color: "#0284c7",
+              }}
+            >
+              {flipped ? "答案" : "問題"}
+            </div>
+          </div>
+
+          <div className="mt-3 text-base font-bold">
+            {card.title}
+          </div>
+
+          {!flipped ? (
+            <div className="mt-3 text-sm leading-relaxed whitespace-pre-wrap">
+              {cleanInlineMarkdown(card.front)}
+            </div>
+          ) : (
+            <div className="mt-3 space-y-3 text-sm leading-relaxed">
+              {card.back && (
+                <div className="whitespace-pre-wrap">
+                  {cleanInlineMarkdown(card.back)}
+                </div>
+              )}
+
+              {card.hint && (
+                <div
+                  className="rounded-2xl px-3 py-2 text-xs"
+                  style={{ backgroundColor: "rgba(59,130,246,0.10)" }}
+                >
+                  💡 記憶提示：{cleanInlineMarkdown(card.hint)}
+                </div>
+              )}
+
+              {card.confusion && (
+                <div
+                  className="rounded-2xl px-3 py-2 text-xs"
+                  style={{ backgroundColor: "rgba(245,158,11,0.12)" }}
+                >
+                  ⚠️ 容易混淆：{cleanInlineMarkdown(card.confusion)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </button>
+
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => go(-1)}
+          className="rounded-full border px-4 py-2 text-xs font-semibold"
+          style={{
+            borderColor: "rgba(148,163,184,0.25)",
+            backgroundColor: "rgba(255,255,255,0.35)",
+          }}
+        >
+          ← {isEn ? "Prev" : "上一張"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFlipped((v) => !v)}
+          className="rounded-full px-4 py-2 text-xs font-semibold"
+          style={{
+            backgroundColor: "rgba(56,189,248,0.88)",
+            color: "white",
+          }}
+        >
+          {flipped ? "翻回正面" : "翻到背面"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => go(1)}
+          className="rounded-full border px-4 py-2 text-xs font-semibold"
+          style={{
+            borderColor: "rgba(148,163,184,0.25)",
+            backgroundColor: "rgba(255,255,255,0.35)",
+          }}
+        >
+          {isEn ? "Next" : "下一張"} →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function cleanInlineMarkdown(raw: string) {
   return String(raw || "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -1719,6 +2124,9 @@ function MessageContent({
   if (!isUser) {
     const parts = splitQuizContent(content);
     const quiz = parts.jsonText ? tryParseQuiz(parts.jsonText) : tryParseQuiz(content);
+    const flashcards = parts.jsonText
+      ? tryParseFlashcards(parts.jsonText)
+      : tryParseFlashcards(content);
 
     if (quiz) {
       return (
@@ -1741,6 +2149,39 @@ function MessageContent({
           )}
         </div>
       );
+    }
+
+    if (flashcards) {
+      return (
+        <div className="space-y-3">
+          {parts.before && !parts.before.includes("### 卡片") && (
+            <div className="whitespace-pre-wrap break-words">
+              {cleanInlineMarkdown(parts.before)}
+            </div>
+          )}
+
+
+          <FlashcardDeck data={flashcards} />
+
+          {parts.after && (
+            <div className="whitespace-pre-wrap break-words">
+              {cleanInlineMarkdown(parts.after)}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (looksLikeFlashcardFailure(content)) {
+      return (
+        <FlashcardFailedCard
+          onRetry={onRequestNewQuiz}
+        />
+      );
+    }
+
+    if (looksLikeFlashcardJson(content)) {
+      return <FlashcardGeneratingCard />;
     }
 
     // 串流中的 quiz JSON 還沒完整，先不要把 raw JSON 打出來
@@ -2983,7 +3424,7 @@ function LLMClient() {
       } as any;
     });
 
-    return mapped;
+    return mapped.filter((m) => !isInternalActionMessage(m.content));
   }
 
   function buildChatMessagesFromThread(threadId: string): ChatMessage[] {
@@ -3773,7 +4214,10 @@ function LLMClient() {
   async function reallySendMessage(
     e?: FormEvent,
     textOverride?: string,
-    piiMode: "block" | "mask" = "block"
+    piiMode: "block" | "mask" = "block",
+    options?: {
+      hideUserMessage?: boolean;
+    }
   ) {
     if (e) e.preventDefault();
 
@@ -3785,6 +4229,7 @@ function LLMClient() {
 
     const threadIdAtSend = ensureActiveThreadIdForSend();
     const firstUserText = normalizedInput || "（已上傳檔案）";
+    const hideUserMessage = Boolean(options?.hideUserMessage);
 
     const filesSnapshot = pendingFiles.map((f) => ({
       ...f,
@@ -3800,12 +4245,14 @@ function LLMClient() {
       files: filesSnapshot.length ? filesSnapshot : undefined,
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    if (!hideUserMessage) {
+      setMessages((prev) => [...prev, userMessage]);
 
-    if (threadIdAtSend) {
-      pushHistoryMessage(threadIdAtSend, "user", firstUserText);
-      bumpThreadOnMessage(threadIdAtSend, firstUserText, 1);
-      maybeAutoTitle(threadIdAtSend, firstUserText);
+      if (threadIdAtSend) {
+        pushHistoryMessage(threadIdAtSend, "user", firstUserText);
+        bumpThreadOnMessage(threadIdAtSend, firstUserText, 1);
+        maybeAutoTitle(threadIdAtSend, firstUserText);
+      }
     }
 
     const filesToUpload = pendingFiles.slice();
@@ -4000,9 +4447,11 @@ function LLMClient() {
               streamedSessionId || sid
             );
 
-            setTimeout(() => {
-              ensureBackendAutoTitleOnce(streamedConversationId, firstUserText);
-            }, 0);
+            if (!hideUserMessage) {
+              setTimeout(() => {
+                ensureBackendAutoTitleOnce(streamedConversationId, firstUserText);
+              }, 0);
+            }
           }
         },
         onSources: (resources) => {
@@ -4737,9 +5186,18 @@ function LLMClient() {
         node.MeshName ??
         node.meshName ??
         node.mesh ??
-        node.L ??
-        node.R ??
-        node.C
+        node.left?.mesh_name ??
+        node.left?.MeshName ??
+        node.left?.meshName ??
+        node.left?.mesh ??
+        node.right?.mesh_name ??
+        node.right?.MeshName ??
+        node.right?.meshName ??
+        node.right?.mesh ??
+        node.center?.mesh_name ??
+        node.center?.MeshName ??
+        node.center?.meshName ??
+        node.center?.mesh
       );
 
       const maybeBone =
@@ -4764,10 +5222,15 @@ function LLMClient() {
           !!node.bone_en
         );
 
-      if (hasRealBoneData) {
+      const validMeshName =
+        meshName && meshName !== "L" && meshName !== "R" && meshName !== "C"
+          ? meshName
+          : "";
+
+      if (hasRealBoneData && validMeshName) {
         out.push({
           ...node,
-          mesh_name: meshName || pickMeshName(node.mesh_name || node.MeshName),
+          mesh_name: validMeshName,
         });
       }
 
@@ -5376,6 +5839,24 @@ function LLMClient() {
       .slice(0, 6);
   }
 
+  function cleanMeshNameForModelJump(value: any) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+
+    // 先處理脊椎：C1-C7、T1-T12、L1-L5
+    const spineMatch = raw.match(/\b(C[1-7]|T(?:[1-9]|1[0-2])|L[1-5])\b/i);
+    if (spineMatch) {
+      return spineMatch[1].toUpperCase();
+    }
+
+    // 再處理一般 mesh：Femora.L、Rib12.L、Patella.R
+    const meshMatch = raw.match(/\b([A-Za-z][A-Za-z0-9_]*(?:\.[LR])?)\b/);
+    if (meshMatch) {
+      return meshMatch[1];
+    }
+
+    return raw;
+  }
 
 
   function getGuideActions(text: string) {
@@ -5385,7 +5866,7 @@ function LLMClient() {
 
 
     const urlBoneName = urlBoneZh || urlBone || "";
-    const urlMeshName = urlMesh || "";
+    const urlMeshName = cleanMeshNameForModelJump(urlMesh || "");
 
     const s1Targets = detectS1BoneTargets(text);
     const s3Targets = detectS3BoneTargets(text);
@@ -5436,14 +5917,16 @@ function LLMClient() {
             meshName ||
             "骨骼模型";
 
+          const cleanMesh = cleanMeshNameForModelJump(meshName);
+
           actions.push({
             label: isEn
               ? `View 3D model: ${displayName}`
               : `觀察 3D 模型：${displayName}`,
-            note: meshName ? `mesh: ${meshName}` : undefined,
+            note: cleanMesh ? `mesh: ${cleanMesh}` : undefined,
             path: `/model?${new URLSearchParams({
               bone: String(displayName || ""),
-              mesh: String(meshName || ""),
+              mesh: String(cleanMesh || ""),
             }).toString()}`,
             icon: "fa-solid fa-cube",
           });
@@ -5573,6 +6056,48 @@ function LLMClient() {
     ].join("\n");
   }
 
+  function buildFlashcardPromptFromAssistantAnswer(answerText: string) {
+    const cleaned = cleanInlineMarkdown(answerText)
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 1800);
+
+    if (locale === "en-US") {
+      return [
+        "Please create bone-learning flashcards based on the assistant answer below.",
+        "Create 4 to 5 flashcards.",
+        "Each card should help the learner review key anatomical concepts.",
+        "Please return only valid JSON. Do not use Markdown. Do not wrap it in ```.",
+        "The JSON format must be:",
+        '{ "mode": "flashcards", "title": "Bone Flashcards", "cards": [',
+        '{ "id": "card1", "title": "Card title", "front": "Question or prompt", "back": "Answer or explanation", "hint": "Memory hint", "confusion": "Common confusion" }',
+        "] }",
+        "",
+        `Assistant answer: ${cleaned}`,
+      ].join("\n");
+    }
+
+    return [
+      "請根據下面這一則回答內容，產生骨骼學習記憶卡。",
+      "請做 4～5 張卡片。",
+      "每張卡片要幫助使用者複習回答中的重點，例如位置、功能、分類、影像判讀或臨床注意事項。",
+      "請只回傳合法 JSON，不要使用 Markdown，不要加 ```，不要加任何 JSON 外的說明文字。",
+      "JSON 格式必須完全符合：",
+      '{ "mode": "flashcards", "title": "小罐頭記憶卡", "cards": [',
+      '{ "id": "card1", "title": "卡片標題", "front": "正面問題或提示", "back": "背面答案或解釋", "hint": "記憶提示", "confusion": "容易混淆處" }',
+      "] }",
+      "",
+      "規則：",
+      "1) front 不可以只寫「卡片 1」，要寫成真正的問題或提示。",
+      "2) back 要回答 front 的問題，內容要來自這則回答。",
+      "3) hint 要用好記、簡短的方式幫助記憶。",
+      "4) confusion 要寫容易混淆的地方，沒有就寫空字串。",
+      "5) 不要補這則回答沒有提到的疾病、治療或臨床結論。",
+      "",
+      `回答內容：${cleaned}`,
+    ].join("\n");
+  }
+
   function QuizGuideButton({
     answerText,
     resources,
@@ -5592,8 +6117,9 @@ function LLMClient() {
 
           reallySendMessage(
             undefined,
-            buildQuizPromptFromAssistantAnswer(answerText),
-            "block"
+            `${INTERNAL_ACTION_PREFIX}\n${buildQuizPromptFromAssistantAnswer(answerText)}`,
+            "block",
+            { hideUserMessage: true }
           );
         }}
         className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80 disabled:opacity-50"
@@ -5608,6 +6134,48 @@ function LLMClient() {
             {locale === "en-US"
               ? "Create a quiz from this answer"
               : "根據這則回答出小測驗"}
+          </span>
+        </span>
+      </button>
+    );
+  }
+
+  function FlashcardGuideButton({
+    answerText,
+    resources,
+  }: {
+    answerText: string;
+    resources?: ChatResource[];
+  }) {
+    return (
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => {
+          pendingQuizResourcesRef.current =
+            Array.isArray(resources) && resources.length > 0
+              ? resources
+              : getLastNonEmptyResources();
+
+          reallySendMessage(
+            undefined,
+            `${INTERNAL_ACTION_PREFIX}\n${buildFlashcardPromptFromAssistantAnswer(answerText)}`,
+            "block",
+            { hideUserMessage: true }
+          );
+        }}
+        className="rounded-full border px-3 py-1.5 text-[12px] hover:opacity-80 disabled:opacity-50"
+        style={{
+          borderColor: "rgba(168,85,247,0.35)",
+          backgroundColor: "rgba(168,85,247,0.10)",
+        }}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <i className="fa-solid fa-layer-group text-[10px] opacity-70" />
+          <span>
+            {locale === "en-US"
+              ? "Create flashcards from this answer"
+              : "整理成學習記憶卡"}
           </span>
         </span>
       </button>
@@ -5647,7 +6215,10 @@ function LLMClient() {
 
           <div className="mt-3 flex flex-wrap gap-2">
             <QuizGuideButton answerText={text} resources={resources} />
-
+            <FlashcardGuideButton
+              answerText={text}
+              resources={resources}
+            />
             {guideActions.map((a) => {
               const pretty = getPrettyActionText(a);
 
@@ -5730,6 +6301,11 @@ function LLMClient() {
 
           <div className="flex flex-wrap gap-2">
             <QuizGuideButton answerText={mainText || text} resources={resources} />
+
+            <FlashcardGuideButton
+              answerText={mainText || text}
+              resources={resources}
+            />
           </div>
         </div>
 
@@ -5906,7 +6482,9 @@ function LLMClient() {
       );
     });
 
-    const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 6);
+
+    //輪播顯示資料筆數
+    const finalResources = (highScore.length > 0 ? highScore : deduped).slice(0, 8);
 
     if (finalResources.length === 0) return null;
 

@@ -1,3 +1,4 @@
+# eval_dashboard_routes.py
 from fastapi import APIRouter
 from db import get_connection
 
@@ -74,3 +75,38 @@ def get_eval_summary():
 })
 
     return result
+
+
+
+@router.get("/gap-candidates/{gap_id}")
+def get_gap_candidates(gap_id: int):
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        cur.execute("""
+        SELECT
+            CandidateId,
+            SourceType,
+            Title,
+            Url,
+            Summary,
+            Score
+        FROM agent.RagKnowledgeGapCandidate
+        WHERE GapId = ?
+        ORDER BY Score DESC
+        """, gap_id)
+
+        rows = cur.fetchall()
+
+    return [
+        {
+            "candidate_id": r[0],
+            "source_type": r[1],
+            "title": r[2],
+            "url": r[3],
+            "summary": r[4],
+            "score": r[5],
+        }
+        for r in rows
+    ]

@@ -1701,6 +1701,23 @@ export default function S3Viewer() {
   const searchParams = useSearchParams();
   const targetBone = searchParams.get("bone") || "";
   const targetMesh = searchParams.get("mesh") || "";
+
+  function normalizeTargetMeshFromUrl(mesh: string, bone: string) {
+    const rawMesh = String(mesh || "").trim();
+    const rawBone = String(bone || "").trim();
+
+    if (rawMesh && rawMesh !== "L" && rawMesh !== "R" && rawMesh !== "C") {
+      return rawMesh;
+    }
+
+    const spineMatch = rawBone.match(/\b(C[1-7]|T(?:[1-9]|1[0-2])|L[1-5])\b/i);
+    if (spineMatch) {
+      return spineMatch[1].toUpperCase();
+    }
+
+    return "";
+  }
+
   const targetBoneId = searchParams.get("boneId");
 
   useEffect(() => {
@@ -2429,6 +2446,9 @@ export default function S3Viewer() {
 
   useEffect(() => {
     if (!targetBone && !targetMesh) return;
+    if (!boneList.length) return;
+
+    const safeTargetMesh = normalizeTargetMeshFromUrl(targetMesh, targetBone);
 
     let cancelled = false;
 
@@ -2437,10 +2457,10 @@ export default function S3Viewer() {
       // /model?bone=遠節指骨&mesh=Little_Distal.R
       // 會變成：
       // /s3/mesh-map/Little_Distal.R?bone=遠節指骨
-      if (targetMesh) {
+      if (safeTargetMesh) {
         try {
           const url =
-            `${API_BASE}/s3/mesh-map/${encodeURIComponent(targetMesh)}` +
+            `${API_BASE}/s3/mesh-map/${encodeURIComponent(safeTargetMesh)}` +
             `?bone=${encodeURIComponent(targetBone || "")}`;
 
           console.log("[S3 autoSelect] mesh-map url =", url);
@@ -2461,7 +2481,7 @@ export default function S3Viewer() {
 
         // 2) 如果後端 mesh-map 查不到，至少嘗試直接用 URL mesh 選
         if (!cancelled) {
-          const localHit = findListItemByMeshName(targetMesh);
+          const localHit = findListItemByMeshName(safeTargetMesh);
           if (localHit?.mesh_name) {
             selectByMeshName(localHit.mesh_name);
             return;

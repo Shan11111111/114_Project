@@ -5,6 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+import json
+from openai import OpenAI
+
+_client = OpenAI()
+
 from .rag_tool import retrieve_sources, _build_history_summary, _build_retrieval_query
 from .pubmed_tool import retrieve_pubmed_sources
 from .soap_csv_service import retrieve_soap_sources
@@ -451,6 +456,7 @@ def is_quiz_or_card_request(user_q: str) -> str:
     return ""
 
 
+
 def build_learning_prompt_from_evidence(
     *,
     user_q: str,
@@ -466,7 +472,16 @@ def build_learning_prompt_from_evidence(
     - 測驗題目
     - 學習卡
     """
+    
+    has_soap_evidence = "來源類型：soap" in (context or "")
 
+    source_guard = (
+        "本次檢索資料包含 SOAP evidence，可以引用去識別化 SOAP 個案作為案例學習。\n"
+        if has_soap_evidence
+        else
+        "本次檢索資料不包含 SOAP evidence，禁止提及 SOAP 個案、去識別化 SOAP 個案、病歷案例或任何個案觀察內容。\n"
+    )
+    
     base_system = (
     "你是 GalaBone 系統裡的「知識小罐頭 GalaBone RAG」，是一位親切、有一點可愛但仍然專業的骨骼學習助教。\n"
     "你的角色設定：\n"
@@ -491,8 +506,11 @@ def build_learning_prompt_from_evidence(
     "- 如果使用者只是一般聊天或單純骨頭介紹，不要硬塞 SOAP，避免回答變得像病歷摘要。\n"
     "- 若不同來源資訊不一致，請明確區分：衛教/文獻是一般知識，SOAP 是個案觀察，不可硬合併成單一結論。\n"
     f"{language_rule}\n"
+    f"{source_guard}\n"
     "回答或出題都必須根據實際檢索資料，不得捏造資料中沒有的內容，必須合理的整理語意，必須註明出處。\n"
-    "若檢索資料未明確支持，請標註「目前資料未提供足夠證據」，不要直接以肯定語氣回答。\n"
+    "如果 evidence 與使用者問題明顯不相關，但你仍使用模型內部知識回答，"
+    "回答開頭必須標示：『【模型知識補充｜非知識庫證據】』。\n"
+    "此時不得宣稱內容來自 GalaBone 衛教資料庫、PubMed 文獻或 SOAP 個案。\n"
     "整合資料時請遵守：教材資料負責建立基礎理解；PubMed 負責補充研究證據；SOAP 只作為去識別化個案範例，不可直接當成通用醫療結論。\n"
     "若問題涉及診斷、治療、用藥或個案判讀，請補充醫療注意事項，但不得直接取代醫師判斷。\n"
     "若回答中出現重要骨科、影像、藥物或檢查名詞等醫學專有名詞，請補上英文專有名詞。\n"
@@ -568,20 +586,41 @@ def build_learning_prompt_from_evidence(
     if mode == "card":
         system = (
             base_system
-            + "你的本輪任務不是一般回答，而是根據檢索資料幫學生設計骨骼學習卡。\n"
-            + "學習卡要幫助學生快速複習骨頭名稱、位置、功能、辨認方式與臨床意義。\n"
+            + "你的本輪任務不是一般回答，而是根據檢索資料幫學生設計骨骼記憶卡。\n"
+            + "記憶卡要幫助學生快速複習骨頭名稱、位置、功能、辨認方式與臨床意義。\n"
+            + "請輸出可以被前端解析的 JSON，不要輸出 Markdown。\n"
         )
 
         prompt = (
             f"【對話狀態摘要】\n{history_summary or '（無）'}\n\n"
             f"【使用者需求】\n{user_q}\n\n"
             f"【多來源檢索資料】\n{context}\n\n"
-            "請根據檢索資料製作 5 張學習卡，規則如下：\n"
-            "1) 每張卡片用 `### 卡片 {n}` 開頭。\n"
-            "2) 每張卡片包含：學習重點、記憶提示、容易混淆處。\n"
-            "3) 每張卡片 200 字以內。\n"
-            "4) 必須貼近骨頭學習，不要只寫泛用衛教。\n"
-            "5) 不可捏造檢索資料沒有的內容。\n"
+            "請根據檢索資料製作 4～5 張骨骼記憶卡。\n"
+            "請只輸出合法 JSON，不要輸出 Markdown，不要加 ```，不要加任何 JSON 外的說明文字。\n"
+            "JSON 格式必須完全符合以下 schema：\n"
+            "{\n"
+            '  "mode": "flashcards",\n'
+            '  "title": "小罐頭記憶卡",\n'
+            '  "cards": [\n'
+            "    {\n"
+            '      "id": "card1",\n'
+            '      "title": "腰椎的位置",\n'
+            '      "front": "腰椎位於脊椎的哪一段？",\n'
+            '      "back": "腰椎位於脊椎下部，通常包含 L1 到 L5。",\n'
+            '      "hint": "L 代表 Lumbar，也就是腰部。",\n'
+            '      "confusion": "不要把腰椎 L1-L5 和胸椎 T1-T12 混在一起。"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "規則：\n"
+            "1) 請做 4～5 張卡片。\n"
+            "2) front 要寫成問題或提示句，不要只寫『卡片 1』。\n"
+            "3) back 要寫答案或重點解釋。\n"
+            "4) hint 要寫記憶提示，幫助學生記起來。\n"
+            "5) confusion 要寫容易混淆的地方。\n"
+            "6) 每張卡片都要根據檢索資料，不可捏造資料中沒有的內容。\n"
+            "7) 如果資料不足，只能做基礎複習卡，不要補疾病、治療或臨床結論。\n"
+            "8) 最外層第一個字元必須是 {，最後一個字元必須是 }。\n"
         )
 
         return system, prompt
@@ -604,12 +643,12 @@ def build_learning_prompt_from_evidence(
         "- 若使用者問骨頭位置、功能、解剖、影像辨識或怎麼記，優先用 GalaBone 衛教資料庫建立基礎理解。\n"
         "- 若使用者問治療、用藥、副作用、診斷、風險、預後或證據，優先整合 PubMed 文獻與衛教資料。\n"
         "- 若使用者問病人、個案、症狀、檢查、處置、復健、追蹤、SOAP 或臨床情境，請最大化使用去識別化 SOAP 個案紀錄，並用學生能懂的方式整理。\n"
-        "- 若 evidence 中有 SOAP 且問題適合使用 SOAP，請自然補上一句「在去識別化 SOAP 個案中，可觀察到……」，但不要把 SOAP 個案當成通用結論。\n"
+        "- 只有在本次 evidence 真的包含來源類型為 soap 的資料時，才允許提及 SOAP 個案；否則完全禁止提及 SOAP、病歷案例或個案觀察。\n"
         "語氣要像陪學生理解，不要像冷冰冰的百科條目。\n\n"
 
         "2) 骨骼學習重點\n"
         "用 3～5 點整理，讓學生知道該怎麼記、怎麼分辨、或怎麼理解臨床意義。\n"
-        "若本次有 SOAP evidence，且問題涉及症狀、檢查、處置、復健、追蹤或個案，請至少整理 1 點 SOAP 學習重點，例如：\n"
+        "只有當 context 中存在來源類型：soap 時，才允許整理 SOAP 學習重點。若沒有 soap evidence，禁止輸出任何 SOAP/S/O/A/P 內容。，例如：\n"
         "- S：主訴或症狀代表病人怎麼描述問題。\n"
         "- O：檢查或影像代表客觀觀察。\n"
         "- A：Assessment 代表醫師評估方向。\n"
@@ -881,13 +920,93 @@ def pick_external_search_query(
     # 4. 最後真的抓不到，就回空，不要拿「有沒有資料」去搜
     return ""
 
+def judge_topic_relation_with_llm(
+    user_q: str,
+    retrieval_query: str,
+    history_summary: str = "",
+    model: str = "gpt-4.1-mini",
+) -> dict:
+    """
+    判斷這一題是追問，還是新主題。
+    回傳:
+    {
+      "relation": "followup" | "new_topic" | "unclear",
+      "final_query": "...",
+      "reason": "..."
+    }
+    """
+
+    prompt = f"""
+你是 GalaBone RAG 查詢改寫判斷器。
+
+請判斷「使用者新問題」和「歷史補強查詢」的關係。
+
+規則：
+1. 如果新問題像「它、這個、那個、女生還是男生多、會痛嗎、怎麼治療」這類追問，relation = followup。
+2. 如果新問題已經有明確新主題，例如從骨質疏鬆跳到真肋/偽肋/浮肋，relation = new_topic。
+3. 如果不確定，relation = unclear。
+4. final_query 是最後應該拿去查 vector / PubMed / SOAP 的查詢。
+5. 如果是 followup，final_query 可以保留歷史主題補強。
+6. 如果是 new_topic，final_query 必須以使用者新問題為主，不要混入舊主題。
+7. 只輸出 JSON，不要 Markdown。
+
+歷史摘要:
+{history_summary or "（無）"}
+
+使用者新問題:
+{user_q}
+
+目前 retrieval_query:
+{retrieval_query}
+"""
+
+    try:
+        resp = _client.chat.completions.create(
+            model=model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你只負責判斷 RAG 查詢是否被歷史污染，並輸出 JSON。",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+        )
+
+        data = json.loads(resp.choices[0].message.content or "{}")
+
+        relation = data.get("relation") or "unclear"
+        final_query = data.get("final_query") or retrieval_query
+
+        if relation not in {"followup", "new_topic", "unclear"}:
+            relation = "unclear"
+
+        return {
+            "relation": relation,
+            "final_query": str(final_query).strip() or retrieval_query,
+            "reason": data.get("reason") or "",
+        }
+
+    except Exception as e:
+        print("[TOPIC_LLM_JUDGE_FAILED]", e)
+        return {
+            "relation": "unclear",
+            "final_query": retrieval_query,
+            "reason": "LLM judge failed",
+        }
+
+
 def prepare_auto_fusion_answer(
     user_q: str,
     session: dict | None = None,
     dialog_state: Optional[Dict[str, Any]] = None,
     pubmed_max_results: int = 3,
     soap_max_results: int = 2,
-    vector_top_k: int = 3,
+    vector_top_k: int = 8,
     response_language: str = "zh-TW",
     
 ) -> Tuple[str, str, List[Dict[str, Any]]]:
@@ -900,6 +1019,100 @@ def prepare_auto_fusion_answer(
     # 先建立對話語境查詢，讓「前面那個、剛剛那個、同一個模型」能接上上一輪主題
     state = dialog_state or {}
     retrieval_query = _build_retrieval_query(user_q, session, state)
+
+    history_summary_for_judge = _build_history_summary(user_q, session, state)
+
+    topic_judge = judge_topic_relation_with_llm(
+        user_q=user_q,
+        retrieval_query=retrieval_query,
+        history_summary=history_summary_for_judge,
+    )
+
+    print("[AUTO_FUSION][TOPIC_JUDGE]", topic_judge)
+
+    retrieval_query = topic_judge["final_query"]
+    # =========================
+    # Topic switch guard
+    # 避免上一題主題污染這一題
+    # =========================
+    # def _looks_like_new_topic(q: str) -> bool:
+    #     q = (q or "").strip()
+        
+    #     followup_words = [
+    #         "它",
+    #         "他",
+    #         "她",
+    #         "這個",
+    #         "那個",
+    #         "前面",
+    #         "剛剛",
+    #         "女生還是男生",
+    #         "男生還是女生",
+    #         "會痛嗎",
+    #         "怎麼治療",
+    #         "怎麼辦",
+    #         "原因是什麼",
+    #         "嚴重嗎",
+    #         "常見嗎",
+    #         "會好嗎",
+    #     ]
+
+    #     if any(w in q for w in followup_words):
+    #         return False
+
+    #     topic_markers = [
+    #         "什麼是", "是什麼", "如何", "怎麼", "為什麼",
+    #         "差異", "不同", "比較", "區分", "分類",
+    #         "在哪", "位置", "功能", "構造", "解剖",
+    #         "治療", "診斷", "預防", "原因", "風險",
+    #     ]
+
+    #     medical_markers = [
+    #         "骨", "肋", "椎", "胸骨", "頭顱", "鎖骨", "肩胛",
+    #         "肱骨", "尺骨", "橈骨", "股骨", "脛骨", "腓骨",
+    #         "髕骨", "骨盆", "薦椎", "尾椎",
+    #         "骨質疏鬆", "骨鬆", "骨折", "退化", "關節炎",
+    #         "椎間盤", "骨刺", "疼痛",
+    #     ]
+
+    #     return any(w in q for w in topic_markers) and any(w in q for w in medical_markers)
+
+
+    # def _history_polluted(user_q: str, retrieval_query: str) -> bool:
+    #     q = user_q or ""
+    #     rq = retrieval_query or ""
+
+    #     groups = [
+    #         ["骨質疏鬆", "骨鬆", "骨質疏松", "DXA", "T-score", "骨密度"],
+    #         ["真肋", "偽肋", "浮肋", "肋骨", "胸骨", "肋軟骨"],
+    #         ["頸椎", "胸椎", "腰椎", "薦椎", "尾椎", "脊椎"],
+    #         ["尺骨", "橈骨", "肱骨", "手腕", "腕骨"],
+    #         ["股骨", "脛骨", "腓骨", "髕骨", "膝蓋"],
+    #     ]
+
+    #     user_groups = [
+    #         i for i, g in enumerate(groups)
+    #         if any(w in q for w in g)
+    #     ]
+
+    #     retrieval_groups = [
+    #         i for i, g in enumerate(groups)
+    #         if any(w in rq for w in g)
+    #     ]
+
+    #     if not user_groups:
+    #         return False
+
+    #     return any(g not in user_groups for g in retrieval_groups)
+
+
+    # if _looks_like_new_topic(user_q) and _history_polluted(user_q, retrieval_query):
+    #     print("[AUTO_FUSION][TOPIC_SWITCH_RESET]", {
+    #         "old_retrieval_query": retrieval_query,
+    #         "new_user_q": user_q,
+    #     })
+    #     retrieval_query = user_q
+
 
     # 給 intent router 用的文字：同時包含原始問題 + 上下文補強後查詢
     # 例：
@@ -1053,7 +1266,7 @@ def prepare_auto_fusion_answer(
 
     evidence = dedupe_evidence(evidence)
     evidence = rerank_evidence(evidence)
-    evidence = limit_by_source(evidence, per_source=2, total=6)
+    evidence = limit_by_source(evidence, per_source=3, total=8)
 
     if not evidence:
         
@@ -1068,15 +1281,15 @@ def prepare_auto_fusion_answer(
             learning_mode = is_quiz_or_card_request(user_q)
 
             system = (
-                "你是 GalaBone 骨骼學習助教。你的任務是協助使用者理解骨頭名稱、位置、功能、解剖關係、影像辨識特徵與相關臨床意義。\n"
-                f"{language_rule}\n"
-                "目前系統已成功查到與使用者問題相關的 3D 骨骼模型資源，"
-                "但沒有找到足夠的文字型 RAG 證據，例如: 衛教資料(vector)、PubMed 文獻(PubMed)、輔大醫院授權之去識別化醫囑紀錄表(soap)。\n"
-                "回答時不可說『完全沒有資料』或『沒有 3D 模型資訊』，"
-                "而是要明確說明：已找到可供觀察的 3D 模型，但缺少可支持深入衛教、文獻或個案分析的文字資料。\n"
-                "請根據已找到的 3D 模型資訊，協助使用者理解可觀察的骨頭位置、左右側、相鄰構造與學習用途。\n"
-                "若涉及診斷、治療或用藥，必須提醒不可取代醫師判斷。\n"
-            )
+    "你是 GalaBone 骨骼學習助教。你的任務是協助使用者理解骨頭名稱、位置、功能、解剖關係、影像辨識特徵與相關臨床意義。\n"
+    f"{language_rule}\n"
+    "目前系統已成功查到與使用者問題相關的 3D 骨骼模型資源，"
+    "但沒有找到足夠的文字型 RAG 證據，例如: 衛教資料(vector)、PubMed 文獻(PubMed)、輔大醫院授權之去識別化醫囑紀錄表(soap)。\n"
+    "回答時不可說『完全沒有資料』或『沒有 3D 模型資訊』，"
+    "而是要明確說明：已找到可供觀察的 3D 模型，但缺少可支持深入衛教、文獻或個案分析的文字資料。\n"
+    "請根據已找到的 3D 模型資訊，協助使用者理解可觀察的骨頭位置、左右側、相鄰構造與學習用途。\n"
+    "若涉及診斷、治療或用藥，必須提醒不可取代醫師判斷。\n"
+)
 
             if learning_mode == "quiz":
                 prompt = (
@@ -1135,10 +1348,11 @@ def prepare_auto_fusion_answer(
                     "- 已找到相關 3D 骨骼模型資源，可提供前端開啟 modal 或跳轉 3D 模型頁。\n"
                     "- 但沒有找到足夠的文字型 RAG 證據，例如衛教資料、PubMed 文獻、SOAP 去識別化紀錄或可信網站資料。\n\n"
                     "請輸出：\n"
-                    "1) 先說明已找到可觀察的 3D 模型，不要說完全沒查到。\n"
-                    "2) 說明模型可用來觀察哪個骨頭、哪個部位、左右側或相鄰構造。\n"
-                    "3) 補充一般性的骨骼學習方向，但要說明文字資料不足，不能當成診斷結論。\n"
-                    "4) 延伸學習問題：請設計 2～3 個與本主題相關的問題，每題獨立成一行，格式固定為：- 問題文字\n"
+"1) 先說明已找到可觀察的 3D 模型，不要說完全沒查到。\n"
+"2) 只列出模型資源中實際存在的骨頭名稱與 mesh，例如 L1、L2、L3、L4、L5。\n"
+"3) 說明這些模型可用於前端開啟 3D 模型或做部位觀察；不要補充模型資源沒有提供的解剖功能、疾病、治療或醫療建議。\n"
+"4) 明確說明：目前沒有找到足夠文字型 RAG 證據，因此若要了解功能、疾病或臨床意義，需要再查衛教資料或 PubMed。\n"
+"5) 延伸學習問題只能問『是否要查看某一個模型』或『是否要進一步查文字資料』，不要自行產生疾病或功能題。\n"
                 )
 
             return system, prompt, raw_resources
@@ -1204,15 +1418,15 @@ def prepare_auto_fusion_answer(
             )
         else:
             prompt = (
-                f"【使用者原始問題】\n{user_q}\n\n"
-                f"【系統推定查詢語意】\n{fallback_query}\n\n"
-                "目前沒有檢索到足夠文字資料，也沒有找到 3D 模型資源。\n"
-                "請用保守方式回答：\n"
-                "1) 先明確說明資料不足。\n"
-                "2) 提供一般性骨骼學習方向。\n"
-                "3) 若涉及醫療判斷，提醒需要專業醫師評估。\n"
-                "4) 建議使用者補充更明確的骨頭名稱、部位、影像結果、診斷或上傳文件。\n"
-            )
+    f"【使用者問題】\n{user_q}\n\n"
+    "目前 GalaBone 知識庫沒有檢索到足夠資料支持這題。\n\n"
+    "請使用大型語言模型的一般醫學/解剖學知識補充回答，但必須嚴格遵守：\n"
+    "1. 開頭一定要寫：『【模型知識補充｜非知識庫證據】』。\n"
+    "2. 不可以說這些內容來自 GalaBone 衛教資料庫、PubMed、SOAP 或教材庫。\n"
+    "3. 不可以偽造來源、頁碼、文獻或資料庫依據。\n"
+    "4. 若內容涉及診斷、治療、用藥，必須提醒使用者諮詢專業醫療人員。\n"
+    "5. 回答要簡潔、教學導向，適合骨骼學習使用。\n"
+)
 
         return system, prompt, raw_resources
 
