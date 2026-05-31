@@ -272,6 +272,7 @@ def answer_with_soap_csv(
     "若使用者是在問治療或用藥，請優先整理 Assessment 與 Plan；"
     "若使用者是在問症狀或病程，請優先整理 Subjective；"
     "若使用者是在問影像或檢查，請優先整理 Objective。"
+    "若有多筆 SOAP，請比較各案例 Assessment 與 Plan 的差異，不要只是逐筆複述。\n"
     "最後請補充這筆個案對骨骼學習的意義。"
 )
 
