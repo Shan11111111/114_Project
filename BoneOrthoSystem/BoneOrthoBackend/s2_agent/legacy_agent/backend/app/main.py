@@ -397,7 +397,55 @@ def _collect_urls(text: str) -> list[str]:
             seen.add(u)
             out.append(u)
     return out
+def _is_quiz_or_flashcard_answer(question: str, answer: str) -> bool:
+    """
+    測驗 / 學習卡是互動產物，不是一般 RAG 知識回答。
+    不送進 Faithfulness，避免 JSON key 被當成 claim。
+    """
+    q = (question or "").lower()
+    a = (answer or "").strip().lower()
 
+    request_words = [
+        "出題",
+        "題目",
+        "測驗",
+        "測試",
+        "考我",
+        "練習題",
+        "選擇題",
+        "簡答題",
+        "判斷題",
+        "quiz",
+        "exam",
+        "test",
+        "學習卡",
+        "複習卡",
+        "記憶卡",
+        "flashcard",
+        "flashcards",
+        "幫我整理成卡片",
+        "做成卡片",
+    ]
+
+    if any(w.lower() in q for w in request_words):
+        return True
+
+    # JSON 型互動回覆
+    if a.startswith("{") and (
+        '"mode": "quiz"' in a
+        or '"mode":"quiz"' in a
+        or '"mode": "flashcards"' in a
+        or '"mode":"flashcards"' in a
+        or '"questions"' in a
+        or '"cards"' in a
+    ):
+        return True
+
+    # 保險：有些 LLM 可能加空白或換行
+    if '"mode"' in a and ('"quiz"' in a or '"flashcards"' in a):
+        return True
+
+    return False
 
 @app.post("/agent/chat/stream")
 def agent_chat_stream(req: ChatRequest):
@@ -676,169 +724,174 @@ def agent_chat_stream(req: ChatRequest):
             # Faithfulness Evaluation (STREAM)
             # =========================================
 
+            skip_faithfulness = _is_quiz_or_flashcard_answer(clean_q, final_answer)
+
             try:
-                contexts = []
-                has_3d_asset_only = False
+                if skip_faithfulness:
+                    print("[FAITHFULNESS SKIP] quiz / flashcards answer; skip RAG faithfulness eval.")
+                else:
+                    contexts = []
+                    has_3d_asset_only = False
 
-                for s in raw_resources or []:
-                    source_type = str(s.get("source_type") or "").lower()
+                    for s in raw_resources or []:
+                        source_type = str(s.get("source_type") or "").lower()
 
-                    # 3D 模型資源不是文字型 RAG evidence，不送進 Faithfulness
-                    if source_type == "3d_asset":
-                        has_3d_asset_only = True
-                        continue
+                        # 3D 模型資源不是文字型 RAG evidence，不送進 Faithfulness
+                        if source_type == "3d_asset":
+                            has_3d_asset_only = True
+                            continue
 
-                    text = (
-                        s.get("text")
-                        or s.get("content")
-                        or s.get("snippet")
-                        or ""
-                    )
+                        text = (
+                            s.get("text")
+                            or s.get("content")
+                            or s.get("snippet")
+                            or ""
+                        )
 
-                    if not text:
-                        continue
+                        if not text:
+                            continue
 
-                    contexts.append({
-                        "title": s.get("title", ""),
-                        "page": s.get("page", ""),
-                        "source_type": s.get("source_type", ""),
-                        "text": str(text),
-                    })
+                        contexts.append({
+                            "title": s.get("title", ""),
+                            "page": s.get("page", ""),
+                            "source_type": s.get("source_type", ""),
+                            "text": str(text),
+                        })
 
-                if contexts:
-                    # 評估「綜合回答 + 骨骼學習重點」
-                    # 不評估注意事項與延伸問題，避免固定模板影響分數
-                    eval_answer = final_answer
+                    if contexts:
+                        # 評估「綜合回答 + 骨骼學習重點」
+                        # 不評估注意事項與延伸問題，避免固定模板影響分數
+                        eval_answer = final_answer
 
-                    if "3) 注意事項" in eval_answer:
-                        eval_answer = eval_answer.split("3) 注意事項", 1)[0].strip()
-                    elif "4) 延伸學習問題" in eval_answer:
-                        eval_answer = eval_answer.split("4) 延伸學習問題", 1)[0].strip()
+                        if "3) 注意事項" in eval_answer:
+                            eval_answer = eval_answer.split("3) 注意事項", 1)[0].strip()
+                        elif "4) 延伸學習問題" in eval_answer:
+                            eval_answer = eval_answer.split("4) 延伸學習問題", 1)[0].strip()
 
-                    faithfulness_result = evaluate_faithfulness(
-                        question=clean_q,
-                        answer=eval_answer,
-                        contexts=contexts,
-                    )
+                        faithfulness_result = evaluate_faithfulness(
+                            question=clean_q,
+                            answer=eval_answer,
+                            contexts=contexts,
+                        )
 
-                    print("\n==============================")
-                    print("FAITHFULNESS RESULT")
-                    print(json.dumps(faithfulness_result, ensure_ascii=False, indent=2))
-                    print("==============================\n")
+                        print("\n==============================")
+                        print("FAITHFULNESS RESULT")
+                        print(json.dumps(faithfulness_result, ensure_ascii=False, indent=2))
+                        print("==============================\n")
 
-                    try:
-                        from db import get_connection
+                        try:
+                            from db import get_connection
 
-                        with get_connection() as conn:
-                            cur = conn.cursor()
-
-                            cur.execute("""
-                                INSERT INTO agent.RagEvalLog
-                                (
-                                    ConversationId,
-                                    UserId,
-                                    Question,
-                                    RagMode,
-                                    Faithfulness,
-                                    SupportedClaims,
-                                    TotalClaims,
-                                    EvalJson
-                                )
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            str(conversation_id) if conversation_id else None,
-                            user_id,
-                            clean_q,
-                            req.rag_mode,
-                            faithfulness_result.get("faithfulness"),
-                            faithfulness_result.get("supported_claims"),
-                            faithfulness_result.get("total_claims"),
-                            json.dumps(faithfulness_result, ensure_ascii=False)
-                            )
-
-                            unsupported_claims = faithfulness_result.get("unsupported_claims", [])
-
-                            for item in unsupported_claims:
-                                claim = item.get("claim", "")
-
-                                if not claim:
-                                    continue
-
-                                suggested_query = (
-                                    f"{claim} "
-                                    f"骨骼健康 骨質疏鬆 醫院衛教 PubMed "
-                                    f"bone health osteoporosis clinical education"
-                                )
+                            with get_connection() as conn:
+                                cur = conn.cursor()
 
                                 cur.execute("""
-                                    INSERT INTO agent.RagKnowledgeGap
+                                    INSERT INTO agent.RagEvalLog
                                     (
                                         ConversationId,
                                         UserId,
                                         Question,
-                                        Claim,
-                                        SuggestedQuery,
-                                        SourceSuggestion,
-                                        Status
+                                        RagMode,
+                                        Faithfulness,
+                                        SupportedClaims,
+                                        TotalClaims,
+                                        EvalJson
                                     )
-                                    OUTPUT INSERTED.GapId
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 str(conversation_id) if conversation_id else None,
                                 user_id,
                                 clean_q,
-                                claim,
-                                suggested_query,
-                                "PubMed / 醫院衛教資料 / 教材上傳",
-                                "pending_review"
+                                req.rag_mode,
+                                faithfulness_result.get("faithfulness"),
+                                faithfulness_result.get("supported_claims"),
+                                faithfulness_result.get("total_claims"),
+                                json.dumps(faithfulness_result, ensure_ascii=False)
                                 )
 
-                                row = cur.fetchone()
-                                gap_id = int(row[0]) if row else None
+                                unsupported_claims = faithfulness_result.get("unsupported_claims", [])
 
-                                if gap_id:
-                                    try:
-                                        from .tools.pubmed_tool import retrieve_pubmed_sources
+                                for item in unsupported_claims:
+                                    claim = item.get("claim", "")
 
-                                        pubmed_candidates = retrieve_pubmed_sources(
-                                            suggested_query,
-                                            max_results=3
+                                    if not claim:
+                                        continue
+
+                                    suggested_query = (
+                                        f"{claim} "
+                                        f"骨骼健康 骨質疏鬆 醫院衛教 PubMed "
+                                        f"bone health osteoporosis clinical education"
+                                    )
+
+                                    cur.execute("""
+                                        INSERT INTO agent.RagKnowledgeGap
+                                        (
+                                            ConversationId,
+                                            UserId,
+                                            Question,
+                                            Claim,
+                                            SuggestedQuery,
+                                            SourceSuggestion,
+                                            Status
                                         )
+                                        OUTPUT INSERTED.GapId
+                                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    """,
+                                    str(conversation_id) if conversation_id else None,
+                                    user_id,
+                                    clean_q,
+                                    claim,
+                                    suggested_query,
+                                    "PubMed / 醫院衛教資料 / 教材上傳",
+                                    "pending_review"
+                                    )
 
-                                        for p in pubmed_candidates:
-                                            cur.execute("""
-                                                INSERT INTO agent.RagKnowledgeGapCandidate
-                                                (
-                                                    GapId,
-                                                    SourceType,
-                                                    Title,
-                                                    Url,
-                                                    Summary,
-                                                    Score
-                                                )
-                                                VALUES (?, ?, ?, ?, ?, ?)
-                                            """,
-                                            gap_id,
-                                            "pubmed",
-                                            p.get("title"),
-                                            p.get("url"),
-                                            p.get("abstract") or "",
-                                            95.0
+                                    row = cur.fetchone()
+                                    gap_id = int(row[0]) if row else None
+
+                                    if gap_id:
+                                        try:
+                                            from .tools.pubmed_tool import retrieve_pubmed_sources
+
+                                            pubmed_candidates = retrieve_pubmed_sources(
+                                                suggested_query,
+                                                max_results=3
                                             )
 
-                                    except Exception as e:
-                                        print("Gap candidate failed:", e)
+                                            for p in pubmed_candidates:
+                                                cur.execute("""
+                                                    INSERT INTO agent.RagKnowledgeGapCandidate
+                                                    (
+                                                        GapId,
+                                                        SourceType,
+                                                        Title,
+                                                        Url,
+                                                        Summary,
+                                                        Score
+                                                    )
+                                                    VALUES (?, ?, ?, ?, ?, ?)
+                                                """,
+                                                gap_id,
+                                                "pubmed",
+                                                p.get("title"),
+                                                p.get("url"),
+                                                p.get("abstract") or "",
+                                                95.0
+                                                )
 
-                            conn.commit()
+                                        except Exception as e:
+                                            print("Gap candidate failed:", e)
 
-                    except Exception as e:
-                        print("Save RagEvalLog failed:", e)
+                                conn.commit()
 
-                else:
-                    if has_3d_asset_only:
-                        print("[FAITHFULNESS SKIP] only 3d_asset resources; skip text RAG faithfulness eval.")
+                        except Exception as e:
+                            print("Save RagEvalLog failed:", e)
+
                     else:
-                        print("[FAITHFULNESS SKIP] no text RAG contexts.")
+                        if has_3d_asset_only:
+                            print("[FAITHFULNESS SKIP] only 3d_asset resources; skip text RAG faithfulness eval.")
+                        else:
+                            print("[FAITHFULNESS SKIP] no text RAG contexts.")
 
             except Exception as e:
                 print("Faithfulness eval failed:", e)

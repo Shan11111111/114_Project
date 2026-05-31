@@ -647,6 +647,62 @@ def is_quiz_or_card_request(user_q: str) -> str:
 
     return ""
 
+def is_generic_bone_card_request(user_q: str) -> bool:
+    """
+    判斷使用者是不是只想做「骨骼基礎學習卡」，
+    而不是疾病、治療、個案或文獻卡。
+    """
+    q = (user_q or "").strip().lower()
+
+    card_words = [
+        "學習卡",
+        "複習卡",
+        "記憶卡",
+        "flashcard",
+        "flashcards",
+        "卡片",
+    ]
+
+    generic_bone_words = [
+        "骨骼",
+        "骨頭",
+        "人體骨骼",
+        "骨骼系統",
+        "學骨骼",
+        "學習骨骼",
+    ]
+
+    disease_or_clinical_words = [
+        "骨質疏鬆",
+        "骨鬆",
+        "骨折",
+        "疾病",
+        "退化",
+        "關節炎",
+        "椎間盤",
+        "脊椎側彎",
+        "骨刺",
+        "疼痛",
+        "治療",
+        "用藥",
+        "診斷",
+        "風險",
+        "預防",
+        "復健",
+        "病人",
+        "患者",
+        "個案",
+        "案例",
+        "soap",
+        "pubmed",
+        "文獻",
+    ]
+
+    return (
+        any(w in q for w in card_words)
+        and any(w in q for w in generic_bone_words)
+        and not any(w in q for w in disease_or_clinical_words)
+    )
 
 def build_learning_prompt_from_evidence(
     *,
@@ -813,8 +869,11 @@ def build_learning_prompt_from_evidence(
             "4) hint 要寫記憶提示，幫助學生記起來。\n"
             "5) confusion 要寫容易混淆的地方。\n"
             "6) 每張卡片都要根據檢索資料，不可捏造資料中沒有的內容。\n"
-            "7) 如果資料不足，只能做基礎複習卡，不要補疾病、治療或臨床結論。\n"
-            "8) 最外層第一個字元必須是 {，最後一個字元必須是 }。\n"
+            "7) 如果使用者只說想學『骨骼、骨頭、人體骨骼、骨骼系統』，卡片主題必須以基礎骨骼學習為主，例如骨頭分類、位置、功能、名稱記憶、相鄰構造，不得自行跳到骨質疏鬆、骨折、疾病、治療、用藥或臨床案例。\n"
+            "8) 只有當使用者明確提到骨質疏鬆、骨折、疾病、治療、預防、用藥、個案、SOAP 或 PubMed 時，才可以製作疾病或臨床相關卡片。\n"
+            "9) 如果檢索資料同時包含基礎骨骼與疾病內容，但使用者沒有要求疾病，請優先選擇基礎骨骼內容。\n"
+            "10) 如果資料不足，只能做基礎複習卡，不要補疾病、治療或臨床結論。\n"
+            "11) 最外層第一個字元必須是 {，最後一個字元必須是 }。\n"
         )
 
         return system, prompt
@@ -1498,6 +1557,15 @@ def prepare_auto_fusion_answer(
     # 例如「小罐頭幫我出題」同時有小罐頭 + 出題，
     # 這種應該走 quiz，不應該被 persona 分流吃掉。
     early_learning_mode = is_quiz_or_card_request(user_q)
+    
+    generic_bone_card = is_generic_bone_card_request(user_q)
+
+    if generic_bone_card:
+        print("[AUTO_FUSION][GENERIC_BONE_CARD_QUERY_RESET]", {
+            "old_retrieval_query": retrieval_query,
+            "user_q": user_q,
+        })
+        retrieval_query = "人體骨骼系統 基礎骨骼學習 骨頭分類 骨頭名稱 位置 功能 解剖 206塊骨頭"
 
     # 角色閒聊 / 小罐頭設定：不要硬走 RAG
     # 只有「不是出題 / 不是學習卡」時，才進 persona。
@@ -1650,10 +1718,32 @@ def prepare_auto_fusion_answer(
                     f"【系統推定查詢語意】\n{fallback_query}\n\n"
                     f"【3D 模型資源】\n{render_source.get('snippet') or render_source}\n\n"
                     "目前只有 3D 模型資源，文字型 RAG 證據不足。\n"
-                    "請製作 3 張 3D 骨骼觀察學習卡：\n"
-                    "1) 每張卡片用 `### 卡片 {n}` 開頭。\n"
-                    "2) 每張包含：觀察重點、記憶提示、容易混淆處。\n"
-                    "3) 不可捏造模型資訊以外的疾病或治療內容。\n"
+                    "請根據 3D 模型資訊製作 3～5 張保守的骨骼觀察記憶卡。\n"
+                    "請只輸出合法 JSON，不要輸出 Markdown，不要加 ```，不要加任何 JSON 外的說明文字。\n"
+                    "JSON 格式必須完全符合以下 schema：\n"
+                    "{\n"
+                    '  "mode": "flashcards",\n'
+                    '  "title": "3D 骨骼模型觀察記憶卡",\n'
+                    '  "cards": [\n'
+                    "    {\n"
+                    '      "id": "card1",\n'
+                    '      "title": "卡片標題",\n'
+                    '      "front": "正面問題或提示句",\n'
+                    '      "back": "背面答案或重點解釋",\n'
+                    '      "hint": "記憶提示",\n'
+                    '      "confusion": "容易混淆處"\n'
+                    "    }\n"
+                    "  ]\n"
+                    "}\n\n"
+                    "規則：\n"
+                    "1) 請做 3～5 張卡片。\n"
+                    "2) front 要寫成問題或提示句，不要只寫『卡片 1』。\n"
+                    "3) back 要寫答案或重點解釋。\n"
+                    "4) hint 要寫記憶提示，幫助學生記起來。\n"
+                    "5) confusion 要寫容易混淆的地方。\n"
+                    "6) 每張卡片只能根據 3D 模型資源，不可捏造疾病、治療、文獻或 SOAP 個案內容。\n"
+                    "7) 如果資料不足，只能做基礎觀察卡，例如骨頭名稱、模型用途、可觀察部位，不要硬補臨床結論。\n"
+                    "8) 最外層第一個字元必須是 {，最後一個字元必須是 }。\n"
                 )
             else:
                 prompt = (
@@ -1725,11 +1815,32 @@ def prepare_auto_fusion_answer(
                 f"【使用者原始需求】\n{user_q}\n\n"
                 f"【系統推定查詢語意】\n{fallback_query}\n\n"
                 "目前沒有檢索到足夠文字資料，也沒有找到 3D 模型資源。\n"
-                "請保守製作 3 張基礎骨骼學習卡：\n"
-                "1) 開頭先說明：目前資料不足，以下卡片僅作基礎複習。\n"
-                "2) 不可假裝有文獻、教材、個案或模型依據。\n"
-                "3) 每張卡片用 `### 卡片 {n}` 開頭。\n"
-                "4) 每張卡片包含：學習重點、記憶提示、容易混淆處。\n"
+                "請保守製作 3 張基礎骨骼學習卡。\n"
+                "請只輸出合法 JSON，不要輸出 Markdown，不要加 ```，不要加任何 JSON 外的說明文字。\n"
+                "JSON 格式必須完全符合以下 schema：\n"
+                "{\n"
+                '  "mode": "flashcards",\n'
+                '  "title": "基礎骨骼學習記憶卡",\n'
+                '  "cards": [\n'
+                "    {\n"
+                '      "id": "card1",\n'
+                '      "title": "卡片標題",\n'
+                '      "front": "正面問題或提示句",\n'
+                '      "back": "背面答案或重點解釋",\n'
+                '      "hint": "記憶提示",\n'
+                '      "confusion": "容易混淆處"\n'
+                "    }\n"
+                "  ]\n"
+                "}\n\n"
+                "規則：\n"
+                "1) 請做 3 張卡片。\n"
+                "2) 不可假裝有 GalaBone 衛教資料庫、PubMed、SOAP、教材或 3D 模型依據。\n"
+                "3) 卡片內容只能是保守的一般骨骼學習方向。\n"
+                "4) front 要寫成問題或提示句。\n"
+                "5) back 要寫答案或重點解釋。\n"
+                "6) hint 要寫記憶提示。\n"
+                "7) confusion 要寫容易混淆處。\n"
+                "8) 最外層第一個字元必須是 {，最後一個字元必須是 }。\n"
             )
         else:
             prompt = (
