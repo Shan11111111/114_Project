@@ -16,9 +16,11 @@ type EvalLog = {
     eval_id: number;
     question: string;
     rag_mode: string;
-    faithfulness: number;
+    faithfulness: number | null;
     supported_claims: number;
     total_claims: number;
+    raw_total_claims?: number;
+    safety_claims?: number;
     created_at: string;
     eval_json?: string;
 };
@@ -101,11 +103,80 @@ function logBlob(log: EvalLog) {
     return `${log.question} ${log.rag_mode} ${log.created_at} ${log.eval_json || ''}`.toLowerCase();
 }
 
+function getFaithfulnessScore(log: EvalLog | null) {
+    if (!log) return 0;
+    if (typeof log.faithfulness === 'number') return log.faithfulness;
+
+    const parsed = parseEvalJson(log);
+    if (typeof parsed?.faithfulness === 'number') return parsed.faithfulness;
+
+    return 0;
+}
+
+function getSafetyCount(log: EvalLog) {
+    const parsed = parseEvalJson(log);
+
+    if (typeof parsed?.safety_claims === 'number') {
+        return parsed.safety_claims;
+    }
+
+    if (typeof log.safety_claims === 'number') {
+        return log.safety_claims;
+    }
+
+    return Array.isArray(parsed?.details)
+        ? parsed.details.filter((d: any) => d?.support_type === 'general_safety_advice').length
+        : 0;
+}
+
+function getRawTotalClaims(log: EvalLog) {
+    const parsed = parseEvalJson(log);
+
+    if (typeof parsed?.raw_total_claims === 'number') {
+        return parsed.raw_total_claims;
+    }
+
+    if (typeof log.raw_total_claims === 'number') {
+        return log.raw_total_claims;
+    }
+
+    return Array.isArray(parsed?.details) ? parsed.details.length : log.total_claims;
+}
+
+function isSafetyClaim(d: any) {
+    return d?.support_type === 'general_safety_advice';
+}
+
+function isUnsupportedClaim(d: any) {
+    return d?.support_type === 'unsupported' || d?.supported === false;
+}
+
+function claimBadgeLabel(d: any) {
+    if (isSafetyClaim(d)) return 'Safety';
+    if (d?.supported) return 'Supported';
+    return 'Unsupported';
+}
+
+function claimCardClass(d: any) {
+    if (isSafetyClaim(d)) return 'border-sky-100 bg-sky-50/80';
+    if (d?.supported) return 'border-emerald-100 bg-emerald-50/70';
+    return 'border-rose-100 bg-rose-50/80';
+}
+
+function claimBadgeClass(d: any) {
+    if (isSafetyClaim(d)) return 'bg-sky-100 text-sky-700';
+    if (d?.supported) return 'bg-emerald-100 text-emerald-700';
+    return 'bg-rose-100 text-rose-700';
+}
 function getUnsupportedCount(log: EvalLog) {
     const parsed = parseEvalJson(log);
-    const unsupportedClaims = parsed?.unsupported_claims?.length || 0;
+
+    const unsupportedClaims = Array.isArray(parsed?.unsupported_claims)
+        ? parsed.unsupported_claims.filter((d: any) => !isSafetyClaim(d)).length
+        : 0;
+
     const detailUnsupported = Array.isArray(parsed?.details)
-        ? parsed.details.filter((d: any) => d?.supported === false).length
+        ? parsed.details.filter((d: any) => isUnsupportedClaim(d) && !isSafetyClaim(d)).length
         : 0;
 
     return Math.max(unsupportedClaims, detailUnsupported);
@@ -188,15 +259,15 @@ export default function EvalDashboardPage() {
                 const blob = logBlob(x);
 
                 if (['低分', '沒證據', '缺證據', '幻覺', 'hallucination'].some((k) => q.includes(k))) {
-                    return x.faithfulness < 0.5 || blob.includes('"supported": false') || getUnsupportedCount(x) > 0;
+                    return getFaithfulnessScore(x) < 0.5 || blob.includes('"supported": false') || getUnsupportedCount(x) > 0;
                 }
 
                 if (['高分', '穩定', '可信'].some((k) => q.includes(k))) {
-                    return x.faithfulness >= 0.8;
+                    return getFaithfulnessScore(x) >= 0.8;
                 }
 
                 if (['中分', '普通'].some((k) => q.includes(k))) {
-                    return x.faithfulness >= 0.5 && x.faithfulness < 0.8;
+                    return getFaithfulnessScore(x) >= 0.5 && getFaithfulnessScore(x) < 0.8;
                 }
 
                 return blob.includes(q);
@@ -205,13 +276,13 @@ export default function EvalDashboardPage() {
 
         switch (quickFilter) {
             case 'low':
-                result = result.filter((x) => x.faithfulness < 0.5);
+                result = result.filter((x) => getFaithfulnessScore(x) < 0.5);
                 break;
             case 'mid':
-                result = result.filter((x) => x.faithfulness >= 0.5 && x.faithfulness < 0.8);
+                result = result.filter((x) => getFaithfulnessScore(x) >= 0.5 && getFaithfulnessScore(x) < 0.8);
                 break;
             case 'high':
-                result = result.filter((x) => x.faithfulness >= 0.8);
+                result = result.filter((x) => getFaithfulnessScore(x) >= 0.8);
                 break;
             case 'unsupported':
                 result = result.filter((x) => (x.eval_json || '').includes('"supported": false') || getUnsupportedCount(x) > 0);
@@ -244,17 +315,30 @@ export default function EvalDashboardPage() {
     }, [filteredLogs, page]);
 
     const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
-    const chartLogs = useMemo(() => [...filteredLogs].reverse(), [filteredLogs]);
+    const chartLogs = useMemo(
+        () =>
+            [...filteredLogs].reverse().map((x) => ({
+                ...x,
+                faithfulness_score: getFaithfulnessScore(x),
+            })),
+        [filteredLogs]
+    );
 
     const avgFaithfulness = useMemo(() => {
         if (!filteredLogs.length) return 0;
-        const sum = filteredLogs.reduce((acc, x) => acc + Number(x.faithfulness || 0), 0);
+        const sum = filteredLogs.reduce((acc, x) => acc + getFaithfulnessScore(x), 0);
         return sum / filteredLogs.length;
     }, [filteredLogs]);
 
-    const lowCount = filteredLogs.filter((x) => x.faithfulness < 0.5).length;
-    const midCount = filteredLogs.filter((x) => x.faithfulness >= 0.5 && x.faithfulness < 0.8).length;
-    const highCount = filteredLogs.filter((x) => x.faithfulness >= 0.8).length;
+    const lowCount = filteredLogs.filter((x) => getFaithfulnessScore(x) < 0.5).length;
+    const midCount = filteredLogs.filter((x) => getFaithfulnessScore(x) >= 0.5 && getFaithfulnessScore(x) < 0.8).length;
+    const highCount = filteredLogs.filter((x) => getFaithfulnessScore(x) >= 0.8).length;
+    const safetyTotal = filteredLogs.reduce((acc, x) => acc + getSafetyCount(x), 0);
+
+
+
+
+
     const pendingGapCount = gaps.filter((x) => x.status === 'pending_review').length;
     const unsupportedTotal = filteredLogs.reduce((acc, x) => acc + getUnsupportedCount(x), 0);
     const latest = filteredLogs[0];
@@ -265,7 +349,7 @@ export default function EvalDashboardPage() {
 
     const priorityLogs = useMemo(() => {
         return filteredLogs
-            .filter((x) => x.faithfulness < 0.8 || getUnsupportedCount(x) > 0)
+            .filter((x) => getFaithfulnessScore(x) < 0.8 || getUnsupportedCount(x) > 0)
             .slice(0, 8);
     }, [filteredLogs]);
 
@@ -406,7 +490,7 @@ export default function EvalDashboardPage() {
                                         {dashboardStatus}
                                     </span>
                                     <span className="mb-1 text-sm text-slate-500">
-                                        {filteredLogs.length} 筆評估 · {unsupportedTotal} 個缺證據 Claim · {pendingGapCount} 個待補教材
+                                        {filteredLogs.length} 筆評估 · {unsupportedTotal} 個缺證據 Claim · {safetyTotal} 個安全提醒 · {pendingGapCount} 個待補教材
                                     </span>
                                 </div>
                             </div>
@@ -544,8 +628,8 @@ export default function EvalDashboardPage() {
                                                     }`}
                                             >
                                                 <div className="mb-2 flex items-center justify-between gap-2">
-                                                    <span className={`rounded-full border px-2 py-1 text-[11px] font-black ${scoreClass(log.faithfulness)}`}>
-                                                        {(log.faithfulness * 100).toFixed(0)}%
+                                                    <span className={`rounded-full border px-2 py-1 text-[11px] font-black ${scoreClass(getFaithfulnessScore(log))}`}>
+                                                        {(getFaithfulnessScore(log) * 100).toFixed(0)}%
                                                     </span>
                                                     {getUnsupportedCount(log) > 0 && (
                                                         <span className="rounded-full bg-rose-100 px-2 py-1 text-[11px] font-black text-rose-700">
@@ -598,7 +682,7 @@ export default function EvalDashboardPage() {
                                         />
                                         <Line
                                             type="monotone"
-                                            dataKey="faithfulness"
+                                            dataKey="faithfulness_score"
                                             name="Faithfulness"
                                             strokeWidth={4}
                                             dot={{ r: 5 }}
@@ -652,11 +736,11 @@ export default function EvalDashboardPage() {
                                             >
                                                 <div className="mb-3 flex items-center justify-between gap-2">
                                                     <div className="flex items-center gap-2">
-                                                        <span className={`h-2.5 w-2.5 rounded-full ${scoreDotClass(log.faithfulness)}`} />
+                                                        <span className={`h-2.5 w-2.5 rounded-full ${scoreDotClass(getFaithfulnessScore(log))}`} />
                                                         <span className="text-xs font-black text-slate-500">Eval #{log.eval_id}</span>
                                                     </div>
-                                                    <span className={`rounded-full border px-3 py-1 text-xs font-black ${scoreClass(log.faithfulness)}`}>
-                                                        {(log.faithfulness * 100).toFixed(1)}%
+                                                    <span className={`rounded-full border px-3 py-1 text-xs font-black ${scoreClass(getFaithfulnessScore(log))}`}>
+                                                        {(getFaithfulnessScore(log) * 100).toFixed(1)}%
                                                     </span>
                                                 </div>
 
@@ -664,7 +748,7 @@ export default function EvalDashboardPage() {
                                                     {log.question}
                                                 </div>
 
-                                                <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                                                <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
                                                     <div className="rounded-2xl bg-slate-50 p-2">
                                                         <div className="text-slate-400">Claims</div>
                                                         <div className="font-black text-slate-700">{log.supported_claims}/{log.total_claims}</div>
@@ -672,6 +756,10 @@ export default function EvalDashboardPage() {
                                                     <div className="rounded-2xl bg-slate-50 p-2">
                                                         <div className="text-slate-400">缺證據</div>
                                                         <div className="font-black text-rose-600">{getUnsupportedCount(log)}</div>
+                                                    </div>
+                                                    <div className="rounded-2xl bg-sky-50 p-2">
+                                                        <div className="text-sky-400">安全提醒</div>
+                                                        <div className="font-black text-sky-600">{getSafetyCount(log)}</div>
                                                     </div>
                                                     <div className="rounded-2xl bg-slate-50 p-2">
                                                         <div className="text-slate-400">模式</div>
@@ -858,8 +946,8 @@ export default function EvalDashboardPage() {
                                     <div className="mb-2 flex items-center justify-between">
                                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">證據詳情</span>
                                         {activeLog && (
-                                            <span className={`rounded-full border px-3 py-1 text-xs font-black ${scoreClass(activeLog.faithfulness)}`}>
-                                                {(activeLog.faithfulness * 100).toFixed(1)}%
+                                            <span className={`rounded-full border px-3 py-1 text-xs font-black ${scoreClass(getFaithfulnessScore(activeLog))}`}>
+                                                {(getFaithfulnessScore(activeLog) * 100).toFixed(1)}%
                                             </span>
                                         )}
                                     </div>
@@ -870,7 +958,19 @@ export default function EvalDashboardPage() {
                                         <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
                                             <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">Eval #{activeLog.eval_id}</span>
                                             <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">{activeLog.rag_mode}</span>
-                                            <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">{activeLog.supported_claims}/{activeLog.total_claims} claims</span>
+                                            <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
+                                                {activeLog.supported_claims}/{activeLog.total_claims} RAG claims
+                                            </span>
+                                            {getSafetyCount(activeLog) > 0 && (
+                                                <span className="rounded-full bg-sky-100 px-2 py-1 text-sky-700">
+                                                    {getSafetyCount(activeLog)} safety
+                                                </span>
+                                            )}
+                                            {getRawTotalClaims(activeLog) !== activeLog.total_claims && (
+                                                <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-500">
+                                                    raw {getRawTotalClaims(activeLog)}
+                                                </span>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -890,21 +990,22 @@ export default function EvalDashboardPage() {
                                         {activeDetails.map((d: any, idx: number) => (
                                             <article
                                                 key={idx}
-                                                className={`rounded-3xl border p-4 ${d.supported
-                                                    ? 'border-emerald-100 bg-emerald-50/70'
-                                                    : 'border-rose-100 bg-rose-50/80'
-                                                    }`}
+                                                className={`rounded-3xl border p-4 ${claimCardClass(d)}`}
                                             >
                                                 <div className="mb-3 flex items-center justify-between gap-2">
                                                     <span className="text-sm font-black text-slate-900">Claim #{idx + 1}</span>
-                                                    <span
-                                                        className={`rounded-full px-3 py-1 text-xs font-black ${d.supported
-                                                            ? 'bg-emerald-100 text-emerald-700'
-                                                            : 'bg-rose-100 text-rose-700'
-                                                            }`}
-                                                    >
-                                                        {d.supported ? 'Supported' : 'Unsupported'}
-                                                    </span>
+
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`rounded-full px-3 py-1 text-xs font-black ${claimBadgeClass(d)}`}>
+                                                            {claimBadgeLabel(d)}
+                                                        </span>
+
+                                                        {d.support_type && (
+                                                            <span className="rounded-full bg-white/80 px-2 py-1 text-[11px] font-black text-slate-500">
+                                                                {d.support_type}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
 
                                                 <div className="space-y-3 text-sm">
@@ -915,7 +1016,11 @@ export default function EvalDashboardPage() {
 
                                                     <div className="rounded-2xl bg-white/90 p-3">
                                                         <div className="mb-1 text-xs font-black text-slate-400">Evidence</div>
-                                                        <div className="text-slate-700">{d.evidence || '無可用證據'}</div>
+                                                        <div className="text-slate-700">
+                                                            {isSafetyClaim(d)
+                                                                ? '一般安全衛教提醒，不納入 RAG Faithfulness 分母'
+                                                                : d.evidence || '無可用證據'}
+                                                        </div>
                                                     </div>
 
                                                     <div>

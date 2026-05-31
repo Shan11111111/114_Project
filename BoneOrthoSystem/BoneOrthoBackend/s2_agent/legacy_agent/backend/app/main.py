@@ -681,7 +681,6 @@ def agent_chat_stream(req: ChatRequest):
                 has_3d_asset_only = False
 
                 for s in raw_resources or []:
-                    
                     source_type = str(s.get("source_type") or "").lower()
 
                     # 3D 模型資源不是文字型 RAG evidence，不送進 Faithfulness
@@ -707,27 +706,25 @@ def agent_chat_stream(req: ChatRequest):
                     })
 
                 if contexts:
-                    # 只評估「1) 綜合回答」，不要把學習重點、注意事項、延伸問題算進去
+                    # 評估「綜合回答 + 骨骼學習重點」
+                    # 不評估注意事項與延伸問題，避免固定模板影響分數
                     eval_answer = final_answer
 
-                    if "2) 骨骼學習重點" in eval_answer:
-                        eval_answer = eval_answer.split("2) 骨骼學習重點", 1)[0].strip()
-                    elif "3) 注意事項" in eval_answer:
+                    if "3) 注意事項" in eval_answer:
                         eval_answer = eval_answer.split("3) 注意事項", 1)[0].strip()
+                    elif "4) 延伸學習問題" in eval_answer:
+                        eval_answer = eval_answer.split("4) 延伸學習問題", 1)[0].strip()
 
                     faithfulness_result = evaluate_faithfulness(
                         question=clean_q,
                         answer=eval_answer,
                         contexts=contexts,
                     )
-                else:
-                    if has_3d_asset_only:
-                        print("[FAITHFULNESS SKIP] only 3d_asset resources; skip text RAG faithfulness eval.")
-                    else:
-                        print("[FAITHFULNESS SKIP] no text RAG contexts.")
-                    # =========================================
-                    # Save Faithfulness Eval Log
-                    # =========================================
+
+                    print("\n==============================")
+                    print("FAITHFULNESS RESULT")
+                    print(json.dumps(faithfulness_result, ensure_ascii=False, indent=2))
+                    print("==============================\n")
 
                     try:
                         from db import get_connection
@@ -758,7 +755,7 @@ def agent_chat_stream(req: ChatRequest):
                             faithfulness_result.get("total_claims"),
                             json.dumps(faithfulness_result, ensure_ascii=False)
                             )
-                            
+
                             unsupported_claims = faithfulness_result.get("unsupported_claims", [])
 
                             for item in unsupported_claims:
@@ -774,18 +771,18 @@ def agent_chat_stream(req: ChatRequest):
                                 )
 
                                 cur.execute("""
-                                INSERT INTO agent.RagKnowledgeGap
-                                (
-                                    ConversationId,
-                                    UserId,
-                                    Question,
-                                    Claim,
-                                    SuggestedQuery,
-                                    SourceSuggestion,
-                                    Status
-                                )
-                                OUTPUT INSERTED.GapId
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    INSERT INTO agent.RagKnowledgeGap
+                                    (
+                                        ConversationId,
+                                        UserId,
+                                        Question,
+                                        Claim,
+                                        SuggestedQuery,
+                                        SourceSuggestion,
+                                        Status
+                                    )
+                                    OUTPUT INSERTED.GapId
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 str(conversation_id) if conversation_id else None,
                                 user_id,
@@ -799,54 +796,49 @@ def agent_chat_stream(req: ChatRequest):
                                 row = cur.fetchone()
                                 gap_id = int(row[0]) if row else None
 
-                                row = cur.fetchone()
+                                if gap_id:
+                                    try:
+                                        from .tools.pubmed_tool import retrieve_pubmed_sources
 
-                                if row:
-                                    gap_id = int(row[0])
-                                    
-                                try:
-                                    from .tools.pubmed_tool import retrieve_pubmed_sources
-
-                                    pubmed_candidates = retrieve_pubmed_sources(
-                                        suggested_query,
-                                        max_results=3
-                                    )
-
-                                    for p in pubmed_candidates:
-
-                                        cur.execute("""
-                                        INSERT INTO agent.RagKnowledgeGapCandidate
-                                        (
-                                            GapId,
-                                            SourceType,
-                                            Title,
-                                            Url,
-                                            Summary,
-                                            Score
-                                        )
-                                        VALUES (?, ?, ?, ?, ?, ?)
-                                        """,
-                                        gap_id,
-                                        "pubmed",
-                                        p.get("title"),
-                                        p.get("url"),
-                                        p.get("abstract") or "",
-                                        95.0
+                                        pubmed_candidates = retrieve_pubmed_sources(
+                                            suggested_query,
+                                            max_results=3
                                         )
 
-                                except Exception as e:
-                                    print("Gap candidate failed:", e)
-                                
-                            
+                                        for p in pubmed_candidates:
+                                            cur.execute("""
+                                                INSERT INTO agent.RagKnowledgeGapCandidate
+                                                (
+                                                    GapId,
+                                                    SourceType,
+                                                    Title,
+                                                    Url,
+                                                    Summary,
+                                                    Score
+                                                )
+                                                VALUES (?, ?, ?, ?, ?, ?)
+                                            """,
+                                            gap_id,
+                                            "pubmed",
+                                            p.get("title"),
+                                            p.get("url"),
+                                            p.get("abstract") or "",
+                                            95.0
+                                            )
+
+                                    except Exception as e:
+                                        print("Gap candidate failed:", e)
+
                             conn.commit()
 
                     except Exception as e:
                         print("Save RagEvalLog failed:", e)
 
-                    print("\n==============================")
-                    print("FAITHFULNESS RESULT")
-                    print(json.dumps(faithfulness_result, ensure_ascii=False, indent=2))
-                    print("==============================\n")
+                else:
+                    if has_3d_asset_only:
+                        print("[FAITHFULNESS SKIP] only 3d_asset resources; skip text RAG faithfulness eval.")
+                    else:
+                        print("[FAITHFULNESS SKIP] no text RAG contexts.")
 
             except Exception as e:
                 print("Faithfulness eval failed:", e)

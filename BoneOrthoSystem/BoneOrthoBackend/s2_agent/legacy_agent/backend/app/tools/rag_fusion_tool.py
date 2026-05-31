@@ -697,9 +697,12 @@ def build_learning_prompt_from_evidence(
         "- 若不同來源資訊不一致，請明確區分：衛教/文獻是一般知識，SOAP 是個案觀察，不可硬合併成單一結論。\n"
         f"{language_rule}\n"
         f"{source_guard}\n"
-        "回答或出題都必須根據實際檢索資料，不得捏造資料中沒有的內容，必須合理的整理語意，必須註明出處。\n"
-        "如果 evidence 與使用者問題明顯不相關，但你仍使用模型內部知識回答，"
-        "回答開頭必須標示：『【模型知識補充｜非知識庫證據】』。\n"
+        "回答或出題都必須根據實際檢索資料，不得加入 contexts 沒有明確支持的新事實。\n"
+"若使用者問題中的某個關鍵事實沒有出現在檢索資料中，例如數字、原因、機制、融合過程、疾病風險、治療方式，必須明確說：『本次檢索資料沒有提供足夠證據支持這一點』。\n"
+"如果仍需要用模型一般知識補充，該段落開頭必須標示：『【模型知識補充｜非知識庫證據】』，且不得把該段內容說成來自 GalaBone 衛教資料庫。\n"
+"禁止把模型一般知識混在 RAG 回答裡，避免 Faithfulness 評估誤判。\n"
+        # "如果 evidence 與使用者問題明顯不相關，但你仍使用模型內部知識回答，但必須在回答後註明【包含OpenAI模型知識補充】"
+        "如果使用模型內部知識回答，回答開頭必須標示：『【模型知識補充｜非知識庫證據】』。\n"
         "此時不得宣稱內容來自 GalaBone 衛教資料庫、PubMed 文獻或 SOAP 個案。\n"
         "整合資料時請遵守：教材資料負責建立基礎理解；PubMed 負責補充研究證據；SOAP 只作為去識別化個案範例，不可直接當成通用醫療結論。\n"
         "若問題涉及診斷、治療、用藥或個案判讀，請補充醫療注意事項，但不得直接取代醫師判斷。\n"
@@ -827,6 +830,9 @@ def build_learning_prompt_from_evidence(
         "1) 綜合回答\n"
         "第一句請用親切語氣開場，請依據問題作客製化，例如：「小罐頭幫你抓重點！」或「這題很適合用位置來記，小罐頭整理給你！」。\n"
         "接著直接回應使用者問題核心，不要先列資料來源清單。\n"
+        "回答前請先檢查 evidence 是否真的包含使用者問題的核心資訊。\n"
+"若 evidence 只包含部分資訊，例如只提到成人 206 塊骨頭，但沒有提到嬰兒約 300 塊、骨頭融合或發育過程，則只能回答 evidence 支持的部分，並明確說明缺少哪些資料。\n"
+"不要因為你知道答案，就直接補完整答案。\n"
         "請依問題類型決定回答重心：\n"
         "- 若使用者問骨頭位置、功能、解剖、影像辨識或怎麼記，優先用 GalaBone 衛教資料庫建立基礎理解。\n"
         "- 若使用者問治療、用藥、副作用、診斷、風險、預後或證據，優先整合 PubMed 文獻與衛教資料。\n"
@@ -1263,6 +1269,41 @@ def prepare_auto_fusion_answer(
     print("[AUTO_FUSION][TOPIC_JUDGE]", topic_judge)
 
     retrieval_query = topic_judge["final_query"]
+    
+    # 如果使用者新問題本身已經很完整，就不要讓上一輪主題污染檢索
+    def _is_self_contained_question(q: str) -> bool:
+        q = (q or "").strip()
+
+        vague_words = [
+            "它", "他", "她", "這個", "那個",
+            "剛剛", "前面", "上面", "同一個",
+            "這些", "那些"
+        ]
+
+        if any(w in q for w in vague_words):
+            return False
+
+        question_markers = [
+            "為什麼", "什麼是", "是什麼", "怎麼", "如何",
+            "差在哪", "差異", "原因", "功能", "位置"
+        ]
+
+        topic_words = [
+            "骨頭", "骨骼", "嬰兒", "成人", "骨折", "骨質疏鬆",
+            "脊椎", "肋骨", "顱骨", "頭顱骨", "關節"
+        ]
+
+        return (
+            len(q) >= 12
+            and any(w in q for w in question_markers)
+            and any(w in q for w in topic_words)
+        )
+    if topic_judge.get("relation") == "followup" and _is_self_contained_question(user_q):
+        print("[AUTO_FUSION][SELF_CONTAINED_RESET]", {
+            "old_retrieval_query": retrieval_query,
+            "user_q": user_q,
+        })
+        retrieval_query = user_q
     # =========================
     # Topic switch guard
     # 避免上一題主題污染這一題
