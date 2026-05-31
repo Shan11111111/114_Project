@@ -698,9 +698,11 @@ def build_learning_prompt_from_evidence(
         f"{language_rule}\n"
         f"{source_guard}\n"
         "回答或出題都必須根據實際檢索資料，不得加入 contexts 沒有明確支持的新事實。\n"
-"若使用者問題中的某個關鍵事實沒有出現在檢索資料中，例如數字、原因、機制、融合過程、疾病風險、治療方式，必須明確說：『本次檢索資料沒有提供足夠證據支持這一點』。\n"
-"如果仍需要用模型一般知識補充，該段落開頭必須標示：『【模型知識補充｜非知識庫證據】』，且不得把該段內容說成來自 GalaBone 衛教資料庫。\n"
-"禁止把模型一般知識混在 RAG 回答裡，避免 Faithfulness 評估誤判。\n"
+        "請嚴格區分「關鍵字命中」與「內容支持」：context 只出現骨頭名稱、測驗題、清單或標題，不代表足以支持位置、功能、原因、機制或辨認方法。\n"
+        "若 context 只提到『尺骨、橈骨』這類名稱，但沒有明確說明兩者位置、功能、相鄰關係或辨認方法，禁止直接回答『尺骨在小指側、橈骨在拇指側』這類內容。\n"
+        "若使用者問題中的核心資訊沒有出現在檢索資料中，例如數字、原因、機制、融合過程、疾病風險、治療方式、骨頭位置、功能差異、辨認方法，必須先明確說：『本次檢索資料沒有提供足夠證據支持這一點』。\n"
+        "如果仍需要用模型一般知識補充，該段落開頭必須標示：『【模型知識補充｜非知識庫證據】』，且不得把該段內容說成來自 GalaBone 衛教資料庫。\n"
+        "禁止把模型一般知識混在 RAG 回答裡；凡是 context 沒有明確支持的內容，都必須放在『【模型知識補充｜非知識庫證據】』段落。\n"
         # "如果 evidence 與使用者問題明顯不相關，但你仍使用模型內部知識回答，但必須在回答後註明【包含OpenAI模型知識補充】"
         "如果使用模型內部知識回答，回答開頭必須標示：『【模型知識補充｜非知識庫證據】』。\n"
         "此時不得宣稱內容來自 GalaBone 衛教資料庫、PubMed 文獻或 SOAP 個案。\n"
@@ -830,9 +832,10 @@ def build_learning_prompt_from_evidence(
         "1) 綜合回答\n"
         "第一句請用親切語氣開場，請依據問題作客製化，例如：「小罐頭幫你抓重點！」或「這題很適合用位置來記，小罐頭整理給你！」。\n"
         "接著直接回應使用者問題核心，不要先列資料來源清單。\n"
-        "回答前請先檢查 evidence 是否真的包含使用者問題的核心資訊。\n"
-"若 evidence 只包含部分資訊，例如只提到成人 206 塊骨頭，但沒有提到嬰兒約 300 塊、骨頭融合或發育過程，則只能回答 evidence 支持的部分，並明確說明缺少哪些資料。\n"
-"不要因為你知道答案，就直接補完整答案。\n"
+        "回答前請先檢查 evidence 是否真的包含使用者問題的核心資訊，而不是只有命中關鍵字。\n"
+        "如果 evidence 只出現骨頭名稱、測驗題或清單，例如只出現『請指出橈骨、請指出尺骨』，但沒有說明位置、功能或辨認方法，則不能把它當作足夠證據。\n"
+        "若 evidence 只包含部分資訊，例如只提到成人 206 塊骨頭，但沒有提到嬰兒約 300 塊、骨頭融合或發育過程；或只提到尺骨、橈骨名稱，但沒有提到兩者如何分辨，則只能回答 evidence 支持的部分，並明確說明缺少哪些資料。\n"
+        "不要因為你知道答案，就直接補完整答案；若要補，必須另開『【模型知識補充｜非知識庫證據】』段落。\n"
         "請依問題類型決定回答重心：\n"
         "- 若使用者問骨頭位置、功能、解剖、影像辨識或怎麼記，優先用 GalaBone 衛教資料庫建立基礎理解。\n"
         "- 若使用者問治療、用藥、副作用、診斷、風險、預後或證據，優先整合 PubMed 文獻與衛教資料。\n"
@@ -1240,6 +1243,24 @@ def judge_topic_relation_with_llm(
         }
 
 
+def _evidence_has_enough_answer_support(user_q: str, evidence: List[Evidence]) -> bool:
+    q = user_q or ""
+    text = "\n".join(str(e.get("content") or "") for e in evidence)
+
+    if "尺骨" in q and "橈骨" in q:
+        required = ["小指", "拇指", "內側", "外側", "旋前", "旋後", "前臂"]
+        return any(k in text for k in required)
+
+    if "嬰兒" in q and ("成人" in q or "206" in q):
+        required = ["融合", "300", "囟門", "薦骨", "尾骨"]
+        return any(k in text for k in required)
+
+    if any(k in q for k in ["駝背", "坐姿", "姿勢", "久坐"]):
+        required = ["肌肉疲勞", "脊椎自然曲線", "肩頸", "下背", "永久變形", "核心肌群"]
+        return any(k in text for k in required)
+
+    return True
+
 def prepare_auto_fusion_answer(
     user_q: str,
     session: dict | None = None,
@@ -1559,8 +1580,11 @@ def prepare_auto_fusion_answer(
     evidence = dedupe_evidence(evidence)
     evidence = rerank_evidence(evidence)
     evidence = limit_by_source(evidence, per_source=3, total=8)
+    evidence_has_support = _evidence_has_enough_answer_support(user_q, evidence)
+    
+    
 
-    if not evidence:
+    if not evidence or not evidence_has_support:
 
         fallback_query = retrieval_query if retrieval_query != user_q else user_q
 
