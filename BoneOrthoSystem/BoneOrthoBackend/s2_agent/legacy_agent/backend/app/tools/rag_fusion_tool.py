@@ -491,6 +491,106 @@ def rerank_evidence(items: List[Evidence]) -> List[Evidence]:
 
     return sorted(items, key=lambda x: x.get("final_score", 0), reverse=True)
 
+def is_basic_learning_motivation_query(query: str) -> bool:
+    """
+    判斷是否為國高中生常見的基礎學習動機題。
+    這類問題應優先回答：為什麼要學、可以理解什麼、和生活/3D/X光學習怎麼連結。
+    疾病、骨折、治療只能當延伸例子，不應該成為主軸。
+    """
+    q = (query or "").strip().lower()
+
+    motivation_patterns = [
+        "為什麼要認識骨頭",
+        "為什麼要認識骨骼",
+        "為什麼要學骨頭",
+        "為什麼要學骨骼",
+        "骨頭重要嗎",
+        "骨骼重要嗎",
+        "認識骨頭有什麼用",
+        "認識骨骼有什麼用",
+        "學骨頭有什麼用",
+        "學骨骼有什麼用",
+        "骨頭有什麼用",
+        "骨骼有什麼用",
+        "why learn bones",
+        "why study bones",
+        "why are bones important",
+    ]
+
+    return any(p in q for p in motivation_patterns)
+
+
+def adjust_evidence_for_student_basic_query(
+    items: List[Evidence],
+    query: str,
+) -> List[Evidence]:
+    """
+    針對國高中生基礎學習題調整 evidence 排序：
+    - 優先：骨骼支撐、保護、運動、姿勢、結構、功能、學習、3D、X光等內容
+    - 降權：骨折、疾病、治療、用藥、手術等內容
+    目的不是刪掉疾病資料，而是避免它搶走基礎題的主軸。
+    """
+    if not is_basic_learning_motivation_query(query):
+        return items
+
+    basic_terms = [
+        "支撐",
+        "保護",
+        "運動",
+        "姿勢",
+        "功能",
+        "構造",
+        "結構",
+        "位置",
+        "骨骼系統",
+        "肌肉",
+        "關節",
+        "血液細胞",
+        "礦物質",
+        "學習",
+        "認識",
+        "3d",
+        "3D",
+        "x光",
+        "X光",
+        "影像",
+        "健康",
+    ]
+
+    disease_terms = [
+        "骨折",
+        "骨質疏鬆",
+        "骨鬆",
+        "疾病",
+        "治療",
+        "用藥",
+        "藥物",
+        "副作用",
+        "手術",
+        "開刀",
+        "診斷",
+        "病人",
+        "患者",
+        "個案",
+        "SOAP",
+    ]
+
+    for item in items:
+        title = str(item.get("title") or "")
+        content = str(item.get("content") or "")
+        text = f"{title}\n{content}"
+
+        final_score = float(item.get("final_score") or item.get("score") or 0)
+
+        if any(t in text for t in basic_terms):
+            final_score *= 1.25
+
+        if any(t in text for t in disease_terms):
+            final_score *= 0.45
+
+        item["final_score"] = final_score
+
+    return sorted(items, key=lambda x: x.get("final_score", 0), reverse=True)
 
 def limit_by_source(
     items: List[Evidence], per_source: int = 2, total: int = 6
@@ -896,6 +996,7 @@ def build_learning_prompt_from_evidence(
         "若 evidence 只包含部分資訊，例如只提到成人 206 塊骨頭，但沒有提到嬰兒約 300 塊、骨頭融合或發育過程；或只提到尺骨、橈骨名稱，但沒有提到兩者如何分辨，則只能回答 evidence 支持的部分，並明確說明缺少哪些資料。\n"
         "不要因為你知道答案，就直接補完整答案；若要補，必須另開『【模型知識補充｜非知識庫證據】』段落。\n"
         "請依問題類型決定回答重心：\n"
+        "- 若使用者問『為什麼要認識骨頭、為什麼要學骨骼、骨骼有什麼用』這類基礎學習動機題，請優先回答支撐身體、保護器官、協助運動、維持姿勢、理解 3D 模型與 X 光影像學習等內容；骨折、疾病、治療只能作為簡短延伸例子，不可成為回答主軸。\n"
         "- 若使用者問骨頭位置、功能、解剖、影像辨識或怎麼記，優先用 GalaBone 衛教資料庫建立基礎理解。\n"
         "- 若使用者問治療、用藥、副作用、診斷、風險、預後或證據，優先整合 PubMed 文獻與衛教資料。\n"
         "- 若使用者問病人、個案、症狀、檢查、處置、復健、追蹤、SOAP 或臨床情境，請最大化使用去識別化 SOAP 個案紀錄，並用學生能懂的方式整理。\n"
@@ -1647,6 +1748,7 @@ def prepare_auto_fusion_answer(
 
     evidence = dedupe_evidence(evidence)
     evidence = rerank_evidence(evidence)
+    evidence = adjust_evidence_for_student_basic_query(evidence, route_query)
     evidence = limit_by_source(evidence, per_source=3, total=8)
     evidence_has_support = _evidence_has_enough_answer_support(user_q, evidence)
     
