@@ -582,11 +582,17 @@ def adjust_evidence_for_student_basic_query(
 
         final_score = float(item.get("final_score") or item.get("score") or 0)
 
-        if any(t in text for t in basic_terms):
-            final_score *= 1.25
+        has_basic = any(t in text for t in basic_terms)
+        has_disease = any(t in text for t in disease_terms)
 
-        if any(t in text for t in disease_terms):
-            final_score *= 0.45
+        # 基礎學習題：優先保留骨骼功能、支撐、保護、運動等資料
+        # 如果同一份資料同時含有疾病詞，不要重罰，避免把可用教材洗掉
+        if has_basic and not has_disease:
+            final_score *= 1.50
+        elif has_basic and has_disease:
+            final_score *= 1.10
+        elif has_disease:
+            final_score *= 0.25
 
         item["final_score"] = final_score
 
@@ -851,6 +857,7 @@ def build_learning_prompt_from_evidence(
         "- 如果使用者問的是『病人、個案、症狀、檢查、處置、復健、追蹤』，請最大化使用 SOAP，整理 S/O/A/P 中最相關的資訊。\n"
         "- 如果使用者只是一般聊天或單純骨頭介紹，不要硬塞 SOAP，避免回答變得像病歷摘要。\n"
         "- 若不同來源資訊不一致，請明確區分：衛教/文獻是一般知識，SOAP 是個案觀察，不可硬合併成單一結論。\n"
+        "禁止把模型一般知識混在 RAG 回答裡；凡是 context 沒有明確支持的內容，都必須放在『【模型知識補充｜非知識庫證據】』段落。\n"
         f"{language_rule}\n"
         f"{source_guard}\n"
         "回答或出題都必須根據實際檢索資料，不得加入 contexts 沒有明確支持的新事實。\n"
@@ -1322,6 +1329,106 @@ def pick_external_search_query(
     # 4. 最後真的抓不到，就回空，不要拿「有沒有資料」去搜
     return ""
 
+def rewrite_query_with_llm(
+    user_q: str,
+    history_summary: str = "",
+    model: str = "gpt-4.1-mini",
+) -> dict:
+    """
+    讓 LLM 判斷：
+    1. 使用者這題是否需要承接歷史
+    2. 如果需要，應該怎麼補查詢字
+    3. 如果是完整獨立問題，就不要補歷史，避免污染
+    """
+
+    prompt = f"""
+你是 GalaBone RAG 查詢改寫器。
+
+你的任務是判斷「使用者新問題」是否需要承接歷史對話來補足查詢。
+
+請特別注意：
+- 如果使用者新問題本身已經是完整問題，例如：
+  「為什麼要認識骨頭？」
+  「脊椎是什麼？」
+  「骨骼有什麼用？」
+  「尺骨在哪裡？」
+  這類問題不需要補歷史，relation 必須是 standalone 或 new_topic。
+- 不可以因為歷史提到骨折、骨質疏鬆、治療、風險，就把這些字補進新的完整問題。
+- 只有當使用者使用「它、這個、剛剛那個、前面說的、女生還是男生多、怎麼治療、會痛嗎」這類明顯代詞或追問時，才可以承接歷史。
+- 如果不確定，請保守使用使用者原問題，不要補歷史。
+
+請輸出 JSON，不要 Markdown。
+
+JSON schema:
+{{
+  "relation": "standalone | followup | new_topic | unclear",
+  "need_history": true,
+  "final_query": "最後要拿去檢索的查詢句",
+  "selected_focus": "basic_learning | anatomy | disease | treatment | clinical_case | imaging | 3d_model | unclear",
+  "reason": "簡短原因"
+}}
+
+歷史摘要：
+{history_summary or "（無）"}
+
+使用者新問題：
+{user_q}
+"""
+
+    try:
+        resp = _client.chat.completions.create(
+            model=model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你只負責 RAG 查詢改寫判斷，必須輸出 JSON。",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+        )
+
+        data = json.loads(resp.choices[0].message.content or "{}")
+
+        relation = str(data.get("relation") or "unclear").strip()
+        if relation not in {"standalone", "followup", "new_topic", "unclear"}:
+            relation = "unclear"
+
+        need_history = bool(data.get("need_history"))
+
+        final_query = str(data.get("final_query") or user_q).strip()
+
+        # 保守規則：不是 followup 就禁止補歷史
+        if relation in {"standalone", "new_topic", "unclear"}:
+            need_history = False
+            final_query = user_q
+
+        # 保守規則：如果 final_query 空掉，就用原問題
+        if not final_query:
+            final_query = user_q
+            need_history = False
+
+        return {
+            "relation": relation,
+            "need_history": need_history,
+            "final_query": final_query,
+            "selected_focus": data.get("selected_focus") or "unclear",
+            "reason": data.get("reason") or "",
+        }
+
+    except Exception as e:
+        print("[QUERY_REWRITE_LLM_FAILED]", e)
+        return {
+            "relation": "unclear",
+            "need_history": False,
+            "final_query": user_q,
+            "selected_focus": "unclear",
+            "reason": "LLM query rewrite failed; fallback to user_q",
+        }
 
 def judge_topic_relation_with_llm(
     user_q: str,
@@ -1437,20 +1544,22 @@ def prepare_auto_fusion_answer(
 
     # 先建立對話語境查詢，讓「前面那個、剛剛那個、同一個模型」能接上上一輪主題
     state = dialog_state or {}
-    retrieval_query = _build_retrieval_query(user_q, session, state)
-
+    
+    
+    
     history_summary_for_judge = _build_history_summary(user_q, session, state)
 
-    topic_judge = judge_topic_relation_with_llm(
+    query_rewrite = rewrite_query_with_llm(
         user_q=user_q,
-        retrieval_query=retrieval_query,
         history_summary=history_summary_for_judge,
     )
 
-    print("[AUTO_FUSION][TOPIC_JUDGE]", topic_judge)
+    print("[AUTO_FUSION][QUERY_REWRITE]", query_rewrite)
 
-    retrieval_query = topic_judge["final_query"]
-    
+    retrieval_query = query_rewrite["final_query"]
+    print("[AUTO_FUSION][FINAL_RETRIEVAL_QUERY_BEFORE_GUARD]", retrieval_query)
+
+    # 基礎學習動機題：永遠不要承接上一輪疾病/骨折/治療主題
     # 如果使用者新問題本身已經很完整，就不要讓上一輪主題污染檢索
     def _is_self_contained_question(q: str) -> bool:
         q = (q or "").strip()
@@ -1475,16 +1584,37 @@ def prepare_auto_fusion_answer(
         ]
 
         return (
-            len(q) >= 12
+            len(q) >= 8
             and any(w in q for w in question_markers)
             and any(w in q for w in topic_words)
         )
-    if topic_judge.get("relation") == "followup" and _is_self_contained_question(user_q):
+
+
+    if query_rewrite.get("relation") == "followup" and _is_self_contained_question(user_q):
         print("[AUTO_FUSION][SELF_CONTAINED_RESET]", {
             "old_retrieval_query": retrieval_query,
             "user_q": user_q,
+            "reason": "self-contained question should not inherit history",
         })
         retrieval_query = user_q
+
+
+    # 基礎學習動機題：清掉歷史後，再擴充 vector 檢索詞
+    if is_basic_learning_motivation_query(user_q):
+        print("[AUTO_FUSION][BASIC_QUERY_EXPAND]", {
+            "old_retrieval_query": retrieval_query,
+            "user_q": user_q,
+            "reason": "expand basic learning query for better vector retrieval",
+        })
+        retrieval_query = (
+            f"{user_q} "
+            "骨骼系統 主要功能 支撐身體 保護器官 協助運動 維持姿勢 "
+            "骨骼與肌肉關節 骨骼結構 生物學習"
+        )
+
+
+    print("[AUTO_FUSION][FINAL_RETRIEVAL_QUERY_AFTER_GUARD]", retrieval_query)
+        
     # =========================
     # Topic switch guard
     # 避免上一題主題污染這一題
@@ -1569,7 +1699,7 @@ def prepare_auto_fusion_answer(
     # 例：
     # user_q = 前面那個模型再給我一次
     # retrieval_query = 尺骨 前面那個模型再給我一次
-    intent_query = f"{retrieval_query}\n{user_q}".strip()
+    intent_query = user_q if is_basic_learning_motivation_query(user_q) else retrieval_query
 
     intent = analyze_user_intent(intent_query)
     print("[AUTO_FUSION][INTENT]", intent)
@@ -1674,8 +1804,13 @@ def prepare_auto_fusion_answer(
         system, prompt = build_persona_chat_prompt(user_q, language_rule)
         return system, prompt, []
 
-    route_query = f"{user_q}\n{retrieval_query}".strip()
+    route_query = retrieval_query
+
+    if is_basic_learning_motivation_query(user_q):
+        route_query = user_q
+
     selected_sources = route_sources(route_query)
+    
     print("[AUTO_FUSION][ROUTE_QUERY]", route_query)
     print("[AUTO_FUSION][SELECTED_SOURCES]", selected_sources)
 
@@ -1748,7 +1883,7 @@ def prepare_auto_fusion_answer(
 
     evidence = dedupe_evidence(evidence)
     evidence = rerank_evidence(evidence)
-    evidence = adjust_evidence_for_student_basic_query(evidence, route_query)
+    evidence = adjust_evidence_for_student_basic_query(evidence, user_q)
     evidence = limit_by_source(evidence, per_source=3, total=8)
     evidence_has_support = _evidence_has_enough_answer_support(user_q, evidence)
     
