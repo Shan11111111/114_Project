@@ -915,12 +915,12 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_foot_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 58, y: 90 },
-            right: { x: 44, y: 90 },
+            left: { x: 60, y: 90 },
+            right: { x: 40, y: 90 },
         },
         backDotPair: {
-            left: { x: 42, y: 95 },
-            right: { x: 56, y: 95 },
+            left: { x: 40, y: 95 },
+            right: { x: 60, y: 95 },
         },
     },
 
@@ -930,8 +930,8 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         defaultView: 'front',
 
         frontDotPair: {
-            left: { x: 58, y: 94 },
-            right: { x: 44, y: 94 },
+            left: { x: 60, y: 94 },
+            right: { x: 40, y: 94 },
         },
 
 
@@ -944,8 +944,8 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         /* 腳趾比 foot 更靠足部末端。
            原本 foot 座標不動，只新增 toe 獨立座標。 */
         frontDotPair: {
-            left: { x: 60, y: 97 },
-            right: { x: 42.5, y: 97 },
+            left: { x: 65, y: 97 },
+            right: { x: 38, y: 97 },
         },
 
     },
