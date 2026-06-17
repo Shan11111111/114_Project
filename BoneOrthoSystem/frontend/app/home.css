@@ -169,8 +169,7 @@
   opacity: 0.96;
 
   filter:
-    drop-shadow(0 0 20px rgba(255, 255, 255, 0.45))
-    drop-shadow(0 0 30px rgba(37, 99, 235, 0.12));
+    drop-shadow(0 0 20px rgba(255, 255, 255, 0.45)) drop-shadow(0 0 30px rgba(37, 99, 235, 0.12));
 
   animation: homeFloat 3.2s ease-in-out infinite;
 }
@@ -204,17 +203,65 @@
 }
 
 .home-scroll-more {
-  position: absolute;
-  left: 12px;
-  bottom: 18px;
+  position: static !important;
+  margin-top: 26px;
 
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  width: fit-content;
+  margin-left: 105px;
+  margin-right: 0;
+
+  color: #64748b;
+  font-size: 18px;
+  font-weight: 800;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+
+  opacity: 0.85;
+  transition: 0.2s ease;
+}
+
+.home-scroll-more:hover {
+  color: #2563eb;
+  opacity: 1;
+  transform: translateY(2px);
+}
+
+.home-scroll-more i {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
 
-  font-size: 16px;
-  color: var(--text-medium);
-  text-decoration: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+
+  font-style: normal;
+  font-size: 15px;
+  line-height: 1;
+
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+}
+
+html.dark .home-scroll-more,
+[data-theme="dark"] .home-scroll-more {
+  color: #94a3b8;
+}
+
+html.dark .home-scroll-more:hover,
+[data-theme="dark"] .home-scroll-more:hover {
+  color: #60a5fa;
+}
+
+html.dark .home-scroll-more i,
+[data-theme="dark"] .home-scroll-more i {
+  background: rgba(96, 165, 250, 0.14);
+  color: #93c5fd;
 }
 
 /* Content */
@@ -294,11 +341,9 @@
   text-decoration: none;
   color: var(--foreground);
 
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.82),
-    rgba(241, 245, 249, 0.92)
-  );
+  background: linear-gradient(135deg,
+      rgba(255, 255, 255, 0.82),
+      rgba(241, 245, 249, 0.92));
   border: 1px solid rgba(203, 213, 225, 0.75);
   box-shadow: 0 22px 60px rgba(15, 23, 42, 0.06);
 
@@ -456,6 +501,7 @@
 
 /* Animations */
 @keyframes homeFloat {
+
   0%,
   100% {
     transform: translateY(0);

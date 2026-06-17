@@ -1404,8 +1404,8 @@ function DetectionViewer({
           )}
         </div>
 
-        <div className="mt-2 text-[11px] opacity-70">
-          Tip：後端若回傳 poly / PolyJson / P1~P4 會畫旋轉框；否則用 bbox 畫正框。
+        <div className="mt-2 text-[10px] opacity-70">
+          Tip: 這些偵測框是根據骨骼辨識模型的預測結果繪製的。你可以調整圖片大小或隱藏偵測框來更清楚地查看圖片細節。
         </div>
       </div>
     </div>
@@ -2861,10 +2861,14 @@ function LLMClient() {
   const [pendingFiles, setPendingFiles] = useState<UploadedFile[]>([]);
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const loadedThreadFromUrlRef = useRef<string>("");
 
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const baseHeightRef = useRef<number | null>(null);
   const [isMultiLine, setIsMultiLine] = useState(false);
   const [inputBoxHeight, setInputBoxHeight] = useState(MIN_HEIGHT);
@@ -3094,6 +3098,25 @@ function LLMClient() {
   function nowText() {
     return new Date().toLocaleString();
   }
+
+  useEffect(() => {
+    const container = chatScrollRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+
+      setShowScrollDown(distanceFromBottom > 120);
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    handleScroll();
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
 
   //   新增：如果 URL 上有 caseId 但沒有 thread 了，就清掉 URL 上的 caseId（避免一直 boot 同一個不存在的 case）
   function clearCaseIdInUrlOnly() {
@@ -7595,6 +7618,7 @@ function LLMClient() {
             <div className="flex items-center justify-between mb-2 text-xs opacity-70 px-1" />
 
             <div
+              ref={chatScrollRef}
               className="chat-scroll flex-1 min-h-0 overflow-y-auto text-sm break-words"
               style={{ paddingBottom: inputBoxHeight + 40 }}
             >
@@ -7647,6 +7671,14 @@ function LLMClient() {
                                   <>
                                     {isUser ? (
                                       msg.content
+                                    ) : loading &&
+                                      msg.id === streamingAssistantId &&
+                                      !msg.content.trim() ? (
+                                      <div className="llm-thinking-bubble">
+                                        <span className="llm-thinking-dot" />
+                                        <span className="llm-thinking-dot" />
+                                        <span className="llm-thinking-dot" />
+                                      </div>
                                     ) : (
                                       <MessageContent
                                         content={msg.content}
@@ -7681,22 +7713,27 @@ function LLMClient() {
                     );
                   })}
 
-
-                  {loading &&
-                    !messages.some(
-                      (m) => m.id === streamingAssistantId && m.role === "assistant"
-                    ) && (
-                      <div className="flex justify-start mb-4">
-                        <div className="text-xs px-4 py-2 max-w-[min(70%,60ch)] rounded-2xl">
-                          {t("thinking")}
-                        </div>
-                      </div>
-                    )}
-
+                  <div ref={bottomRef} />
                   <div ref={chatEndRef} />
                 </div>
               </div>
             </div>
+
+            {showScrollDown && (
+              <button
+                type="button"
+                className="llm-scroll-down-btn"
+                onClick={() => {
+                  bottomRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "end",
+                  });
+                }}
+                aria-label="Scroll to latest message"
+              >
+                <i className="fa-solid fa-arrow-down" />
+              </button>
+            )}
 
             <div
               className="sticky bottom-0 left-0 right-0 pt-3 pb-4 transition-colors duration-500"

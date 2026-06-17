@@ -1289,256 +1289,231 @@ export default function Bone2DPanel({
               }
             }
           `}</style>
-
-                    <img
-                        src={bodySrc}
-                        alt={view === 'front' ? 'Front body map' : 'Back body map'}
-                        className="pointer-events-none select-none object-contain"
-                        draggable={false}
+                    <div
+                        className="relative"
                         style={{
                             height: '100%',
-                            maxHeight: '100%',
-                            width: 'auto',
-                            maxWidth: '98%',
-                            opacity: 0.96,
-                            filter: 'contrast(1.03) saturate(1.02)',
-                        }}
-                    />
+                            aspectRatio: '300 / 520',
+                            margin: '0 auto',
 
-                    {/* 2D 圖點擊區：只做分類導覽，不直接選 206 細項骨頭 */}
-                    <div
-                        className="absolute inset-0"
-                        style={{
-                            zIndex: 80,
-                            pointerEvents: 'auto',
                         }}
                     >
-                        {/* 頭頸部：頭、脖子 */}
-                        <div
-                            role="button"
-                            tabIndex={0}
-                            aria-label="展開頭頸部骨頭分類"
-                            title="展開頭頸部"
-                            onClick={() => handleRegionClick('head-neck')}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    handleRegionClick('head-neck');
-                                }
-                            }}
-                            className="absolute rounded-full"
+
+                        <img
+                            src={bodySrc}
+                            alt={view === 'front' ? 'Front body map' : 'Back body map'}
+                            className="pointer-events-none select-none"
+                            draggable={false}
                             style={{
-                                left: '36%',
-                                top: '2%',
-                                width: '28%',
-                                height: '18%',
-                                background: 'transparent',
-                                cursor: 'pointer',
-                                zIndex: 30,
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'contain',
+                                display: 'block',
+                                opacity: 0.96,
+                                filter: 'contrast(1.03) saturate(1.02)',
                             }}
                         />
-
-                        {/* 胸背部：胸骨、肋骨中央、胸椎對應區；不要吃到肩膀、手臂、腹部 */}
+                        {/* 2D 圖點擊區：只做分類導覽，不直接選 206 細項骨頭 */}
                         <div
-                            role="button"
-                            tabIndex={0}
-                            aria-label="展開胸背部骨頭分類"
-                            title="展開胸背部"
-                            onClick={() => handleRegionClick('thorax-back')}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    handleRegionClick('thorax-back');
-                                }
-                            }}
-                            className="absolute rounded-2xl"
+                            className="absolute inset-0"
                             style={{
-                                left: '42%',
-                                top: '21%',
-                                width: '19%',
-                                height: '20%',
-                                background: 'transparent',
-                                cursor: 'pointer',
-                                zIndex: 20,
-                            }}
-                        />
-
-                        {/* 畫面左側的人體上肢：包含肩膀、肱骨、前臂、手腕、手掌、手指 */}
-                        <div
-                            role="button"
-                            tabIndex={0}
-                            aria-label="展開上肢骨頭分類"
-                            title="展開上肢"
-                            onClick={() => handleRegionClick('upper-limb')}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    handleRegionClick('upper-limb');
-                                }
-                            }}
-                            className="absolute rounded-2xl"
-                            style={{
-                                left: '13%',
-                                top: '18%',
-                                width: '28%',
-                                height: '48%',
-                                background: 'transparent',
-                                cursor: 'pointer',
-                                zIndex: 35,
-                            }}
-                        />
-
-                        {/* 畫面右側的人體上肢：包含肩膀、肱骨、前臂、手腕、手掌、手指 */}
-                        <div
-                            role="button"
-                            tabIndex={0}
-                            aria-label="展開上肢骨頭分類"
-                            title="展開上肢"
-                            onClick={() => handleRegionClick('upper-limb')}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    handleRegionClick('upper-limb');
-                                }
-                            }}
-                            className="absolute rounded-2xl"
-                            style={{
-                                left: '60%',
-                                top: '18%',
-                                width: '40%',
-                                height: '48%',
-                                background: 'transparent',
-                                cursor: 'pointer',
-                                zIndex: 35,
-                            }}
-                        />
-
-                        {/* 骨盆：只框骨盆/髖部，不吃到左右手腕與大腿太多 */}
-                        <div
-                            role="button"
-                            tabIndex={0}
-                            aria-label="展開骨盆骨頭分類"
-                            title="展開骨盆"
-                            onClick={() => handleRegionClick('pelvis')}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    handleRegionClick('pelvis');
-                                }
-                            }}
-                            className="absolute rounded-2xl"
-                            style={{
-                                left: '38%',
-                                top: '42%',
-                                width: '24%',
-                                height: '10%',
-                                background: 'transparent',
-                                cursor: 'pointer',
-                                zIndex: 32,
-                            }}
-                        />
-
-                        {/* 下肢 */}
-                        <div
-                            role="button"
-                            tabIndex={0}
-                            aria-label="展開下肢骨頭分類"
-                            title="展開下肢"
-                            onClick={() => handleRegionClick('lower-limb')}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    handleRegionClick('lower-limb');
-                                }
-                            }}
-                            className="absolute rounded-2xl"
-                            style={{
-                                left: '35%',
-                                top: '53%',
-                                width: '33%',
-                                height: '45%',
-                                background: 'transparent',
-                                cursor: 'pointer',
-                                zIndex: 30,
-                            }}
-                        />
-                    </div>
-
-                    {/*{overlayPaths.map((src) => (
-            <img
-              key={`${src}-glow`}
-              src={src}
-              alt=""
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
-              draggable={false}
-              style={{
-                opacity: 0.42,
-                mixBlendMode: 'screen',
-                filter:
-                  'brightness(3.1) saturate(2.2) blur(2px) drop-shadow(0 0 10px rgba(14,165,233,0.45)) drop-shadow(0 0 18px rgba(14,165,233,0.28))',
-              }}
-            />
-          ))}
-
-          {overlayPaths.map((src) => (
-            <img
-              key={src}
-              src={src}
-              alt=""
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
-              draggable={false}
-              style={{
-                opacity: 0.5,
-                mixBlendMode: 'screen',
-                filter:
-                  'brightness(2.6) saturate(2) contrast(1.12) drop-shadow(0 0 6px rgba(14,165,233,0.4))',
-              }}
-            />
-          ))}*/}
-
-                    {dotPositions.map((dot, index) => (
-                        <div
-                            key={`${dot.x}-${dot.y}-${index}`}
-                            aria-hidden="true"
-                            className="pointer-events-none absolute z-20"
-                            style={{
-                                left: `${dot.x}%`,
-                                top: `${dot.y}%`,
-                                width: 12,
-                                height: 12,
-                                borderRadius: 999,
-                                background:
-                                    'radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(56,189,248,0.58) 34%, rgba(37,99,235,0.42) 62%, rgba(37,99,235,0) 72%)',
-                                boxShadow:
-                                    '0 0 8px rgba(56,189,248,0.5), 0 0 16px rgba(37,99,235,0.32), 0 0 24px rgba(37,99,235,0.22)',
-                                animation: 'bone2dPulse 1.05s ease-in-out infinite',
+                                zIndex: 80,
+                                pointerEvents: 'auto',
                             }}
                         >
-                            <span
-                                className="absolute left-1/2 top-1/2 rounded-full border-2 border-sky-300"
+                            {/* 頭頸部：頭、脖子 */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                aria-label="展開頭頸部骨頭分類"
+                                title="展開頭頸部"
+                                onClick={() => handleRegionClick('head-neck')}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        handleRegionClick('head-neck');
+                                    }
+                                }}
+                                className="absolute rounded-full"
                                 style={{
-                                    width: 0,
-                                    height: 0,
-                                    animation: 'bone2dRing 1.05s ease-out infinite',
+                                    left: '36%',
+                                    top: '2%',
+                                    width: '28%',
+                                    height: '18%',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    zIndex: 30,
+                                }}
+                            />
+
+                            {/* 胸背部：胸骨、肋骨中央、胸椎對應區；不要吃到肩膀、手臂、腹部 */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                aria-label="展開胸背部骨頭分類"
+                                title="展開胸背部"
+                                onClick={() => handleRegionClick('thorax-back')}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        handleRegionClick('thorax-back');
+                                    }
+                                }}
+                                className="absolute rounded-2xl"
+                                style={{
+                                    left: '42%',
+                                    top: '21%',
+                                    width: '19%',
+                                    height: '20%',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    zIndex: 20,
+                                }}
+                            />
+
+                            {/* 畫面左側的人體上肢：包含肩膀、肱骨、前臂、手腕、手掌、手指 */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                aria-label="展開上肢骨頭分類"
+                                title="展開上肢"
+                                onClick={() => handleRegionClick('upper-limb')}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        handleRegionClick('upper-limb');
+                                    }
+                                }}
+                                className="absolute rounded-2xl"
+                                style={{
+                                    left: '13%',
+                                    top: '18%',
+                                    width: '28%',
+                                    height: '48%',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    zIndex: 35,
+                                }}
+                            />
+
+                            {/* 畫面右側的人體上肢：包含肩膀、肱骨、前臂、手腕、手掌、手指 */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                aria-label="展開上肢骨頭分類"
+                                title="展開上肢"
+                                onClick={() => handleRegionClick('upper-limb')}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        handleRegionClick('upper-limb');
+                                    }
+                                }}
+                                className="absolute rounded-2xl"
+                                style={{
+                                    left: '60%',
+                                    top: '18%',
+                                    width: '40%',
+                                    height: '48%',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    zIndex: 35,
+                                }}
+                            />
+
+                            {/* 骨盆：只框骨盆/髖部，不吃到左右手腕與大腿太多 */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                aria-label="展開骨盆骨頭分類"
+                                title="展開骨盆"
+                                onClick={() => handleRegionClick('pelvis')}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        handleRegionClick('pelvis');
+                                    }
+                                }}
+                                className="absolute rounded-2xl"
+                                style={{
+                                    left: '38%',
+                                    top: '42%',
+                                    width: '24%',
+                                    height: '10%',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    zIndex: 32,
+                                }}
+                            />
+
+                            {/* 下肢 */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                aria-label="展開下肢骨頭分類"
+                                title="展開下肢"
+                                onClick={() => handleRegionClick('lower-limb')}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        handleRegionClick('lower-limb');
+                                    }
+                                }}
+                                className="absolute rounded-2xl"
+                                style={{
+                                    left: '35%',
+                                    top: '53%',
+                                    width: '33%',
+                                    height: '45%',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    zIndex: 30,
                                 }}
                             />
                         </div>
-                    ))}
+
+                        {dotPositions.map((dot, index) => (
+                            <div
+                                key={`${dot.x}-${dot.y}-${index}`}
+                                aria-hidden="true"
+                                className="pointer-events-none absolute z-20"
+                                style={{
+                                    left: `${dot.x}%`,
+                                    top: `${dot.y}%`,
+                                    width: 12,
+                                    height: 12,
+                                    borderRadius: 999,
+                                    transform: 'translate(-50%, -50%)',
+                                    background:
+                                        'radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(56,189,248,0.58) 34%, rgba(37,99,235,0.42) 62%, rgba(37,99,235,0) 72%)',
+                                    boxShadow:
+                                        '0 0 8px rgba(56,189,248,0.5), 0 0 16px rgba(37,99,235,0.32), 0 0 24px rgba(37,99,235,0.22)',
+                                    animation: 'bone2dPulse 1.05s ease-in-out infinite',
+                                }}
+                            >
+                                <span
+                                    className="absolute left-1/2 top-1/2 rounded-full border-2 border-sky-300"
+                                    style={{
+                                        width: 0,
+                                        height: 0,
+                                        animation: 'bone2dRing 1.05s ease-out infinite',
+                                    }}
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
-
             {target ? (
                 <div
-                    className="mx-3 mt-3 shrink-0 rounded-2xl border px-4 py-2 text-[10px]"
+                    className="mx-3 mt-2 shrink-0 self-start rounded-full border px-2.5 py-1 text-[10px] leading-none"
                     style={{
                         background: 'var(--panel-btn-bg)',
                         borderColor: 'var(--panel-border)',
                         color: 'var(--panel-text)',
                     }}
                 >
-                    {isEn ? 'Currently highlighted:' : '目前已同步高亮：'}
+                    {isEn ? 'Currently highlighted:' : '目前選取：'}
 
                     <span
                         className="ml-1 font-medium text-[10px]"

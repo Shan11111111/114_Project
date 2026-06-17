@@ -82,6 +82,12 @@ export default function Home() {
               {isEn ? "Ask BoneBaby" : "問問知識小罐頭"}
             </Link>
           </div>
+          
+          <a href="#home-more" className="home-scroll-more">
+            <span>{text.scroll}</span>
+            <i>⌄</i>
+          </a>
+
         </div>
 
         <div className="home-hero-visual">
@@ -105,10 +111,6 @@ export default function Home() {
           </div>
         </div>
 
-        <a href="#home-more" className="home-scroll-more">
-          <span>{text.scroll}</span>
-          <i>⌄</i>
-        </a>
       </section>
 
       <section id="home-more" className="home-content-screen">
