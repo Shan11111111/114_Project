@@ -729,12 +729,12 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_upperArm_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 61, y: 31 },
-            right: { x: 39, y: 31 },
+            left: { x: 72, y: 31 },
+            right: { x: 28, y: 31 },
         },
         backDotPair: {
-            left: { x: 39, y: 31 },
-            right: { x: 61, y: 31 },
+            left: { x: 28, y: 31 },
+            right: { x: 72, y: 31 },
         },
     },
 
