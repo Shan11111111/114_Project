@@ -332,8 +332,8 @@ async def predict(
         results = model.predict(
             pil_image,
             imgsz=1024,
-            conf=0.3,
-            iou=0.4,
+            conf=0.5,
+            iou=0.3,
             verbose=False,
         )
         print(">>> predict done")
