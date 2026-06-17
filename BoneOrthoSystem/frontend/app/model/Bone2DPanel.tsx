@@ -751,12 +751,12 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_forearm_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 64, y: 40 },
-            right: { x: 37, y: 40 },
+            left: { x: 77, y: 40 },
+            right: { x: 24, y: 40 },
         },
         backDotPair: {
-            left: { x: 36, y: 40 },
-            right: { x: 63, y: 40 },
+            left: { x: 24, y: 40 },
+            right: { x: 77, y: 40 },
         },
     },
 
@@ -773,12 +773,12 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_wrist_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 66, y: 46 },
-            right: { x: 34, y: 46 },
+            left: { x: 80, y: 46 },
+            right: { x: 20, y: 46 },
         },
         backDotPair: {
-            left: { x: 33, y: 46 },
-            right: { x: 66, y: 46 },
+            left: { x: 20, y: 46 },
+            right: { x: 80, y: 46 },
         },
     },
 
@@ -795,12 +795,12 @@ const bone2DMap: Record<string, Bone2DTarget> = {
           right: `${HIGHLIGHT_DIR}/back_hand_right.png`,
         },*/
         frontDotPair: {
-            left: { x: 69, y: 51 },
-            right: { x: 32, y: 51 },
+            left: { x: 85, y: 51 },
+            right: { x: 16, y: 51 },
         },
         backDotPair: {
-            left: { x: 32, y: 51 },
-            right: { x: 69, y: 51 },
+            left: { x: 16, y: 51 },
+            right: { x: 85, y: 51 },
         },
     },
 
@@ -811,12 +811,12 @@ const bone2DMap: Record<string, Bone2DTarget> = {
         /* 指骨比掌骨更靠手指末端。
            原本 hand 座標不動，只新增 finger 獨立座標。 */
         frontDotPair: {
-            left: { x: 71, y: 56 },
-            right: { x: 30, y: 56 },
+            left: { x: 87, y: 56 },
+            right: { x: 14, y: 56 },
         },
         backDotPair: {
-            left: { x: 30, y: 56 },
-            right: { x: 71, y: 56 },
+            left: { x: 14, y: 56 },
+            right: { x: 87, y: 56 },
         },
     },
 
