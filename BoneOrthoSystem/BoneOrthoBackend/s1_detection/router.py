@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 import pyodbc
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import (
+    APIRouter,
+    UploadFile,
+    File,
+    HTTPException,
+    Depends,
+    Query,
+)
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from ultralytics import YOLO
@@ -15,7 +22,12 @@ from PIL import Image
 from auth.security import decode_access_token
 from auth import repo as auth_repo
 
-from .bone_service import get_bone_info, assign_spine_levels
+from .bone_service import (
+    get_bone_info,
+    get_mr_bone_group_by_bone_id,
+    find_recommended_small_bone_id,
+    assign_spine_levels,
+)
 from .image_service import save_case_and_detections
 from .history_router import router as history_router
 from .image_preview_router import router as image_preview_router
@@ -311,8 +323,13 @@ def download_sample_image(image_id: int):
 @router.post("/predict")
 async def predict(
     file: UploadFile = File(...),
-    created_by_user_id: Optional[int] = Depends(get_optional_current_user_int_id),
-    # 用這行就必須一定要登入才能使用s1 created_by_user_id: int = Depends(get_current_user_int_id),
+    include_mr_data: bool = Query(
+        default=False,
+        description="是否附加 MR 細部骨骼、Mesh 與教學資料",
+    ),
+    created_by_user_id: Optional[int] = Depends(
+        get_optional_current_user_int_id
+    ),
 ):
     try:
         print(">>> /predict HIT")
@@ -391,9 +408,50 @@ async def predict(
             })
 
         spine_map = assign_spine_levels(boxes)
+
         for idx, sub_label in spine_map.items():
             boxes[idx]["sub_label"] = sub_label
+            boxes[idx]["sub_label_source"] = "vertical_order_inference"
 
+        bone_groups: List[Dict[str, Any]] = []
+
+        if include_mr_data:
+            # 避免同一張影像內相同 bone_id 重複查詢 SQL
+            group_cache: Dict[int, Optional[Dict[str, Any]]] = {}
+
+            for box in boxes:
+                bone_info = box.get("bone_info")
+                if not bone_info:
+                    box["recommended_small_bone_id"] = None
+                    continue
+
+                bone_id = bone_info.get("bone_id")
+                if bone_id is None:
+                    box["recommended_small_bone_id"] = None
+                    continue
+
+                bone_id = int(bone_id)
+
+                if bone_id not in group_cache:
+                    group_cache[bone_id] = get_mr_bone_group_by_bone_id(
+                        bone_id
+                    )
+
+                mr_group = group_cache[bone_id]
+
+                box["recommended_small_bone_id"] = (
+                    find_recommended_small_bone_id(
+                        mr_group=mr_group,
+                        sub_label=box.get("sub_label"),
+                    )
+                )
+
+            bone_groups = [
+                group
+                for group in group_cache.values()
+                if group is not None
+            ]
+        
         image_case_id = save_case_and_detections(
             image_bytes=image_bytes,
             original_filename=file.filename,
@@ -403,11 +461,16 @@ async def predict(
             source="api_upload",
         )
 
-        return {
+        response_data = {
             "image_case_id": image_case_id,
             "count": len(boxes),
             "boxes": boxes,
         }
+
+        if include_mr_data:
+            response_data["bone_groups"] = bone_groups
+
+        return response_data
 
     except Exception as e:
         traceback.print_exc()
