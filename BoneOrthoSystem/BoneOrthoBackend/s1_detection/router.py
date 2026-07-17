@@ -367,11 +367,17 @@ async def predict(
                 created_by_user_id=created_by_user_id,
                 source="api_upload",
             )
-            return {
+
+            response_data = {
                 "image_case_id": image_case_id,
                 "count": 0,
                 "boxes": [],
             }
+
+            if include_mr_data:
+                response_data["bone_groups"] = []
+
+            return response_data
 
         polys_flat = obb.xyxyxyxyn.tolist()
         confs = obb.conf.tolist()
