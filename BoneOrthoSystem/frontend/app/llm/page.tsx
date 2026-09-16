@@ -4240,6 +4240,7 @@ function LLMClient() {
     piiMode: "block" | "mask" = "block",
     options?: {
       hideUserMessage?: boolean;
+      sessionIdOverride?: string;
     }
   ) {
     if (e) e.preventDefault();
@@ -4388,7 +4389,7 @@ function LLMClient() {
 
       const uid = (uidRef.current || userId || "guest").trim() || "guest";
       const sid =
-        (sessionId || "").trim() ||
+        (options?.sessionIdOverride || sessionId || "").trim() ||
         `${uid}::${(threadIdAtSend || `t-${Date.now()}`).trim()}::${makeUuid()}`;
       const safeText = normalizeLegacyMaskedText(firstUserText);
 
@@ -6770,16 +6771,24 @@ function LLMClient() {
     }
 
     if (bootOnceRef.current === caseIdStr) return;
+
+    const caseId = Number(caseIdStr);
+
+    if (!Number.isFinite(caseId) || caseId <= 0) {
+      return;
+    }
+
     bootOnceRef.current = caseIdStr;
     s1BootingRef.current = true;
 
-    const caseId = Number(caseIdStr);
-    if (!Number.isFinite(caseId) || caseId <= 0) return;
-
-    if (typeof window !== "undefined" && isGuestUid(uidRef.current || userId || "guest")) {
+    if (
+      typeof window !== "undefined" &&
+      isGuestUid(uidRef.current || userId || "guest")
+    ) {
       localStorage.setItem("gab_last_case_id", String(caseIdStr));
     }
 
+    // 先建立一個新的聊天 thread
     const uid = (uidRef.current || userId || "guest").trim() || "guest";
     const localThreadId = `t-${Date.now()}`;
     const localSessionId = `${uid}::${makeUuid()}`;
@@ -6789,18 +6798,18 @@ function LLMClient() {
     setSessionId(localSessionId);
 
     ensureThreadExists(localThreadId, {
-      title: "新對話",
+      title: "X 光影像學習",
       updatedAt: nowText(),
       preview: "",
       messageCount: 0,
       sessionId: localSessionId,
     });
 
-    const threadIdAtBoot = localThreadId;
-
+    // 清空原本畫面
     setSeedImageUrl("");
     setSeedDetections([]);
     setActiveView("llm");
+
     setMessages([
       {
         id: Date.now(),
@@ -6815,296 +6824,106 @@ function LLMClient() {
     });
 
     resetMainInputBox();
-
     setIsHistoryOpen(false);
-
     setHistoryPreviewThreadId("");
+
     (async () => {
       try {
-        let r: Response;
+        // 1. bootstrap 只負責拿 S1 資料
+        const r = await fetch(BOOT_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            image_case_id: caseId,
+          }),
+        });
 
-        try {
-          r = await fetch(BOOT_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image_case_id: caseId }),
-          });
-        } catch (err: any) {
+        const raw = await r.text();
+        const data = safeJsonParse<any>(raw);
+
+        if (!r.ok) {
           throw new Error(
-            `bootstrap fetch 失敗：${err?.message || String(err)} ｜ BOOT_URL=${BOOT_URL}`
+            `bootstrap HTTP ${r.status}：${raw.slice(0, 500)}`
           );
         }
 
-        const raw = await r.text();
-        const data = safeJsonParse(raw);
-
-        if (!r.ok) {
-          throw new Error(`bootstrap HTTP ${r.status}：${raw.slice(0, 500)}`);
-        }
-
         if (!data) {
-          throw new Error(`bootstrap 回傳不是合法 JSON：${raw.slice(0, 500)}`);
+          throw new Error(
+            `bootstrap 回傳不是合法 JSON：${raw.slice(0, 500)}`
+          );
         }
-        const bootSession = data.session_id ? String(data.session_id) : "";
-        if (bootSession) setSessionId(bootSession);
 
+        // 2. bootstrap session
+        const bootSession = data.session_id
+          ? String(data.session_id)
+          : localSessionId;
+
+        setSessionId(bootSession);
+
+        // 3. 取得 bootstrap 的文字 context
         const seedText = Array.isArray(data.seed_messages)
           ? String(
             data.seed_messages.find(
-              (m: any) => m?.type === "text" && (m?.content ?? "").trim()
+              (m: any) =>
+                m?.type === "text" &&
+                String(m?.content || "").trim()
             )?.content ?? ""
           )
           : "";
 
+        // 4. 取得 X 光圖片
         const imgRel = Array.isArray(data.seed_messages)
           ? String(
-            data.seed_messages.find((m: any) => m?.type === "image" && m?.url)
-              ?.url ?? ""
+            data.seed_messages.find(
+              (m: any) =>
+                m?.type === "image" &&
+                m?.url
+            )?.url ?? ""
           )
           : "";
 
         const imgAbs = toAbsUrl(imgRel);
 
-        if (imgAbs) setSeedImageUrl(imgAbs);
+        if (imgAbs) {
+          setSeedImageUrl(imgAbs);
+        }
+
+        // 5. 取得辨識框
         const dets = Array.isArray(data.detections)
           ? (data.detections as Detection[])
           : [];
+
         setSeedDetections(dets);
 
-        const seedFiles: UploadedFile[] = imgAbs
-          ? [
-            {
-              id: `seed_${caseId}`,
-              name: `ImageCase_${caseId}.png`,
-              size: 0,
-              type: "image/png",
-              url: imgAbs,
-            },
-          ]
-          : [];
+        // 6. 組成真正要送給 RAG 的 prompt
+        // 注意：這段不會直接顯示在聊天畫面
+        const prompt =
+          seedText.trim() ||
+          `請根據 ImageCaseId=${caseId} 的 X 光骨骼辨識結果，
+說明目前辨識到哪些骨骼、它們在影像中的位置與學習重點。
+請以骨骼學習角度回答，並提供適合初學者理解的說明。`;
 
-        const question =
-          seedText.trim() || `請解釋這個 caseId=${caseId} 的影像偵測結果`;
-
-        setMessages((prev) => [
-          ...prev,
+        // 7. 統一走一般聊天流程
+        await reallySendMessage(
+          undefined,
+          prompt,
+          "block",
           {
-            id: Date.now(),
-            role: "user",
-            content: question,
-            files: seedFiles.length ? seedFiles : undefined,
-          },
-        ]);
+            hideUserMessage: true,
+            sessionIdOverride: bootSession,
+          }
+        );
 
-        pushHistoryMessage(threadIdAtBoot, "user", question);
-
-        bumpThreadOnMessage(threadIdAtBoot, String(question).slice(0, 80), 1);
-        maybeAutoTitle(threadIdAtBoot, question);
-
-        const recentContextMessages = latestMessagesRef.current
-          .filter((m) => {
-            const text = String(m.content || "").trim();
-            if (!text) return false;
-            if (text === WELCOME_TEXT) return false;
-            if (text === i18nMessages["zh-TW"].welcomeText) return false;
-            if (text === i18nMessages["en-US"].welcomeText) return false;
-            return true;
-          })
-          .slice(-6)
-          .map((m) => ({
-            role: m.role,
-            type: "text",
-            content: String(m.content || "").slice(0, 2000),
-          }));
-
-        const payload = {
-          session_id: (bootSession || sessionId || "").trim(),
-          user_id: (uidRef.current || userId || "guest").trim(),
-          conversation_id: threadIdAtBoot,
-
-          privacy_consent: true,
-          pii_mode: "block",
-          rag_mode: "auto_fusion",
-          pubmed_max_results: 5,
-          locale,
-          response_language: locale,
-
-          messages: [
-            ...recentContextMessages,
-            {
-              role: "user",
-              type: "text",
-              content: question,
-            },
-          ],
-        };
-
-        const assistantMessageId = Date.now() + 1;
-        setStreamingAssistantId(assistantMessageId);
-
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: assistantMessageId,
-            role: "assistant",
-            content: "",
-            resources: [],
-          },
-        ]);
-
-        let streamedConversationId = "";
-        let streamedSessionId = "";
-        let streamedResources: ChatResource[] = [];
-
-        await postChatStreamToBackend(payload, {
-          onMeta: (meta) => {
-            streamedConversationId = String(meta?.conversation_id ?? "");
-            streamedSessionId = String(meta?.session_id ?? "");
-
-            if (streamedSessionId) setSessionId(streamedSessionId);
-
-            if (streamedConversationId) {
-              replaceThreadId(
-                threadIdAtBoot,
-                streamedConversationId,
-                streamedSessionId || bootSession
-              );
-
-              activeThreadIdRef.current = streamedConversationId;
-              setActiveThreadId(streamedConversationId);
-              setHistoryPreviewThreadId(streamedConversationId);
-
-              loadedThreadFromUrlRef.current = streamedConversationId;
-              router.replace(`/llm?thread=${encodeURIComponent(streamedConversationId)}`);
-
-              setTimeout(() => {
-                ensureBackendAutoTitleOnce(streamedConversationId, question);
-              }, 0);
-            }
-          },
-
-          onSources: (resources) => {
-            console.log("[SOURCES RAW]", resources);
-            console.log("[3D MODAL] resources =", resources);
-
-            const assetSourceDebug = resources.find((r: any) => {
-              const st = String(r.source_type || "").toLowerCase();
-              const title = String(r.title || r.display_title || "");
-              return st === "3d_asset" || title.includes("3D 模型");
-            });
-
-            console.log("[3D MODAL] assetSource =", assetSourceDebug);
-            console.log("[3D MODAL] assetSource snippet =", assetSourceDebug?.snippet);
-
-            streamedResources = Array.isArray(resources)
-              ? resources.map((r: any) => ({
-                title: String(r?.title ?? "未命名來源"),
-                display_title: r?.display_title
-                  ? String(r.display_title)
-                  : String(r?.title ?? "未命名來源"),
-                url: r?.url ? String(r.url) : undefined,
-                download_url: r?.download_url ? String(r.download_url) : undefined,
-                external_url: r?.external_url ? String(r.external_url) : undefined,
-                source_type: r?.source_type ? String(r.source_type) : undefined,
-                page: r?.page ? String(r.page) : undefined,
-                snippet: r?.snippet ? String(r.snippet) : undefined,
-                material_id: r?.material_id ? String(r.material_id) : undefined,
-                site_name: r?.site_name ? String(r.site_name) : undefined,
-                is_search_entry:
-                  typeof r?.is_search_entry === "boolean"
-                    ? r.is_search_entry
-                    : undefined,
-                fetched:
-                  typeof r?.fetched === "boolean"
-                    ? r.fetched
-                    : undefined,
-                search_topic: r?.search_topic ? String(r.search_topic) : undefined,
-                score:
-                  typeof r?.score === "number"
-                    ? r.score
-                    : r?.score != null
-                      ? Number(r.score)
-                      : undefined,
-              }))
-              : [];
-
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId
-                  ? { ...msg, resources: streamedResources }
-                  : msg
-              )
-            );
-
-            const assetSource = streamedResources.find((r: any) => {
-              const st = String(r.source_type || "").toLowerCase();
-              const title = String(r.title || r.display_title || "");
-              return st === "3d_asset" || title.includes("3D 模型");
-            });
-
-            if (assetSource?.snippet) {
-              try {
-                const plan = JSON.parse(assetSource.snippet);
-
-                console.log("[3D MODAL] parsed plan =", plan);
-                console.log("[3D MODAL] render items =", getRenderItems(plan));
-                console.log(
-                  "[3D MODAL] broken items =",
-                  getRenderItems(plan).filter((item: any) => {
-                    return !item?.asset?.file_path || !item?.asset?.mesh_name;
-                  })
-                );
-                if (plan?.ok === false) {
-                  setRenderPlan(null);
-                  setRenderModalOpen(false);
-                  return;
-                }
-
-                setRenderPlan(plan);
-                setRenderPanelCollapsed(false);
-                setRenderModalOpen(true);
-              } catch {
-                console.error("3D render plan parse failed", assetSource.snippet);
-              }
-            }
-          },
-
-          onToken: async (token) => {
-            await new Promise((r) => setTimeout(r, 20));
-
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId
-                  ? { ...msg, content: (msg.content || "") + token }
-                  : msg
-              )
-            );
-          },
-
-          onDone: () => {
-            const finalThreadId = streamedConversationId || threadIdAtBoot;
-
-            const bot = latestMessagesRef.current.find(
-              (m) => m.id === assistantMessageId
-            );
-
-            const finalText = bot?.content || "";
-
-            pushHistoryMessage(finalThreadId, "assistant", finalText, streamedResources);
-            bumpThreadOnMessage(finalThreadId, finalText.slice(0, 80), 1);
-          },
-
-          onError: (evt) => {
-            throw new Error(evt?.message || "串流失敗");
-          },
-        });
-
-        setStreamingAssistantId(null);
-
-
-
+        // 8. 把 caseId 從 URL 清掉，避免刷新後再跑一次
+        router.replace("/llm");
       } catch (e: any) {
-        const msg = `bootstrap 失敗：${e?.message ?? String(e)}`;
+        console.error("S1 bootstrap failed:", e);
+
+        const msg =
+          `⚠️ 無法載入 X 光影像學習資料：${e?.message ?? String(e)}`;
+
         setMessages((prev) => [
           ...prev,
           {
@@ -7114,14 +6933,11 @@ function LLMClient() {
             resources: [],
           },
         ]);
-
-        pushHistoryMessage(threadIdAtBoot, "assistant", msg);
-
-        bumpThreadOnMessage(threadIdAtBoot, msg, 1);
       } finally {
         s1BootingRef.current = false;
       }
     })();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
