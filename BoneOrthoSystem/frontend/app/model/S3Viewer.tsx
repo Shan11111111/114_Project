@@ -3001,7 +3001,9 @@ export default function S3Viewer() {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                           <div>
                             <div style={{ fontWeight: 900, fontSize: 15 }}>
-                              {isEn ? card.displayEn : card.displayZh}
+                              {isEn
+                                ? cleanBoneName(card.displayEn)
+                                : cleanBoneName(card.displayZh)}
                             </div>
                             <div style={{ fontSize: 12, opacity: 0.82 }}>{card.displayEn}</div>
                           </div>
