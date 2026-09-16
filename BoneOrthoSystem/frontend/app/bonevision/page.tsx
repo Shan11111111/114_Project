@@ -198,6 +198,7 @@ function BoneVisionPageInner() {
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isQuizOpen, setIsQuizOpen] = useState(false);
+  const [transitionTarget, setTransitionTarget] = useState<"s2" | "s3" | null>(null);
 
   const [quizData, setQuizData] = useState<any>(null);
 
@@ -1445,6 +1446,35 @@ function BoneVisionPageInner() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {transitionTarget && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 backdrop-blur-sm">
+          <div className="rounded-3xl border px-8 py-7 text-center shadow-2xl bg-white/90">
+
+            <div className="mx-auto mb-4 flex h-16 items-end justify-center gap-1">
+              {["🦴", "🦴", "🦴"].map((b, i) => (
+                <span
+                  key={i}
+                  className="text-3xl animate-bounce"
+                  style={{ animationDelay: `${i * 120}ms` }}
+                >
+                  {b}
+                </span>
+              ))}
+            </div>
+
+            <div className="text-sm font-semibold text-slate-800">
+              正在開啟學習場景
+            </div>
+
+            <div className="mt-1 text-xs text-slate-500">
+              {transitionTarget === "s2"
+                ? "正在前往 AI 骨骼知識學習"
+                : "正在前往 3D 骨骼互動模型"}
+            </div>
+
+          </div>
+        </div>
+      )}
       <main className="flex-1 flex flex-col lg:flex-row gap-6 px-6 py-6">
         <section className="w-full lg:w-5/20 space-y-4">
           <div className="card border border-slate-800/70 shadow-xl shadow-slate-900/40">
@@ -2000,7 +2030,11 @@ function BoneVisionPageInner() {
                             const url =
                               `/llm?caseId=${encodeURIComponent(String(imageCaseId))}` +
                               (boneId ? `&boneId=${encodeURIComponent(String(boneId))}` : "");
-                            router.push(url);
+                            setTransitionTarget("s2");
+
+                            setTimeout(() => {
+                              router.push(url);
+                            }, 900);
                           }}
                           disabled={!imageCaseId}
                           className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
@@ -2018,7 +2052,11 @@ function BoneVisionPageInner() {
                               alert("目前沒有可對應的 3D 模型資料");
                               return;
                             }
-                            router.push(`/model?boneId=${encodeURIComponent(String(boneId))}`);
+                            setTransitionTarget("s3");
+
+                            setTimeout(() => {
+                              router.push(`/model?boneId=${encodeURIComponent(String(boneId))}`);
+                            }, 900);
                           }}
                           className="inline-flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-semibold
       border border-slate-600 text-slate-100

@@ -4054,9 +4054,9 @@ function LLMClient() {
                       type="button"
                       className="text-[11px] opacity-60 hover:opacity-90 transition"
                       onClick={() => openHistory()}
-                      title={t("llm.searchAndManageChats")}
+                      title="搜尋與管理對話"
                     >
-                      {t("llm.search")}
+                      搜尋
                     </button>
                   </div>
 
